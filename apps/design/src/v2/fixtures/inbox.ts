@@ -83,11 +83,28 @@ export const LABELS: ReadonlyArray<string> = [
  * `event` what happened to the ticket (assigned, moved).
  */
 export type Entry =
-  | { readonly kind: "customer"; readonly at: string; readonly text: string; readonly attachment?: string }
-  | { readonly kind: "team"; readonly who: PersonKey; readonly at: string; readonly text: string }
+  | {
+    readonly kind: "customer"
+    readonly at: string
+    /** Set when it was not today: "gisteren". */
+    readonly day?: string
+    readonly text: string
+    readonly attachment?: string
+  }
+  | {
+    readonly kind: "team"
+    readonly who: PersonKey
+    readonly at: string
+    readonly day?: string
+    readonly text: string
+    /** Sent as an approved WhatsApp template, by its label. */
+    readonly template?: string
+  }
   | { readonly kind: "agent"; readonly agentId: string; readonly at: string; readonly text: string }
   | { readonly kind: "note"; readonly who: PersonKey; readonly at: string; readonly text: string }
   | { readonly kind: "event"; readonly at: string; readonly text: string }
+
+export type Place = "inbox" | "archief" | "spam"
 
 export type Ticket = {
   /** The ticket number without the hash, also the URL: `/v2/inbox/5141`. */
@@ -114,6 +131,14 @@ export type Ticket = {
   readonly approvalId?: string
   /** Magnus's draft reply, for a ticket without a proposal. */
   readonly draft?: string
+  /** The same draft rewritten on request: warmer, and shorter. */
+  readonly rewrites?: { readonly warmer: string; readonly korter: string }
+  /** Starred by someone on the team. */
+  readonly starred?: boolean
+  /** Where it is kept: the inbox (the default), the archive, or reported as spam. */
+  readonly place?: Place
+  /** Colleagues who have it too, beside the one it is assigned to. */
+  readonly with?: ReadonlyArray<PersonKey>
   /** A deadline someone else sets. */
   readonly deadline?: { readonly at: string; readonly text: string }
   /** A colleague writing an answer right now. */
@@ -152,7 +177,13 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       { kind: "customer", at: "08:31", text: "Het mag ook de olijfgroene zijn." }
     ],
     draft:
-      "Hoi Felix, de Harbor Raincoat in L is er weer: er kwamen vanochtend 18 stuks binnen bij Kestrel Goods. Als je vandaag bestelt, is hij er donderdag. Zal ik er een voor je apart houden?"
+      "Hoi Felix, de Harbor Raincoat in L is er weer: er kwamen vanochtend 18 stuks binnen bij Kestrel Goods. Als je vandaag bestelt, is hij er donderdag. Zal ik er een voor je apart houden?",
+    rewrites: {
+      warmer:
+        "Hoi Felix, wat leuk dat je hem voor het weekend wilt. Goed nieuws: de Harbor Raincoat in L is er weer, vanochtend kwamen er 18 binnen bij Kestrel Goods. Bestel je vandaag, dan heb je hem donderdag al. Zal ik er alvast een voor je apart houden?",
+      korter:
+        "Hoi Felix, de Harbor Raincoat in L is er weer. Vandaag besteld is donderdag in huis. Zal ik er een apart houden?"
+    }
   },
   {
     number: "5140",
@@ -176,7 +207,12 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       }
     ],
     draft:
-      "Hoi Maria, de Cascade Puffer in olijf komt half december. Wil je een bericht als hij binnen is? Dan zet ik je op de lijst."
+      "Hoi Maria, de Cascade Puffer in olijf komt half december. Wil je een bericht als hij binnen is? Dan zet ik je op de lijst.",
+    rewrites: {
+      warmer:
+        "Hoi Maria, leuk dat je de post zag! De Cascade Puffer in olijf komt half december binnen. Zal ik je een bericht sturen zodra hij er is? Dan ben je er als eerste bij.",
+      korter: "Hoi Maria, de olijfgroene komt half december. Zal ik je een bericht sturen als hij er is?"
+    }
   },
   {
     number: "5141",
@@ -193,6 +229,7 @@ export const TICKETS: ReadonlyArray<Ticket> = [
     waitingSince: "13:40",
     unread: true,
     deadline: { at: "17:00", text: "DPD sluit claims om 17:00" },
+    starred: true,
     entries: [
       {
         kind: "customer",
@@ -220,7 +257,13 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       }
     ],
     draft:
-      "Hoi Hannah, DPD heeft je pakket kwijtgeraakt, sorry daarvoor. We sturen vandaag een nieuwe Field Pant in maat 32 met spoed, dan is hij er woensdag, ruim voor je reis. De claim bij DPD regelen wij."
+      "Hoi Hannah, DPD heeft je pakket kwijtgeraakt, sorry daarvoor. We sturen vandaag een nieuwe Field Pant in maat 32 met spoed, dan is hij er woensdag, ruim voor je reis. De claim bij DPD regelen wij.",
+    rewrites: {
+      warmer:
+        "Hoi Hannah, wat vervelend, en dat net voor je reis. DPD is je pakket kwijtgeraakt; het spijt me echt. We sturen je vandaag nog een nieuwe Field Pant in maat 32 met spoed, dan heb je hem woensdag, ruim voor donderdag. Om de claim bij DPD hoef jij je niet te bekommeren, die regelen wij.",
+      korter:
+        "Hoi Hannah, DPD is je pakket kwijt. Je krijgt vandaag een nieuwe Field Pant (32) met spoed, woensdag in huis. De claim regelen wij."
+    }
   },
   {
     number: "5142",
@@ -231,6 +274,7 @@ export const TICKETS: ReadonlyArray<Ticket> = [
     status: "bezig",
     priority: "gemiddeld",
     assignee: "sofia",
+    with: ["elena"],
     labels: ["Terugbetaling"],
     order: "5297",
     createdAt: "10:04",
@@ -290,7 +334,13 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       }
     ],
     draft:
-      "Hoi Olivier, dank je voor de foto. We sturen je vandaag een nieuwe Sailor Stripe Tee in XL; de beschadigde hoef je niet terug te sturen."
+      "Hoi Olivier, dank je voor de foto. We sturen je vandaag een nieuwe Sailor Stripe Tee in XL; de beschadigde hoef je niet terug te sturen.",
+    rewrites: {
+      warmer:
+        "Hoi Olivier, dank je wel voor de foto, en sorry dat je tee zo aankwam. We sturen je vandaag een nieuwe Sailor Stripe Tee in XL. De beschadigde mag je houden, je hoeft niets terug te sturen.",
+      korter:
+        "Hoi Olivier, je krijgt vandaag een nieuwe Sailor Stripe Tee in XL. De beschadigde hoef je niet terug te sturen."
+    }
   },
   {
     number: "5144",
@@ -315,7 +365,12 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       }
     ],
     draft:
-      "Hoi Chris, je staat op de lijst voor de Cascade Puffer in L. Zodra de nieuwe kleur binnen is, krijg je als eerste een bericht, nog voor hij online staat."
+      "Hoi Chris, je staat op de lijst voor de Cascade Puffer in L. Zodra de nieuwe kleur binnen is, krijg je als eerste een bericht, nog voor hij online staat.",
+    rewrites: {
+      warmer:
+        "Hoi Chris, wat fijn dat je weer voor de Cascade Puffer gaat. Je staat op de lijst, in L zoals altijd. Zodra de nieuwe kleur binnen is, hoor je het als eerste van ons, nog voor hij online staat.",
+      korter: "Hoi Chris, je staat op de lijst voor de Cascade Puffer in L. Je hoort het als eerste."
+    }
   },
   {
     number: "5145",
@@ -346,7 +401,12 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       }
     ],
     draft:
-      "Hoi Daniel, je bestelling #6451 is onderweg met DPD en wordt woensdag bezorgd. De track & trace werkt nu; je vindt hem in je verzendmail."
+      "Hoi Daniel, je bestelling #6451 is onderweg met DPD en wordt woensdag bezorgd. De track & trace werkt nu; je vindt hem in je verzendmail.",
+    rewrites: {
+      warmer:
+        "Hoi Daniel, goed dat je het vraagt, zeker met je benefietavond op komst. Je bestelling #6451 is onderweg met DPD en wordt woensdag bezorgd, op tijd dus. De track & trace werkt nu ook; je vindt de link in je verzendmail. Veel succes met de avond!",
+      korter: "Hoi Daniel, #6451 is onderweg met DPD en komt woensdag. De track & trace werkt nu."
+    }
   },
   {
     number: "5146",
@@ -401,7 +461,13 @@ export const TICKETS: ReadonlyArray<Ticket> = [
       }
     ],
     draft:
-      "Hoi Bea, sorry voor het gedoe. We kijken naar de fout bij Bancontact. Wil je het intussen met iDEAL of je kaart proberen? Je winkelmandje staat nog klaar."
+      "Hoi Bea, sorry voor het gedoe. We kijken naar de fout bij Bancontact. Wil je het intussen met iDEAL of je kaart proberen? Je winkelmandje staat nog klaar.",
+    rewrites: {
+      warmer:
+        "Hoi Bea, wat vervelend dat het drie keer misging, sorry voor het gedoe. We zoeken uit wat er met Bancontact aan de hand is. Wil je het intussen met iDEAL of je kaart proberen? Je winkelmandje staat nog voor je klaar.",
+      korter:
+        "Hoi Bea, Bancontact geeft een fout; we kijken ernaar. Lukt het intussen met iDEAL of je kaart? Je mandje staat klaar."
+    }
   },
   {
     number: "5148",
@@ -472,23 +538,29 @@ export const TICKETS: ReadonlyArray<Ticket> = [
   {
     number: "5150",
     customerId: "yuki-tanaka",
-    handle: "@yuki.t",
-    subject: "Reactie op je story",
-    channel: "instagram",
+    handle: "+31 6 2841 7730",
+    subject: "Welke maat Coastline Bomber Jacket?",
+    channel: "whatsapp",
     status: "wacht",
     priority: "laag",
     assignee: "maya",
-    labels: [],
+    labels: ["Maat", "Voor aankoop"],
     also: { kind: "product", id: "coastline-bomber-jacket", label: "Coastline Bomber Jacket" },
     createdAt: "14:05",
     unread: false,
     entries: [
-      { kind: "customer", at: "14:05", text: "Mooie foto. Waar is deze jas van?" },
+      {
+        kind: "customer",
+        day: "gisteren",
+        at: "14:05",
+        text: "Hoi! Welke maat Coastline Bomber Jacket moet ik nemen? Ik ben 1,68 m en draag meestal S."
+      },
       {
         kind: "team",
         who: "maya",
+        day: "gisteren",
         at: "14:11",
-        text: "Dank je. Dat is de Coastline Bomber Jacket, de link staat in onze bio. Welke maat draag je meestal?"
+        text: "Hoi Yuki, de Coastline valt normaal; met 1,68 m past de S goed. Zal ik er een voor je apart houden?"
       }
     ]
   },
@@ -670,6 +742,163 @@ export const doneToday = (list: ReadonlyArray<Ticket> = TICKETS) => list.filter(
 export const byChannel = (channel: Channel, list: ReadonlyArray<Ticket> = TICKETS) =>
   openTicketsOf(list).filter((t) => t.channel === channel)
 
+/** When a line was written, as the conversation prints it: "14:05", or "gisteren 14:05". */
+export const entryTime = (e: Entry) => ("day" in e && e.day !== undefined ? `${e.day} ${e.at}` : e.at)
+
+/* ── the reply window on WhatsApp and Instagram ───────────────────────────────────────────────── */
+
+/** The hours a business may answer freely after the customer's last message (Meta's rule). */
+const WINDOW_HOURS = 24
+
+type ReplyWindow =
+  | { readonly applies: false }
+  | {
+    readonly applies: true
+    readonly open: boolean
+    /** Whole hours left while open; 0 in its last hour. */
+    readonly hoursLeft: number
+    /** What may be sent now: anything, only an approved template (WhatsApp), or nothing (Instagram). */
+    readonly can: "vrij" | "sjabloon" | "niets"
+  }
+
+/**
+ * Whether a free reply may still go out. Mail and the store chat have no window; on WhatsApp and
+ * Instagram it runs 24 hours from the customer's last message, after which WhatsApp allows only an
+ * approved template and Instagram nothing until the customer writes again.
+ */
+export function replyWindow(t: Ticket): ReplyWindow {
+  if (t.channel !== "whatsapp" && t.channel !== "instagram") return { applies: false }
+  const last = t.entries.findLast((e) => e.kind === "customer")
+  const ago = last === undefined
+    ? Number.POSITIVE_INFINITY
+    : (NOW - minutes(last.at)) / 60 + (last.kind === "customer" && last.day !== undefined ? 24 : 0)
+  const left = WINDOW_HOURS - ago
+  const open = left > 0
+  return {
+    applies: true,
+    open,
+    hoursLeft: open ? Math.floor(left) : 0,
+    can: open ? "vrij" : t.channel === "whatsapp" ? "sjabloon" : "niets"
+  }
+}
+
+/** Northwind's WhatsApp templates; only the ones Meta approved may be sent past the window. */
+export const WHATSAPP_TEMPLATES: ReadonlyArray<{
+  readonly id: string
+  readonly label: string
+  readonly body: string
+  readonly approved: boolean
+}> = [
+  {
+    id: "opvolging",
+    label: "Opvolging",
+    body:
+      "Hoi {{naam}}, we wilden even horen of je nog vragen hebt over {{onderwerp}}. Antwoord gerust hier, dan helpen we je verder.",
+    approved: true
+  },
+  {
+    id: "verzonden",
+    label: "Verzonden",
+    body: "Hoi {{naam}}, goed nieuws: {{bestelling}} is onderweg. Je volgt het pakket met de link in je verzendmail.",
+    approved: true
+  },
+  {
+    id: "vertraagd",
+    label: "Vertraagd",
+    body: "Hoi {{naam}}, {{bestelling}} is helaas vertraagd. We sturen je de nieuwe bezorgdatum zodra we die hebben.",
+    approved: true
+  },
+  {
+    id: "retourlabel",
+    label: "Retourlabel",
+    body: "Hoi {{naam}}, je retourlabel voor {{bestelling}} staat klaar. Je vindt het in je mail.",
+    approved: false
+  }
+]
+
+/** A template's body with the customer's first name, the order and the subject filled in. */
+export const fillTemplate = (
+  body: string,
+  vars: { readonly naam: string; readonly bestelling?: string; readonly onderwerp: string }
+) =>
+  body
+    .replaceAll("{{naam}}", vars.naam)
+    .replaceAll("{{bestelling}}", vars.bestelling === undefined ? "je bestelling" : `bestelling #${vars.bestelling}`)
+    .replaceAll("{{onderwerp}}", vars.onderwerp.charAt(0).toLowerCase() + vars.onderwerp.slice(1))
+
+/* ── what Magnus reads and writes for a ticket ────────────────────────────────────────────────── */
+
+/** The Kennisbank chapters (`settings.ts`) a ticket's labels point at, for the line under a draft. */
+const CHAPTERS: Readonly<Record<string, { readonly id: string; readonly title: string }>> = {
+  Levering: { id: "kb_shipping", title: "Verzending en levertijden" },
+  "Pakket kwijt": { id: "kb_shipping", title: "Verzending en levertijden" },
+  Retour: { id: "kb_returns", title: "Retourneren" },
+  Terugbetaling: { id: "kb_returns", title: "Retourneren" },
+  Beschadigd: { id: "kb_complaints", title: "Klachten en garantie" },
+  Maat: { id: "kb_sizes", title: "Maten" },
+  Voorraad: { id: "kb_products", title: "Over de producten" },
+  "Voor aankoop": { id: "kb_products", title: "Over de producten" },
+  Techniek: { id: "kb_payment", title: "Betalen" }
+}
+
+/** The chapters a draft for this ticket answers from, each once. */
+export function chaptersFor(t: Ticket): ReadonlyArray<{ readonly id: string; readonly title: string }> {
+  const seen = new Map<string, { readonly id: string; readonly title: string }>()
+  for (const label of t.labels) {
+    const c = CHAPTERS[label]
+    if (c !== undefined) seen.set(c.id, c)
+  }
+  return [...seen.values()]
+}
+
+/** Magnus's summary of the tickets where the story has one; the others are summed up from their lines. */
+const SUMMARIES: Readonly<Record<string, string>> = {
+  "5141":
+    "Hannah wacht sinds 9:45 op haar Field Pant (#5263). DPD meldt het pakket sinds 18 nov als zoek; ze heeft de broek donderdag nodig voor een reis. Een claim bij DPD moet vandaag voor 17:00 binnen zijn. Voorstel: vandaag een nieuwe met spoed sturen en de claim zelf indienen.",
+  "5142":
+    "Liam wil zijn geld terug voor de Heartland Henley uit #5297 (valt te ruim, ook in L). Het is een sale-artikel, dus volgens het retourbeleid niet retourneerbaar. Sofía vraagt jou de terugbetaling van € 45,40 goed te keuren; Liam is vaste klant met 7 bestellingen.",
+  "5146":
+    "Luca's Sailor Stripe Tee (#5309) is vier dagen te laat. PostNL heeft het pakket sinds donderdag in Nieuwegein; morgen wordt het bezorgd. De regel bij 3 dagen vertraging is excuses en 10% korting; de agent stelt die code voor.",
+  "5148":
+    "Astrid's Aurora Hooded Fleece in S (#5296) is te klein. Ze startte retour R-881 en vraagt of ze kan ruilen voor een M in plaats van haar geld terug. M is op voorraad; de Retouragent stelt een omruiling voor, in het Engels.",
+  "5149":
+    "Sofía's Cascade Puffer van 17 nov is nog niet verzonden: Kestrel Goods is later dan beloofd. Sofía heeft om 14:02 geantwoord en wacht op een nieuwe datum van Kestrel; de Leveranciersopvolger heeft een tweede mail klaar."
+}
+
+export function summaryOf(t: Ticket, name: string): string {
+  const story = SUMMARIES[t.number]
+  if (story !== undefined) return story
+  const theirs = t.entries.filter((e) => e.kind === "customer")
+  const first = theirs[0]
+  const ours = t.entries.filter((e) => e.kind === "team" || e.kind === "agent").length
+  const asked = first === undefined ? t.subject : first.text.split(/(?<=[.?!])\s/)[0] ?? t.subject
+  return `${name} schreef ${theirs.length === 1 ? "één keer" : `${theirs.length} keer`} via ${
+    channelLabel(t.channel)
+  }: “${asked.replaceAll("\n", " ").trim()}” ${
+    ours === 0
+      ? "Er is nog niet geantwoord."
+      : `Er ${ours === 1 ? "ging één antwoord" : `gingen ${ours} antwoorden`} terug.`
+  }${t.order === undefined ? "" : ` Het gaat over bestelling #${t.order}.`}`
+}
+
+/** A first answer Magnus writes on request, for a ticket that has no draft of its own. */
+export function proposedReply(t: Ticket, name: string): string {
+  const first = name.split(" ")[0] ?? name
+  const about = t.subject.charAt(0).toLowerCase() + t.subject.slice(1)
+  if (t.order !== undefined) {
+    return `Hoi ${first}, dank je voor je bericht over ${about}. Ik heb bestelling #${t.order} erbij gepakt en zoek het nu voor je uit. Je hoort vandaag nog van me, hier in dit gesprek.`
+  }
+  return `Hoi ${first}, dank je voor je bericht over ${about}. Ik zoek het voor je uit en kom vandaag nog bij je terug.`
+}
+
+/** The update "Klant mailen" sends: where it stands, in one short mail. */
+export function statusUpdate(t: Ticket, name: string): string {
+  const first = name.split(" ")[0] ?? name
+  return `Hoi ${first}, even een update over ${
+    t.order === undefined ? "je vraag" : `bestelling #${t.order}`
+  }: we zijn ermee bezig en hebben het uitgezet bij wie het kan oplossen. Zodra er nieuws is, hoor je het van ons, uiterlijk morgen.`
+}
+
 // The story's numbers, checked where the data is written: twelve open, three waiting over four hours.
 if (openTicketCount() !== TODAY.openTickets) throw new Error("inbox: open tickets must equal TODAY.openTickets")
 if (waitingLongCount() !== 3) throw new Error("inbox: three tickets wait longer than four hours")
@@ -731,6 +960,26 @@ export type ChatRef =
   | { readonly kind: "product"; readonly id: string }
   | { readonly kind: "supplier"; readonly id: string }
 
+/** The verbs the team chat's `/` runs: the same acts as the buttons on a ticket, an order or a case. */
+export type CommandId =
+  | "terugbetalen"
+  | "annuleren"
+  | "notitie"
+  | "ticket"
+  | "toewijzen"
+  | "status"
+  | "bewijs"
+  | "accepteren"
+
+/** A command said in a conversation: what, on which record, with what after it. */
+export type ChatAction = {
+  readonly command: CommandId
+  readonly target?: ChatRef
+  readonly arg?: string
+  /** Put there by an agent, waiting for a person's yes. */
+  readonly proposed?: boolean
+}
+
 export type ChatMessage = {
   readonly id: string
   readonly from: { readonly kind: "person"; readonly who: PersonKey } | {
@@ -744,6 +993,8 @@ export type ChatMessage = {
   readonly reactions?: ReadonlyArray<{ readonly emoji: string; readonly count: number; readonly mine?: boolean }>
   readonly replies?: ReadonlyArray<Omit<ChatMessage, "replies">>
   readonly pinned?: boolean
+  /** A `/command` or an agent's proposal, drawn as its card. */
+  readonly action?: ChatAction
 }
 
 export type Conversation = {
@@ -823,7 +1074,8 @@ export const CONVERSATIONS: ReadonlyArray<Conversation> = [
         at: "11:52",
         text:
           "Het bewijspakket voor CB-2291 is opgesteld: bezorgbevestiging, de mails met Felix Muller en de factuur. Indienen bij Klarna wacht op een collega.",
-        refs: [{ kind: "chargeback", id: "CB-2291" }]
+        refs: [{ kind: "chargeback", id: "CB-2291" }],
+        action: { command: "bewijs", target: { kind: "chargeback", id: "CB-2291" }, proposed: true }
       },
       {
         id: "k5",

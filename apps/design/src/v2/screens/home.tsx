@@ -1,40 +1,26 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
-import { FigureStrip } from "../charts/figure-strip.tsx"
-import { myWork, openProposals, tasksForYou, useDemo } from "../demo.ts"
-import { ACTIVITY, AGENTS } from "../fixtures/agents.ts"
-import type { Activity, Autonomy } from "../fixtures/agents.ts"
-import { ELSEWHERE, FIRST_WEEK, QUEUE, SETUP_TASKS } from "../fixtures/home.ts"
-import type { QueueEntry, Waiting } from "../fixtures/home.ts"
-import { DEMO_NOW, ME, PEOPLE, TODAY_FIGURES, WORKSPACE } from "../fixtures/workspace.ts"
-import { Link, navigate, paths } from "../router.tsx"
-import { AgentAvatar, Avatar } from "../ui/avatar.tsx"
-import { Status } from "../ui/badge.tsx"
-import { Button, buttonClass, ButtonLink } from "../ui/button.tsx"
+import { ARRIVALS, FIRST_WEEK, SETUP_TASKS } from "../fixtures/home.ts"
+import { DEMO_NOW, ME, TODAY_FIGURES, WORKSPACE } from "../fixtures/workspace.ts"
+import { Link, navigate, paths, setQuery, useQuery } from "../router.tsx"
+import { Button, ButtonLink } from "../ui/button.tsx"
 import { Checkbox } from "../ui/checkbox.tsx"
 import { cx } from "../ui/cx.ts"
-import { Check, ChevronDown, ChevronRight, Sparkle } from "../ui/icons.tsx"
-import { GlyphTile, List, ListRow } from "../ui/list.tsx"
+import { Check, ChevronRight, LayoutGrid, Sparkle } from "../ui/icons.tsx"
+import { GlyphTile } from "../ui/list.tsx"
 import { ProgressBar } from "../ui/progress.tsx"
 import { Skeleton, SkeletonRow } from "../ui/skeleton.tsx"
 import { ErrorState } from "../ui/states.tsx"
+import { Tabs } from "../ui/tabs.tsx"
 import { dataState, level, setView, useView } from "../view.ts"
 import type { PermArea } from "../view.ts"
-import { WaitingProposal } from "./waiting-proposal.tsx"
-
-const SETTING: Record<Autonomy, string> = { zelf: "Zelf doen", vragen: "Eerst vragen", nooit: "Nooit" }
-
-const TEAM = [
-  { person: PEOPLE.sofia, doing: "beantwoordt ticket #5142" },
-  { person: PEOPLE.ethan, doing: "in de bestellingenwachtrij" },
-  { person: PEOPLE.liam, doing: "18 min geleden actief" },
-  { person: PEOPLE.maya, doing: "gisteren voor het laatst" }
-] as const
-
-/** How many rows of the queue show before "Nog …": PRODUCT.md's "three or four important things". */
-const FIRST = 4
-/** How many lines of what the agents did Start shows; the log has the rest. */
-const DONE = 5
+import { Agenda, aheadToday } from "./home/agenda.tsx"
+import { AddCard, Board, ResetButton } from "./home/board.tsx"
+import { BreakdownDialog, BreakdownProvider, KpiStrip } from "./home/breakdown.tsx"
+import type { Kpi } from "./home/breakdown.tsx"
+import { MyWork, useDueToday } from "./home/my-work.tsx"
+import { RefreshClock } from "./home/refresh.tsx"
+import { useHome } from "./home/store.ts"
 
 const hour = DEMO_NOW.hours
 const greeting = hour < 6 ? "Goedenacht" : hour < 12 ? "Goedemorgen" : hour < 18 ? "Goedemiddag" : "Goedenavond"
@@ -42,13 +28,12 @@ const dateLine = DEMO_NOW.date.toLocaleDateString("nl-NL", { weekday: "long", da
 const firstName = ME.name.split(" ")[0] ?? ME.name
 
 /**
- * Start: one queue of what has to happen today, whoever does it, ranked by what is at stake before
- * the clock: a deadline someone else sets first, then what moves money or speaks for the business,
- * then by time, and each row says why it stands where it stands. A row is yours to do or an agent's
- * proposal waiting for your yes. Today's figures are a thin line in the head; beside the queue (under
- * it on a phone) is what the agents did overnight and today, as a record, then the agents and the team.
- * PRODUCT.md's success test is the operator opening this first thing and finding the three or four
- * things that matter: the first four rows, the rest one click further.
+ * Start: the day, as a board the operator arranges. Today's figures sit in the head, each one a
+ * button that takes it apart. Under them three views: Overzicht, the board, led by the queue of
+ * what has to happen today (worked with J, K, E, D and R) with the operator's own cards packed
+ * around it; Mijn werk, everything that is yours from across Insyte by when; and Agenda, every
+ * deadline on one clock. PRODUCT.md's success test is the operator opening this first thing and
+ * finding the three or four things that matter: the queue's first four rows, the rest one click on.
  */
 export function HomeScreen() {
   const state = dataState(useView())
@@ -66,240 +51,107 @@ const FIGURE_AREA: Readonly<Record<string, PermArea>> = {
   "Eerste reactie": "support"
 }
 
+type Tab = "overzicht" | "werk" | "agenda"
+
 function Today() {
-  const demo = useDemo()
   const view = useView()
-  const figures = TODAY_FIGURES.filter((f) => {
+  const home = useHome()
+  const asked = useQuery("weergave")
+  const tab: Tab = asked === "werk" ? "werk" : asked === "agenda" ? "agenda" : "overzicht"
+  const [editing, setEditing] = useState(false)
+  const [kpi, setKpi] = useState<Kpi | null>(null)
+  const dueToday = useDueToday()
+
+  // The orders a refresh brought in since the page opened count in today's figures.
+  const late = ARRIVALS.slice(0, home.arrived)
+  const figures = TODAY_FIGURES.map((f) =>
+    f.label === "Omzet"
+      ? { ...f, value: f.value + late.reduce((sum, a) => sum + a.amount, 0) }
+      : f.label === "Bestellingen"
+      ? { ...f, value: f.value + late.length }
+      : f
+  ).filter((f) => {
     const area = FIGURE_AREA[f.label]
     return area === undefined || level(view, area) > 0
   })
   const analytics = level(view, "analytics") > 0
-  const [more, setMore] = useState(false)
-  const handled = AGENTS.reduce((sum, agent) => sum + agent.runsToday, 0)
-  const firstOpen = QUEUE.find((e) => e.kind === "proposal" && demo.decisions[e.item.id] === undefined)?.item.id
-  const shown = more ? QUEUE : QUEUE.slice(0, FIRST)
-  const hidden = QUEUE.slice(FIRST)
+
+  const pick = (next: Tab) => {
+    setEditing(false)
+    setQuery({ weergave: next === "overzicht" ? null : next })
+  }
 
   return (
-    <div className="pane-scroll flex-1">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-4 sm:gap-10 sm:px-8 sm:py-8">
-        <header className="flex flex-wrap items-end justify-between gap-x-10 gap-y-2.5 sm:gap-y-5">
-          <p className="text-sm text-ink-2">
-            {greeting}, {firstName} <span className="text-ink-3">· {dateLine}</span>
-          </p>
-          <div className="-mx-4 flex min-w-0 items-end gap-x-5 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-            <FigureStrip
-              figures={figures}
-              label={`Vandaag tot ${DEMO_NOW.clock}`}
-              compareLabel={`vorige maandag om ${DEMO_NOW.clock}`}
-              compact
-            />
-            {analytics && (
-              <Link
-                to={paths.board("week")}
-                className="flex shrink-0 items-center gap-0.5 rounded-sm pb-0.5 text-xs text-ink-3 hover:text-ink pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:pb-0"
-              >
-                Analyse
-                <ChevronRight size={13} />
-              </Link>
-            )}
-          </div>
-        </header>
+    <BreakdownProvider value={setKpi}>
+      <div className="pane-scroll flex-1">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-4 sm:gap-8 sm:px-8 sm:py-8">
+          <header className="flex flex-wrap items-end justify-between gap-x-10 gap-y-2.5 sm:gap-y-5">
+            <h1 className="text-sm text-ink-2">
+              {greeting}, {firstName} <span className="text-ink-3">· {dateLine}</span>
+            </h1>
+            <div className="-mx-4 flex min-w-0 items-end gap-x-3 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+              <KpiStrip figures={figures} onOpen={setKpi} compareLabel={`vorige maandag om ${DEMO_NOW.clock}`} />
+              {analytics && (
+                <Link
+                  to={paths.board("week")}
+                  className="flex shrink-0 items-center gap-0.5 rounded-sm pb-1.5 text-xs text-ink-3 hover:text-ink pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:pb-0"
+                >
+                  Analyse
+                  <ChevronRight size={13} />
+                </Link>
+              )}
+            </div>
+          </header>
 
-        <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <section aria-labelledby="vandaag" className="flex min-w-0 flex-col gap-1 sm:gap-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
-              <h1 id="vandaag" className="text-xl font-semibold text-ink">Te doen vandaag</h1>
-              <p className="text-xs text-ink-3">
-                <span className="figure">{myWork(demo)}</span> open: <span className="figure">{tasksForYou()}</span>
-                {" "}
-                voor jou, <span className="figure">{openProposals(demo)}</span> voorstellen · harde deadlines eerst
-              </p>
+          <div className="flex flex-col gap-6 sm:gap-8">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <Tabs
+                label="Weergave van Start"
+                value={tab}
+                onChange={pick}
+                rule={false}
+                className="-ml-2"
+                tabs={[
+                  { value: "overzicht", label: "Overzicht", controls: "start-paneel" },
+                  { value: "werk", label: "Mijn werk", count: dueToday, controls: "start-paneel" },
+                  { value: "agenda", label: "Agenda", count: aheadToday(), controls: "start-paneel" }
+                ]}
+              />
+              <div className="flex flex-wrap items-center gap-1">
+                {!editing && <RefreshClock />}
+                {tab === "overzicht" && (editing
+                  ? (
+                    <>
+                      <ResetButton />
+                      <AddCard />
+                      <Button size="sm" variant="primary" aria-pressed="true" onClick={() => setEditing(false)}>
+                        Klaar
+                      </Button>
+                    </>
+                  )
+                  : (
+                    <Button size="sm" variant="ghost" icon={<LayoutGrid />} onClick={() => setEditing(true)}>
+                      Aanpassen
+                    </Button>
+                  ))}
+              </div>
             </div>
 
-            <ol className="flex flex-col sm:gap-2">
-              {shown.map((entry) => (
-                <QueueRow
-                  key={entry.item.id}
-                  entry={entry}
-                  primary={entry.item.id === firstOpen}
-                />
-              ))}
-            </ol>
-            {hidden.length > 0 && (
-              <button
-                type="button"
-                aria-expanded={more}
-                onClick={() => setMore(!more)}
-                className="flex items-center gap-1.5 self-start rounded-sm py-1 text-sm text-ink-2 hover:text-ink"
-              >
-                <ChevronDown size={15} className={cx("transition-transform", more && "rotate-180")} />
-                <span>
-                  {more ? "Minder tonen" : (
-                    <>
-                      Nog <span className="figure">{hidden.length}</span>: {hidden.map((e) => e.item.due).join(", ")}
-                    </>
-                  )}
-                </span>
-              </button>
-            )}
-          </section>
-
-          <aside className="flex min-w-0 flex-col gap-8 lg:pt-1.5">
-            <Side id="gedaan" title="Vannacht en vandaag gedaan">
-              <ol className="flex flex-col gap-3 pt-1">
-                {ACTIVITY.slice(0, DONE).map((line) => <Done key={line.id} line={line} />)}
-              </ol>
-              <Link
-                to={paths.log}
-                className="flex min-h-8 items-center gap-0.5 self-start pl-[3.375rem] text-xs text-ink-3 hover:text-ink"
-              >
-                Alles bekijken in het logboek
-                <ChevronRight size={13} />
-              </Link>
-            </Side>
-
-            <Side id="elders" title="Elders in Northwind">
-              <ul className="flex flex-col gap-px">
-                {ELSEWHERE.map((row) => (
-                  <li key={row.id}>
-                    <Link
-                      to={row.href}
-                      className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 rounded-md px-2 py-1.5 transition-colors hover:bg-hover pointer-coarse:py-2.5"
-                    >
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate text-sm text-ink">{row.label}</span>
-                        <span className="truncate text-xs text-ink-3">{row.detail}</span>
-                      </span>
-                      <Status tone={row.tone}>
-                        <span className="figure">{row.value}</span>
-                      </Status>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Side>
-
-            <Side
-              id="agents"
-              title="Je agents"
-              after={`${handled} keer zelf gedaan vandaag`}
-              more={{ to: paths.agents, label: "Alle agents" }}
+            <div
+              role="tabpanel"
+              id="start-paneel"
+              aria-labelledby={`start-paneel-tab`}
+              className={cx(tab !== "overzicht" && "max-w-4xl")}
             >
-              <List label="Agents aan het werk">
-                {AGENTS.filter((agent) => agent.active).slice(0, 4).map((agent) => (
-                  <ListRow
-                    key={agent.id}
-                    href={paths.agent(agent.id)}
-                    lead={<AgentAvatar glyph={agent.glyph} size={26} />}
-                    title={agent.name}
-                    meta={agent.lastWorked}
-                    trail={<span className="figure">{agent.runsToday}×</span>}
-                  />
-                ))}
-              </List>
-            </Side>
-
-            <Side id="team" title="Team">
-              <List label="Team">
-                {TEAM.map(({ person, doing }) => (
-                  <ListRow
-                    key={person.id}
-                    lead={<Avatar name={person.name} size={26} presence={person.presence} />}
-                    title={person.name}
-                    meta={doing}
-                  />
-                ))}
-              </List>
-            </Side>
-          </aside>
+              {tab === "overzicht" && <Board editing={editing} active={kpi === null} />}
+              {tab === "werk" && <MyWork />}
+              {tab === "agenda" && <Agenda />}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-/**
- * One row of the queue: when it is due and who acts on the left, the thing itself on the right. A
- * task is yours and links to where you do it; a proposal is the agent's, waiting for Uitvoeren.
- */
-function QueueRow({ entry, primary }: { readonly entry: QueueEntry; readonly primary: boolean }) {
-  return (
-    <li className="grid gap-x-4 gap-y-1.5 py-2.5 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:gap-y-2 sm:py-3">
-      <When entry={entry} />
-      {entry.kind === "task"
-        ? <Task item={entry.item} />
-        : <WaitingProposal item={entry.item} primary={primary} fold />}
-    </li>
-  )
-}
-
-/** When it is due, why it ranks where it does, and who acts: one line on a phone, a column beside it. */
-function When({ entry }: { readonly entry: QueueEntry }) {
-  const { due, because, stakes } = entry.item
-  const hard = stakes === "hard"
-  const [day, time] = due.startsWith("morgen") ? ["morgen", due.replace("morgen ", "")] : [null, due]
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pt-0.5 sm:flex-col sm:items-start sm:gap-1">
-      <p
-        className={cx(
-          "flex items-baseline gap-1 text-sm leading-tight sm:flex-col sm:items-start sm:gap-0",
-          hard ? "font-semibold text-bad-ink" : "text-ink"
-        )}
-      >
-        {day !== null && <span className="text-xs">{day}</span>}
-        <span className="figure">{time === "nu" ? "Nu" : time}</span>
-      </p>
-      <p className={cx("text-xs", hard ? "font-medium text-bad-ink" : "text-ink-2")}>{because}</p>
-      <p className="text-2xs text-ink-3">
-        <span aria-hidden="true" className="sm:hidden">·{" "}</span>
-        {entry.kind === "task" ? "Jij" : "Agent, na je ja"}
-      </p>
-    </div>
-  )
-}
-
-/** One thing an agent did: when, who, what, and the rule it ran under. No frame; the time column holds the rhythm. */
-function Done({ line }: { readonly line: Activity }) {
-  const agent = AGENTS.find((a) => a.id === line.agentId)
-  return (
-    <li className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2.5">
-      <span className="figure pt-px text-xs text-ink-3">
-        {line.at.startsWith("vannacht") ? line.at.replace("vannacht ", "") : line.at}
-      </span>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-sm text-pretty text-ink">{line.text}</p>
-        <p className="text-xs text-pretty text-ink-3">
-          {agent !== undefined && (
-            <Link to={paths.agent(agent.id)} className="text-ink-2 hover:text-ink hover:underline">
-              {agent.name}
-            </Link>
-          )}
-          {line.at.startsWith("vannacht") && " · vannacht"} · {SETTING[line.setting]}: {line.rule}
-        </p>
-      </div>
-    </li>
-  )
-}
-
-function Task({ item }: { readonly item: Waiting }) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2">
-      <div className="flex min-w-0 flex-1 basis-64 items-start gap-3">
-        <span className="hidden sm:flex">
-          <GlyphTile size={28}>
-            <item.glyph size={15} />
-          </GlyphTile>
-        </span>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="text-sm font-semibold text-pretty text-ink">{item.title}</p>
-          <p className="text-sm text-pretty text-ink-2">{item.context}</p>
-        </div>
-      </div>
-      <Link to={item.href} className={buttonClass("secondary", "sm")}>
-        {item.action}
-      </Link>
-    </div>
+      <BreakdownDialog kpi={kpi} figures={figures} arrived={home.arrived} onClose={() => setKpi(null)} />
+    </BreakdownProvider>
   )
 }
 

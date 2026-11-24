@@ -111,10 +111,47 @@ export function profitTab(id: string): Tab {
         [`=G${last + 1}/B${last + 1}`, "percent", true]
       ],
       [],
-      ["Gemiddelde bestelling", [`=B${last + 1}/C${last + 1}`, "money"]],
-      ["ROAS", [`=B${last + 1}/E${last + 1}`, "number"]]
+      ["Gemiddelde bestelling", [`=AFRONDEN(B${last + 1}/C${last + 1}; 2)`, "money"]],
+      ["ROAS", [`=B${last + 1}/E${last + 1}`, "number"]],
+      ["Doel nettomarge", ["25%", "percent"]],
+      ["Haalt de week het doel?", `=ALS(H${last + 1}>=B${last + 5}; "ja"; "nee")`]
     ],
     { A: 170, G: 120 }
+  )
+}
+
+/** Advertenties per kanaal: what Meta and Google cost each day of the week, and what came back. */
+export function channelsTab(id: string): Tab {
+  const last = DAYS.length + 1
+  return tabFrom(
+    id,
+    "Per dag",
+    [
+      ["Dag", "Meta Ads", "Google Ads", "Advertenties", "Omzet", "ROAS"],
+      ...DAYS.map(([label, day], i) => {
+        const r = i + 2
+        return [
+          label,
+          [`=INSYTE("advertenties_meta"; "${day}")`, "money"],
+          [`=INSYTE("advertenties_google"; "${day}")`, "money"],
+          [`=B${r}+C${r}`, "money"],
+          [`=INSYTE("omzet"; "${day}")`, "money"],
+          [`=ALS.FOUT(E${r}/D${r}; 0)`, "number"]
+        ] as const
+      }),
+      [
+        ["Week", undefined, true],
+        [`=SOM(B2:B${last})`, "money", true],
+        [`=SOM(C2:C${last})`, "money", true],
+        [`=SOM(D2:D${last})`, "money", true],
+        [`=SOM(E2:E${last})`, "money", true],
+        [`=ALS.FOUT(E${last + 1}/D${last + 1}; 0)`, "number", true]
+      ],
+      [],
+      ["Deel Meta", [`=B${last + 1}/D${last + 1}`, "percent"]],
+      ["Zondag beter dan de week?", `=ALS(F${last}>F${last + 1}; "ja"; "nee")`]
+    ],
+    { A: 150, D: 120 }
   )
 }
 
@@ -185,7 +222,8 @@ const returnsTab = tabFrom(
     [["Totaal", undefined, true], ["=SOM(B2:B5)", "integer", true], null, ["=SOM(D2:D5)", "money", true]],
     [],
     ["Aandeel Aurora", ["=B2/B6", "percent"]],
-    ["Klopt met Insyte", [`=B6-INSYTE("terugbetalingen"; "week")`, "integer"]]
+    ["Klopt met Insyte", [`=B6-INSYTE("terugbetalingen"; "week")`, "integer"]],
+    ["Samengevat", `="Aurora is "&AFRONDEN(B8*100; 0)&"% van de retouren"`]
   ],
   { A: 200, C: 130 }
 )

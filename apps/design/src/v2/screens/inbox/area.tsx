@@ -8,7 +8,19 @@ import { paths } from "../../router.tsx"
 import { MenuButton, MenuFoot, MenuGroup, MenuItem, MenuList } from "../../shell/nav.tsx"
 import type { Thread, ThreadItem } from "../../shell/threads.ts"
 import { useAccess } from "../../ui/access.tsx"
-import { CheckCircle, Clock, Inbox, MessagesSquare, Plus, Ticket, User, UserX } from "../../ui/icons.tsx"
+import {
+  AlertOctagon,
+  Archive,
+  CheckCircle,
+  Clock,
+  Inbox,
+  MessagesSquare,
+  Plus,
+  Star,
+  Ticket,
+  User,
+  UserX
+} from "../../ui/icons.tsx"
 import { InboxScreen, inView, VIEWS } from "./inbox.tsx"
 import type { ViewId } from "./inbox.tsx"
 import { customerName } from "./record.tsx"
@@ -190,6 +202,13 @@ function InboxMenu({ route, pathname }: MenuProps) {
           {viewItem("niet-toegewezen", UserX)}
           {viewItem("wacht", Clock, "Klanten die het langst wachten")}
           {viewItem("klaar", CheckCircle)}
+          {viewItem("ster", Star)}
+        </MenuList>
+      </MenuGroup>
+      <MenuGroup title="Bewaard">
+        <MenuList>
+          {viewItem("archief", Archive)}
+          {viewItem("spam", AlertOctagon)}
         </MenuList>
       </MenuGroup>
       {access.edit && (

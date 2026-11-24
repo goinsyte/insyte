@@ -38,6 +38,7 @@ import { Skeleton, SkeletonRow } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dataState, setView, useView } from "../../view.ts"
+import { ActionCard, COMMANDS, parseCommand, readBack, runAction, startState } from "./commands.tsx"
 import { Heading, Mentioned, MY_KEY, Panes } from "./parts.tsx"
 import { customerName } from "./record.tsx"
 import { markChatRead, nowClock, postChat, postReply, ticketsOf, unpostChat, useInboxState } from "./store.ts"
@@ -313,6 +314,14 @@ function ConversationView({ c, edit }: { readonly c: Conversation; readonly edit
 
   const send = (text: string, refs: ReadonlyArray<ChatRef>) => {
     const id = `eigen-${Date.now()}`
+    const command = parseCommand(text)
+    if (command !== null) {
+      if (!command.ok) return
+      postChat(c.id, { id, from: { kind: "person", who: MY_KEY }, at: nowClock(), text, action: command.action })
+      const first = startState(command.action)
+      if (first.state === "bezig") runAction(id, command.action)
+      return
+    }
     postChat(c.id, { id, from: { kind: "person", who: MY_KEY }, at: nowClock(), text, refs })
     toast({ title: `Verstuurd in ${name}`, action: { label: "Ongedaan maken", onClick: () => unpostChat(c.id, id) } })
   }
@@ -398,6 +407,7 @@ function ConversationView({ c, edit }: { readonly c: Conversation; readonly edit
                   )}
                   <MessageRow
                     m={m}
+                    actionState={m.action === undefined ? undefined : s.actions[m.id] ?? startState(m.action)}
                     mine={reacted[m.id] ?? []}
                     replies={replies.length}
                     lastReply={replies.at(-1)?.at}
@@ -415,7 +425,7 @@ function ConversationView({ c, edit }: { readonly c: Conversation; readonly edit
 
         <div className="shrink-0 px-4 pb-4 sm:px-6">
           {edit
-            ? <ChatComposer placeholder={`Bericht aan ${name}`} onSend={send} />
+            ? <ChatComposer placeholder={`Bericht aan ${name}, of / voor een opdracht`} onSend={send} commands />
             : <ReadOnlyNotice area="support" />}
         </div>
       </div>
@@ -436,8 +446,9 @@ function ConversationView({ c, edit }: { readonly c: Conversation; readonly edit
   )
 }
 
-function MessageRow({ m, mine, replies, lastReply, active, edit, onReact, onThread, onRecord }: {
+function MessageRow({ m, actionState, mine, replies, lastReply, active, edit, onReact, onThread, onRecord }: {
   readonly m: ChatMessage
+  readonly actionState: ReturnType<typeof startState> | undefined
   readonly mine: ReadonlyArray<string>
   readonly replies: number
   readonly lastReply?: string
@@ -481,9 +492,16 @@ function MessageRow({ m, mine, replies, lastReply, active, edit, onReact, onThre
             </span>
           )}
         </p>
-        <p className="max-w-[68ch] text-sm leading-6 text-pretty text-ink">
-          <ChatText text={m.text} />
-        </p>
+        {m.action === undefined || m.from.kind === "agent"
+          ? (
+            <p className="max-w-[68ch] text-sm leading-6 text-pretty text-ink">
+              <ChatText text={m.text} />
+            </p>
+          )
+          : <p className="text-sm text-ink-3">{m.text}</p>}
+        {m.action !== undefined && actionState !== undefined && (
+          <ActionCard messageId={m.id} action={m.action} state={actionState} edit={edit} />
+        )}
         {m.refs !== undefined && m.refs.length > 0 && (
           <ul aria-label="Records" className="flex flex-wrap gap-1.5">
             {m.refs.map((r) => {
@@ -570,17 +588,22 @@ function MessageRow({ m, mine, replies, lastReply, active, edit, onReact, onThre
 }
 
 /** A person writing to the team: a plain field (no Magnus gradient), a record to attach, Enter sends. */
-function ChatComposer({ placeholder, onSend, compact = false }: {
+function ChatComposer({ placeholder, onSend, compact = false, commands = false }: {
   readonly placeholder: string
   /** In the narrow side column: no keyboard hint. */
   readonly compact?: boolean
+  /** Whether `/` runs a command here (the conversation, not a thread). */
+  readonly commands?: boolean
   readonly onSend: (text: string, refs: ReadonlyArray<ChatRef>) => void
 }) {
   const [text, setText] = useState("")
   const [refs, setRefs] = useState<ReadonlyArray<ChatRef>>([])
   const id = useId()
+  const back = commands ? readBack(text) : null
+  const word = commands ? /^\/(\p{L}*)$/u.exec(text)?.[1] : undefined
+  const offered = word === undefined ? [] : COMMANDS.filter((c) => c.id.startsWith(word.toLowerCase()))
   const send = () => {
-    if (text.trim() === "") return
+    if (text.trim() === "" || back?.tone === "warn") return
     onSend(text.trim(), refs)
     setText("")
     setRefs([])
@@ -607,6 +630,24 @@ function ChatComposer({ placeholder, onSend, compact = false }: {
           ))}
         </ul>
       )}
+      {offered.length > 0 && (
+        <ul aria-label="Opdrachten" className="flex flex-wrap gap-1">
+          {offered.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => setText(`/${c.id} `)}
+                className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-well px-2 text-xs text-ink-2 hover:bg-selected hover:text-ink pointer-coarse:h-11"
+              >
+                <span className="font-medium text-ink">/{c.id}</span>
+                <span className="text-ink-3">
+                  {c.on.length === 0 ? c.arg : `#nummer${c.arg === undefined ? "" : ` ${c.arg}`}`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <label htmlFor={id} className="sr-only">{placeholder}</label>
       <textarea
         id={id}
@@ -622,6 +663,14 @@ function ChatComposer({ placeholder, onSend, compact = false }: {
         }}
         className="min-h-6 w-full resize-none bg-transparent px-1 text-sm leading-6 text-ink outline-none placeholder:text-ink-3"
       />
+      {back !== null && offered.length === 0 && (
+        <p
+          role="status"
+          className={cx("px-1 text-xs text-pretty", back.tone === "warn" ? "text-warn-ink" : "text-ink-2")}
+        >
+          {back.text}
+        </p>
+      )}
       <div className="flex items-center gap-1">
         <DropdownMenu
           label="Record toevoegen"
@@ -652,7 +701,7 @@ function ChatComposer({ placeholder, onSend, compact = false }: {
         <IconButton
           label="Versturen"
           size="sm"
-          disabled={text.trim() === ""}
+          disabled={text.trim() === "" || back?.tone === "warn"}
           onClick={send}
           className="ml-2 bg-ink text-on-ink hover:bg-ink/88 hover:text-on-ink pointer-coarse:size-11"
         >

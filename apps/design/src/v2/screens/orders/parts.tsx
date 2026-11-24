@@ -7,7 +7,7 @@ import { LoadError as SharedLoadError, TableSkeleton as SharedTableSkeleton } fr
  */
 
 export { refundLimit } from "../../ui/access.tsx"
-export { copyAndSay as copyText, exportCsv, toggleQuery, undoable, useQueryList } from "../../ui/acts.ts"
+export { copyAndSay as copyText, exportCsv, undoable } from "../../ui/acts.ts"
 export { RecordSkeleton } from "../../ui/data.tsx"
 export { Fact } from "../../ui/key-value.tsx"
 

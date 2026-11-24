@@ -309,40 +309,54 @@ function BlockView(
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold text-ink">{block.title}</h2>
         <figure className="flex max-w-2xl flex-col gap-2">
-          <div
-            className="rounded-lg bg-well p-4 sm:p-8"
-            role="img"
-            aria-label="De bestelling met de sectie Verzending; de laatste scan staat bovenaan."
-          >
-            <div className="flex flex-col gap-4 rounded-md bg-canvas p-5">
-              <div className="flex flex-col gap-0.5">
-                <p className="text-md font-medium text-ink">Bestelling #5309</p>
-                <p className="text-xs text-ink-3">Track & trace 3SNWD0012844921</p>
+          {block.src !== undefined
+            ? (
+              <img
+                src={block.src}
+                alt={block.title}
+                className="max-h-[28rem] w-full rounded-lg bg-well object-contain"
+              />
+            )
+            : (
+              <div
+                className="rounded-lg bg-well p-4 sm:p-8"
+                role="img"
+                aria-label="De bestelling met de sectie Verzending; de laatste scan staat bovenaan."
+              >
+                <div className="flex flex-col gap-4 rounded-md bg-canvas p-5">
+                  <div className="flex flex-col gap-0.5">
+                    <p className="text-md font-medium text-ink">Bestelling #5309</p>
+                    <p className="text-xs text-ink-3">Track & trace 3SNWD0012844921</p>
+                  </div>
+                  <p className="text-sm font-medium text-ink">Verzending</p>
+                  <ol className="flex flex-col gap-3 text-sm">
+                    <li className="flex gap-3 rounded-md bg-accent-tint px-3 py-2">
+                      <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent" />
+                      <span className="flex flex-col">
+                        <span className="font-medium text-ink">Bij sorteercentrum Nieuwegein</span>
+                        <span className="text-xs text-ink-3">Vandaag 06:14 · laatste scan</span>
+                      </span>
+                    </li>
+                    {[
+                      ["Onderweg naar Nederland", "Gisteren 22:40"],
+                      ["Opgehaald bij de leverancier", "Maandag 15:02"],
+                      [
+                        "Label aangemaakt",
+                        "Maandag 11:30"
+                      ]
+                    ].map(([t, w]) => (
+                      <li key={t} className="flex gap-3 px-3">
+                        <span className="mt-1.5 size-2 shrink-0 rounded-full bg-line-strong" />
+                        <span className="flex flex-col">
+                          <span className="text-ink-2">{t}</span>
+                          <span className="text-xs text-ink-3">{w}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
               </div>
-              <p className="text-sm font-medium text-ink">Verzending</p>
-              <ol className="flex flex-col gap-3 text-sm">
-                <li className="flex gap-3 rounded-md bg-accent-tint px-3 py-2">
-                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent" />
-                  <span className="flex flex-col">
-                    <span className="font-medium text-ink">Bij sorteercentrum Nieuwegein</span>
-                    <span className="text-xs text-ink-3">Vandaag 06:14 · laatste scan</span>
-                  </span>
-                </li>
-                {[["Onderweg naar Nederland", "Gisteren 22:40"], ["Opgehaald bij de leverancier", "Maandag 15:02"], [
-                  "Label aangemaakt",
-                  "Maandag 11:30"
-                ]].map(([t, w]) => (
-                  <li key={t} className="flex gap-3 px-3">
-                    <span className="mt-1.5 size-2 shrink-0 rounded-full bg-line-strong" />
-                    <span className="flex flex-col">
-                      <span className="text-ink-2">{t}</span>
-                      <span className="text-xs text-ink-3">{w}</span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
+            )}
           <figcaption className="text-sm text-ink-2">{block.caption}</figcaption>
         </figure>
       </section>

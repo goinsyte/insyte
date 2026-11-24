@@ -90,6 +90,23 @@ export const RETURN_SETTINGS = {
   addressAbroad: "Northwind Returns c/o Allure Fulfillment, Lagerstraße 4, 41460 Neuss"
 } as const
 
+/** A photo the shopper added in the portal. */
+type ReturnPhoto = { readonly id: string; readonly name: string; readonly caption: string }
+
+/** One line coming back, when a return has more than one. */
+type ReturnItem = {
+  readonly productId: string
+  readonly size: string
+  readonly qty: number
+  readonly unitPrice: number
+}
+
+/** What the resolution made in Shopify: a gift card or code, a new order, or why it could not. */
+export type InShopify =
+  | { readonly state: "maken" }
+  | { readonly state: "gemaakt"; readonly code?: string; readonly order?: string }
+  | { readonly state: "mislukt"; readonly reason: string }
+
 export type ReturnEvent = { readonly at: number; readonly who: string; readonly text: string; readonly tone?: Tone }
 
 export type ReturnRecord = {
@@ -117,16 +134,49 @@ export type ReturnRecord = {
     readonly tracking: string
     readonly madeAt: number
     readonly sentAt?: number
+    /** Set when the carrier refused to make it. */
+    readonly failed?: string
+    /** Sent by the shopper with their own carrier: the tracking they gave. */
+    readonly byShopper?: boolean
   }
-  readonly resolution?: { readonly kind: Resolution; readonly amount: number; readonly at: number; readonly by: string }
+  readonly resolution?: {
+    readonly kind: Resolution
+    readonly amount: number
+    readonly at: number
+    readonly by: string
+    readonly shopify?: InShopify
+  }
   readonly rejectReason?: string
   readonly assignee?: string
   readonly events: ReadonlyArray<ReturnEvent>
   /** The agent's proposal on Start that decides this return (`home.ts`). */
   readonly proposalId?: string
+  readonly photos?: ReadonlyArray<ReturnPhoto>
+  /** Every line coming back, when there is more than the one above. */
+  readonly items?: ReadonlyArray<ReturnItem>
 }
 
-export const amountOf = (r: ReturnRecord) => r.unitPrice * r.qty
+/** The lines coming back: the return's own, or each of several. */
+export const itemsOf = (r: ReturnRecord): ReadonlyArray<ReturnItem> =>
+  r.items ?? [{ productId: r.productId, size: r.size, qty: r.qty, unitPrice: r.unitPrice }]
+
+export const amountOf = (r: ReturnRecord) => itemsOf(r).reduce((n, i) => n + i.unitPrice * i.qty, 0)
+
+/** The reasons the portal asks a photo for: damage, the wrong item, and "not like the picture". */
+const PHOTO_REASONS: ReadonlySet<Reason> = new Set(["beschadigd", "verkeerd-artikel", "niet-zoals-foto"])
+export const photoRequired = (r: ReturnRecord) => PHOTO_REASONS.has(r.reason)
+export const photoMissing = (r: ReturnRecord) => photoRequired(r) && (r.photos ?? []).length === 0
+
+/** A tracking number as carriers write it: letters, digits and dashes. */
+export const validTracking = (v: string) => /^[A-Z0-9-]{4,40}$/.test(v.trim().toUpperCase())
+
+/** A gift card code as Shopify makes it: four groups of four. */
+export function giftCardCode(r: ReturnRecord): string {
+  const seed = Number(r.number.slice(2)) * 7919
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+  const pick = (i: number) => chars[(seed * (i + 3) + i * 131) % chars.length] ?? "X"
+  return [0, 1, 2, 3].map((g) => [0, 1, 2, 3].map((i) => pick(g * 4 + i)).join("")).join("-")
+}
 export const deadlineOf = (r: ReturnRecord) => r.createdAt + RETURN_SETTINGS.reviewHours * HOUR
 export const pastDeadline = (r: ReturnRecord) => r.status === "te-beoordelen" && deadlineOf(r) < NOW
 export const windowDays = (
@@ -432,8 +482,80 @@ function build(): ReadonlyArray<ReturnRecord> {
   return sorted.map((d, i) => ({ ...d, id: `r-${first + i}`, number: `R-${first + i}` })).toReversed()
 }
 
+/**
+ * What the shoppers added and what went wrong, on the open ones: photos where the portal asked for
+ * them (the wrong-item claim has none, which the Retouragent noted), an exchange of two pieces, a label
+ * the carrier could not make, and the exchanges' new orders in Shopify. The week's counts stay as
+ * Analyse reads them.
+ */
+function decorate(all: ReadonlyArray<ReturnRecord>): ReadonlyArray<ReturnRecord> {
+  const open = (status: ReturnStatus, reason: Reason) => all.find((x) => x.status === status && x.reason === reason)
+  const damaged = open("klaar", "beschadigd")
+  const giftCard = all.find((x) => x.status === "wacht-op-pakket" && x.requested === "cadeaubon")
+  const failed = open("wacht-op-pakket", "te-groot")
+  const twoPieces = all.find((x) =>
+    x !== damaged && x !== giftCard && x !== failed && x.proposalId === undefined && x.requested === "ruilen" &&
+    (ORDERS.find((o) => o.number === x.orderNumber)?.lines.some((l) => l.productId !== x.productId) ?? false)
+  )
+  const twoOrder = twoPieces === undefined ? undefined : ORDERS.find((o) => o.number === twoPieces.orderNumber)
+  const second = twoOrder?.lines.find((l) => l.productId !== twoPieces?.productId)
+  return all.map((x) => {
+    if (x === damaged) {
+      return {
+        ...x,
+        photos: [
+          { id: "p1", name: "naad-schouder.jpg", caption: "De naad bij de linkerschouder, open bij aankomst" },
+          { id: "p2", name: "label-binnenkant.jpg", caption: "Het waslabel, met de maat en de partij" }
+        ]
+      }
+    }
+    if (x === giftCard) {
+      return {
+        ...x,
+        photos: [{ id: "p1", name: "kleur-bij-daglicht.jpg", caption: "Bij daglicht, naast de productfoto" }]
+      }
+    }
+    if (x === failed && x.label !== undefined) {
+      return {
+        ...x,
+        label: {
+          carrier: x.label.carrier,
+          tracking: "",
+          madeAt: x.label.madeAt,
+          failed: "het huisnummer ontbreekt in het adres van de klant"
+        },
+        events: [
+          ...x.events.slice(0, -1),
+          {
+            at: x.label.madeAt,
+            who: x.label.carrier,
+            text: "Retourlabel kon niet worden gemaakt: adres onvolledig",
+            tone: "bad" as const
+          }
+        ]
+      }
+    }
+    if (x === twoPieces && second !== undefined) {
+      return {
+        ...x,
+        items: [
+          { productId: x.productId, size: x.size, qty: x.qty, unitPrice: x.unitPrice },
+          { productId: second.productId, size: second.size, qty: 1, unitPrice: second.price }
+        ]
+      }
+    }
+    if (x.resolution?.kind === "ruilen") {
+      return {
+        ...x,
+        resolution: { ...x.resolution, shopify: { state: "gemaakt" as const, order: `#${x.orderNumber}-R1` } }
+      }
+    }
+    return x
+  })
+}
+
 /** Every return and claim, newest first. */
-export const RETURNS: ReadonlyArray<ReturnRecord> = build()
+export const RETURNS: ReadonlyArray<ReturnRecord> = decorate(build())
 
 /* ── the visit's changes ───────────────────────────────────────────────────────────────────────── */
 

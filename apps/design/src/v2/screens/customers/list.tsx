@@ -8,16 +8,18 @@ import {
   SEGMENT,
   useCustomerState
 } from "../../fixtures/customers.ts"
-import type { CustomerRow, Segment } from "../../fixtures/customers.ts"
+import type { CustomerRow } from "../../fixtures/customers.ts"
 import { euro, when } from "../../fixtures/records.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Avatar } from "../../ui/avatar.tsx"
 import { RecordLabel, Status } from "../../ui/badge.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
 import { Button } from "../../ui/button.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
-import { AddFilter, ColumnPicker, FilterChip, ListToolbar, SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import type { ColumnOption, FilterField } from "../../ui/filters.tsx"
+import { emptyGroup } from "../../ui/filter-model.ts"
+import { ColumnPicker, FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
+import type { ColumnOption } from "../../ui/filters.tsx"
 import { Copy, Download, GitMerge, Mail, Plus, Send, TagGlyph, Ticket, Users } from "../../ui/icons.tsx"
 import { SearchField } from "../../ui/input.tsx"
 import { Notice } from "../../ui/notice.tsx"
@@ -27,19 +29,67 @@ import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import type { Sort } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { dataState, useView } from "../../view.ts"
+import { filterRows, isoDay, manyField, rule, useListFilter, where } from "../orders/list-filter.ts"
+import type { Address, ListField } from "../orders/list-filter.ts"
 import { KlaviyoDialog, MergeReview, NewCustomerDialog, TagDialog } from "./dialogs.tsx"
 import { PageError, TableSkeleton } from "./parts.tsx"
 
 const PAGE = 25
 
-const SEGMENTS: ReadonlyArray<{ readonly id: Segment | "vip"; readonly label: string }> = [
-  { id: "vip", label: "VIP" },
-  { id: "trouw", label: "Trouw" },
-  { id: "nieuw", label: "Nieuw" },
-  { id: "risico", label: "Risico" },
-  { id: "dubbel", label: "Dubbel" }
+const TODAY = "2026-11-23"
+
+const STATUS_FIELD: ListField<CustomerRow> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: Object.values(SEGMENT).map((x) => x.label),
+  get: (r) => SEGMENT[r.segment].label
+}
+const VALUE_FIELD: ListField<CustomerRow> = { key: "waarde", label: "Klantwaarde", type: "number", get: (r) => r.value }
+
+/** The fields, with the labels the profiles carry now as the label field's options. */
+const fieldsFor = (tags: ReadonlyArray<string>): ReadonlyArray<ListField<CustomerRow>> => [
+  STATUS_FIELD,
+  manyField<CustomerRow>("label", "Label", tags, (r) => r.tags),
+  { key: "land", label: "Land", type: "option", get: (r) => COUNTRY[r.country] },
+  { key: "plaats", label: "Plaats", type: "text", get: (r) => r.city },
+  { key: "bestellingen", label: "Bestellingen", type: "number", get: (r) => r.orders },
+  VALUE_FIELD,
+  { key: "gemiddeld", label: "Gem. bestelling", type: "number", get: (r) => Math.round(r.aov) },
+  {
+    key: "laatste",
+    label: "Laatste bestelling",
+    type: "date",
+    get: (r) => (r.lastOrder === undefined ? "" : isoDay(r.lastOrder.placedAt))
+  }
 ]
+const LABEL_FIELD = manyField<CustomerRow>("label", "Label", [], (r) => r.tags)
+
+/** The menu's segments (`?segment=risico`) and VIP, which is a label (`?segment=vip`); the country by name. */
+const ADDRESS: Address = {
+  params: [
+    {
+      param: "segment",
+      field: "status",
+      values: Object.fromEntries(Object.entries(SEGMENT).map(([k, v]) => [k, v.label]))
+    },
+    { param: "land", field: "land" }
+  ],
+  cuts: { param: "segment", filters: { vip: where("and", rule(LABEL_FIELD, "any", ["vip"])) } }
+}
+
+const VIEWS = "klanten"
+seedViews(VIEWS, [
+  { name: "VIP", pinned: false, filter: where("and", rule(LABEL_FIELD, "any", ["vip"])) },
+  { name: "Risico", pinned: false, filter: where("and", rule(STATUS_FIELD, "any", ["Risico"])) },
+  {
+    name: "Trouw, boven € 500",
+    pinned: false,
+    filter: where("and", rule(STATUS_FIELD, "any", ["Trouw"]), rule(VALUE_FIELD, "gt", "500"))
+  }
+])
 
 const COLUMNS: ReadonlyArray<ColumnOption> = [
   { key: "customer", label: "Klant", locked: true },
@@ -64,11 +114,7 @@ export function CustomersList() {
   const view = useView()
   const s = useCustomerState()
   const access = useAccess("customers")
-  const support = useAccess("support")
-  const data = useAccess("data")
   const state = dataState(view)
-  const segment = useQuery("segment")
-  const land = useQuery("land")
   const zoek = useQuery("zoek") ?? ""
   const reviewing = useQuery("samenvoegen") === "1"
 
@@ -77,18 +123,23 @@ export function CustomersList() {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [dialog, setDialog] = useState<"new" | "tag" | "klaviyo" | null>(null)
+  // The rows a dialog works on: the selection is cleared as soon as an action starts.
+  const [dialogRows, setDialogRows] = useState<ReadonlyArray<CustomerRow>>([])
+  // The shell's Nieuw menu and ⌘K open it with `?nieuw=1`.
+  const asked = useQuery("nieuw") === "1" && access.edit
   const [mergeGroups, setMergeGroups] = useState<ReturnType<typeof duplicateGroups> | null>(null)
 
   const all = customerRows(view, s)
   const counts = customerCounts(view, s)
   const groups = duplicateGroups(s)
+  const tagKey = [...new Set(all.flatMap((r) => r.tags))].toSorted((a, b) => a.localeCompare(b, "nl")).join("\n")
+  const FIELDS = useMemo(() => fieldsFor(tagKey === "" ? [] : tagKey.split("\n")), [tagKey])
+  const [filter, setFilter] = useListFilter(VIEWS, FIELDS, ADDRESS, () => setPage(1))
 
   const rows = useMemo(() => {
     const q = zoek.trim().toLowerCase()
-    const out = all.filter((r) =>
-      (q === "" || r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q)) &&
-      (segment === null || (segment === "vip" ? r.tags.includes("vip") : r.segment === segment)) &&
-      (land === null || COUNTRY[r.country] === land)
+    const out = filterRows(all, filter, FIELDS, TODAY).filter((r) =>
+      q === "" || r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q)
     )
     const value = (r: CustomerRow) =>
       sort.key === "value"
@@ -103,10 +154,10 @@ export function CustomersList() {
         ? a.name.localeCompare(b.name, "nl") * (sort.dir === "asc" ? 1 : -1)
         : (value(a) - value(b)) * (sort.dir === "asc" ? 1 : -1)
     )
-  }, [all, zoek, segment, land, sort])
+  }, [all, zoek, filter, sort, FIELDS])
 
   const pageRows = rows.slice((page - 1) * PAGE, page * PAGE)
-  const picked = all.filter((r) => selected.has(r.id))
+  const picked = rows.filter((r) => selected.has(r.id))
   const allOn = pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))
   const someOn = pageRows.some((r) => selected.has(r.id))
   const show = (key: string) => visible.has(key)
@@ -114,22 +165,9 @@ export function CustomersList() {
     setSort((cur) => (cur.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }))
   const sortOf = (key: SortKey) => (sort.key === key ? sort.dir : null)
 
-  const FIELDS: ReadonlyArray<FilterField> = [
-    { key: "segment", label: "Status", options: SEGMENTS.map((x) => x.label) },
-    { key: "land", label: "Land", options: [...new Set(all.map((r) => COUNTRY[r.country]))].toSorted() }
-  ]
-  const active = new Set([
-    ...(segment === null ? [] : [`segment:${SEGMENTS.find((x) => x.id === segment)?.label ?? ""}`]),
-    ...(land === null ? [] : [`land:${land}`])
-  ])
-  const addFilter = (field: string, value: string) => {
-    setPage(1)
-    if (field === "segment") setQuery({ segment: SEGMENTS.find((x) => x.label === value)?.id ?? null })
-    else setQuery({ land: value })
-  }
   const clearFilters = () => {
-    setPage(1)
-    setQuery({ segment: null, land: null, zoek: null })
+    setFilter(emptyGroup())
+    setQuery({ zoek: null })
   }
 
   const openReview = (g = groups) => {
@@ -140,20 +178,103 @@ export function CustomersList() {
     setMergeGroups(null)
     setQuery({ samenvoegen: null })
   }
-  const mergePicked = () => {
-    if (picked.length >= 2) {
+  const mergePicked = (list: ReadonlyArray<CustomerRow>) => {
+    if (list.length >= 2) {
       openReview([{
-        key: picked.map((p) => p.id).join("+"),
-        ids: picked.map((p) => p.id),
+        key: list.map((p) => p.id).join("+"),
+        ids: list.map((p) => p.id),
         match: "zelfde naam en land"
       }])
       return
     }
-    const g = groups.find((x) => picked[0] !== undefined && x.ids.includes(picked[0].id))
+    const g = groups.find((x) => list[0] !== undefined && x.ids.includes(list[0].id))
     if (g === undefined) {
       toast({ title: "Kies twee of meer profielen om samen te voegen, of bekijk de dubbele profielen." })
     } else openReview([g])
   }
+
+  const withDialog = (which: "tag" | "klaviyo") => (list: ReadonlyArray<CustomerRow>) => {
+    setDialogRows(list)
+    setDialog(which)
+  }
+  const EDIT = { area: "customers", level: 2 } as const
+  /** One list for the bar, the Acties menu and the keys. */
+  const actions: ReadonlyArray<RowAction<CustomerRow>> = [
+    {
+      id: "mailen",
+      label: "E-mailen",
+      icon: <Mail />,
+      bar: true,
+      shortcut: "m",
+      needs: EDIT,
+      run: (list) =>
+        toast({
+          title: "Je mailprogramma opent",
+          body: `${counted(list.length, "adres", "adressen")} in bcc. Er gaat niets uit voor jij op verzenden drukt.`
+        })
+    },
+    {
+      id: "label",
+      label: "Label toevoegen",
+      icon: <TagGlyph />,
+      bar: true,
+      shortcut: "l",
+      needs: EDIT,
+      run: withDialog("tag")
+    },
+    {
+      id: "samenvoegen",
+      label: "Samenvoegen",
+      icon: <GitMerge />,
+      bar: true,
+      needs: { area: "customers", level: 3 },
+      run: mergePicked
+    },
+    {
+      id: "ticket",
+      label: "Ticket per klant",
+      icon: <Ticket />,
+      group: "Opvolgen",
+      shortcut: "t",
+      // It takes both: the role's missing one is the one named.
+      needs: access.edit ? { area: "support", level: 2 } : EDIT,
+      run: (list) =>
+        toast({
+          title: `${counted(list.length, "ticket", "tickets")} geopend`,
+          body: "‘Opvolgen met …’ per klant, op het bord van de inbox.",
+          tone: "good",
+          action: { label: "Openen", onClick: () => navigate(paths.tickets) }
+        })
+    },
+    {
+      id: "klaviyo",
+      label: "Naar Klaviyo",
+      icon: <Send />,
+      group: "Opvolgen",
+      needs: EDIT,
+      run: withDialog("klaviyo")
+    },
+    {
+      id: "kopieren",
+      label: "E-mailadressen kopiëren",
+      icon: <Copy />,
+      group: "Delen",
+      shortcut: "c",
+      run: (list) => {
+        void navigator.clipboard?.writeText(list.map((p) => p.email).join(", ")).catch(() => undefined)
+        toast({ title: `${counted(list.length, "adres", "adressen")} gekopieerd` })
+      }
+    },
+    {
+      id: "csv",
+      label: "CSV",
+      icon: <Download />,
+      group: "Delen",
+      shortcut: "e",
+      needs: { area: "data", level: 1 },
+      run: () => toast({ title: "Export gestart", body: "klanten.csv staat zo bij je downloads." })
+    }
+  ]
 
   const meta = state === "ready"
     ? `${counted(counts.all, "klant", "klanten")} · ${counts.nieuw} nieuw · ${
@@ -222,67 +343,16 @@ export function CustomersList() {
             </Notice>
           )}
 
-          <div className="flex min-w-0 flex-col">
-            {selected.size > 0
+          <div className="flex min-w-0 flex-col gap-3">
+            <SavedViews list={VIEWS} value={filter} onPick={setFilter} allLabel="Alle klanten" />
+            {picked.length > 0
               ? (
-                <SelectionBar count={selected.size} noun={["klant", "klanten"]} onClear={() => setSelected(new Set())}>
-                  {access.edit && (
-                    <SelectionAction
-                      icon={<Mail />}
-                      onClick={() =>
-                        toast({
-                          title: "Je mailprogramma opent",
-                          body: `${
-                            counted(picked.length, "adres", "adressen")
-                          } in bcc. Er gaat niets uit voor jij op verzenden drukt.`
-                        })}
-                    >
-                      E-mailen
-                    </SelectionAction>
-                  )}
-                  {access.edit && (
-                    <SelectionAction icon={<TagGlyph />} onClick={() => setDialog("tag")}>
-                      Label toevoegen
-                    </SelectionAction>
-                  )}
-                  {access.manage && (
-                    <SelectionAction icon={<GitMerge />} onClick={mergePicked}>Samenvoegen</SelectionAction>
-                  )}
-                  {access.edit && support.edit && (
-                    <SelectionAction
-                      icon={<Ticket />}
-                      onClick={() =>
-                        toast({
-                          title: `${counted(picked.length, "ticket", "tickets")} geopend`,
-                          body: "‘Opvolgen met …’ per klant, op het bord van de inbox.",
-                          tone: "good",
-                          action: { label: "Openen", onClick: () => navigate(paths.tickets) }
-                        })}
-                    >
-                      Ticket per klant
-                    </SelectionAction>
-                  )}
-                  {access.edit && (
-                    <SelectionAction icon={<Send />} onClick={() => setDialog("klaviyo")}>Naar Klaviyo</SelectionAction>
-                  )}
-                  <SelectionAction
-                    icon={<Copy />}
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(picked.map((p) => p.email).join(", ")).catch(() => undefined)
-                      toast({ title: `${counted(picked.length, "adres", "adressen")} gekopieerd` })
-                    }}
-                  >
-                    E-mailadressen kopiëren
-                  </SelectionAction>
-                  {data.view && (
-                    <SelectionAction
-                      icon={<Download />}
-                      onClick={() => toast({ title: "Export gestart", body: "klanten.csv staat zo bij je downloads." })}
-                    >
-                      CSV
-                    </SelectionAction>
-                  )}
-                </SelectionBar>
+                <SelectionBar
+                  rows={picked}
+                  actions={actions}
+                  noun={["klant", "klanten"]}
+                  onClear={() => setSelected(new Set())}
+                />
               )
               : (
                 <ListToolbar
@@ -299,21 +369,8 @@ export function CustomersList() {
                           placeholder="Zoek op naam of e-mail"
                         />
                       </div>
-                      {segment !== null && (
-                        <FilterChip
-                          field="Status"
-                          value={SEGMENTS.find((x) => x.id === segment)?.label ?? segment}
-                          onRemove={() => setQuery({ segment: null })}
-                        />
-                      )}
-                      {land !== null && (
-                        <FilterChip
-                          field="Land"
-                          value={land}
-                          onRemove={() => setQuery({ land: null })}
-                        />
-                      )}
-                      <AddFilter fields={FIELDS} active={active} onAdd={addFilter} />
+                      <FilterRules fields={FIELDS} rows={all} value={filter} onChange={setFilter} />
+                      <FilterBuilder fields={FIELDS} rows={all} value={filter} onChange={setFilter} views={VIEWS} />
                     </>
                   }
                   end={<ColumnPicker columns={COLUMNS} visible={visible} onChange={setVisible} />}
@@ -333,7 +390,7 @@ export function CustomersList() {
                 </EmptyState>
               )
               : (
-                <Table label="Klanten" minWidth={920} className="mt-1">
+                <Table label="Klanten" minWidth={920}>
                   <THead>
                     <Th width={40}>
                       <RowCheckbox
@@ -420,7 +477,7 @@ export function CustomersList() {
                 </Table>
               )}
             {rows.length > PAGE && (
-              <div className="pt-3">
+              <div>
                 <Pagination
                   page={page}
                   pageSize={PAGE}
@@ -434,9 +491,15 @@ export function CustomersList() {
         </div>
       )}
 
-      <NewCustomerDialog open={dialog === "new"} onClose={() => setDialog(null)} />
-      <TagDialog open={dialog === "tag"} onClose={() => setDialog(null)} picked={picked} />
-      <KlaviyoDialog open={dialog === "klaviyo"} onClose={() => setDialog(null)} picked={picked} />
+      <NewCustomerDialog
+        open={dialog === "new" || asked}
+        onClose={() => {
+          setDialog(null)
+          setQuery({ nieuw: null })
+        }}
+      />
+      <TagDialog open={dialog === "tag"} onClose={() => setDialog(null)} picked={dialogRows} />
+      <KlaviyoDialog open={dialog === "klaviyo"} onClose={() => setDialog(null)} picked={dialogRows} />
       <MergeReview open={reviewing && access.manage} onClose={closeReview} groups={mergeGroups ?? groups} />
     </Page>
   )

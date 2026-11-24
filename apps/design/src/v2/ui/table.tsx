@@ -1,3 +1,4 @@
+import { useState } from "react"
 import type { ReactNode } from "react"
 import { cx } from "./cx.ts"
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "./icons.tsx"
@@ -142,4 +143,31 @@ export function Td({ children, align, figure = false, muted = false, className, 
       {children}
     </Cell>
   )
+}
+
+/**
+ * Which rows are ticked, for a table or a list with a selection bar: the ticked ones among `rows`
+ * (the rows on screen, so a filter that hides a row also unticks it for the bar), the select-all
+ * box's two states, and the ways to change it. Pair it with `SelectionBar`'s `rows` and `actions`.
+ */
+export function useSelection<T extends { readonly id: string }>(rows: ReadonlyArray<T>) {
+  const [ids, setIds] = useState<ReadonlySet<string>>(new Set())
+  const picked = rows.filter((r) => ids.has(r.id))
+  const all = rows.length > 0 && picked.length === rows.length
+  return {
+    picked,
+    has: (id: string) => ids.has(id),
+    all,
+    /** Some but not all: the select-all box's dash. */
+    some: picked.length > 0 && !all,
+    toggle: (id: string, on = !ids.has(id)) =>
+      setIds((s) => {
+        const next = new Set(s)
+        if (on) next.add(id)
+        else next.delete(id)
+        return next
+      }),
+    setAll: (on: boolean) => setIds(on ? new Set(rows.map((r) => r.id)) : new Set()),
+    clear: () => setIds(new Set())
+  }
 }

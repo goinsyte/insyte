@@ -467,3 +467,33 @@ export const LEGAL = {
   }
 } as const
 export type LegalTab = keyof typeof LEGAL
+
+/**
+ * What an installed app lets you set inside Insyte, opened in place: three switches per app, the
+ * first two on. An app without its own list gets the general ones.
+ */
+const APP_SETTINGS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  klaviyo: [
+    "Segmenten elk uur synchroniseren",
+    "Nieuwe klanten meteen als profiel aanmaken",
+    "Retourstatus als event sturen"
+  ],
+  recharge: [
+    "Verlengingen in de bestellingenlijst tonen",
+    "Mislukte betalingen als ticket",
+    "Opzeggingen melden aan het team"
+  ],
+  gorgias: ["Oude tickets bij de klant tonen", "Macro's als antwoordsjabloon gebruiken", "Tags van Gorgias overnemen"],
+  aftership: [
+    "Track & trace-pagina in je huisstijl",
+    "Vertraging na 48 uur als ticket",
+    "Bezorgmeldingen naar de klant"
+  ],
+  zapier: ["Nieuwe bestellingen doorsturen", "Tickets naar Zapier sturen", "Fouten per e-mail melden"]
+}
+const GENERAL_SETTINGS = [
+  "Nieuwe bestellingen automatisch synchroniseren",
+  "Updates in de inbox plaatsen",
+  "Klantlabels delen"
+]
+export const settingsOf = (id: string) => APP_SETTINGS[id] ?? GENERAL_SETTINGS

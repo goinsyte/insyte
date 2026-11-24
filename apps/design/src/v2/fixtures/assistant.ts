@@ -1,4 +1,6 @@
-import type { BarData } from "../charts/types.ts"
+import type { ProposalAction } from "../ask/apply.ts"
+import type { Ref, RefKind } from "../ask/catalogue.ts"
+import type { BarData, Figure, FunnelData, LineData, TableData } from "../charts/types.ts"
 import { BLOCKS } from "./analytics.ts"
 
 /**
@@ -8,16 +10,53 @@ import { BLOCKS } from "./analytics.ts"
 
 export type Step = { readonly label: string; readonly read?: string }
 
+/** Where a chart in an answer can be put: the board it belongs on. */
+type BoardLink = { readonly label: string; readonly href: string }
+
+/** A figure, chart or table under an answer, in the same marks as Analyse. */
+export type Visual =
+  | { readonly kind: "bar" | "rank"; readonly title: string; readonly data: BarData; readonly board?: BoardLink }
+  | { readonly kind: "line"; readonly title: string; readonly data: LineData; readonly board?: BoardLink }
+  | { readonly kind: "table"; readonly title: string; readonly data: TableData; readonly board?: BoardLink }
+  | { readonly kind: "funnel"; readonly title: string; readonly data: FunnelData; readonly board?: BoardLink }
+  | {
+    readonly kind: "figures"
+    readonly title: string
+    readonly figures: ReadonlyArray<Figure>
+    readonly compareLabel: string
+    readonly board?: BoardLink
+  }
+
+/** A record or a page an answer read: what "N bronnen gelezen" opens. */
+export type Source = {
+  readonly kind: RefKind | "board" | "page"
+  readonly title: string
+  readonly detail: string
+  readonly href: string
+}
+
 export type Turn =
-  | { readonly from: "me"; readonly at: string; readonly text: string }
+  | {
+    readonly from: "me"
+    readonly at: string
+    readonly text: string
+    /** The records named with @, drawn as chips with the message. */
+    readonly refs?: ReadonlyArray<Ref>
+  }
   | {
     readonly from: "magnus"
     readonly at: string
     readonly steps?: ReadonlyArray<Step>
+    /**
+     * The answer. `**bold**` carries the point, `[[label|href|kind]]` is a record as a chip and
+     * `{{value|what it is|href}}` a figure that opens where it was counted.
+     */
     readonly paragraphs: ReadonlyArray<string>
     /** What "Opnieuw genereren" streams instead: the same facts, put another way. */
     readonly alternative?: ReadonlyArray<string>
     readonly chart?: { readonly title: string; readonly data: BarData; readonly kind: "bar" | "rank" }
+    readonly visual?: Visual
+    readonly sources?: ReadonlyArray<Source>
     readonly closing?: string
     readonly followUps?: ReadonlyArray<FollowUp>
   }
@@ -33,6 +72,12 @@ export type Proposal = {
   readonly rule: "Eerst vragen"
   /** What will be set, as written: what Bewerken opens. */
   readonly draft?: string
+  /** What it looked at before proposing. */
+  readonly read?: ReadonlyArray<string>
+  /** It leaves the building (a mail, a message): Uitvoeren starts the send window. */
+  readonly sends?: boolean
+  /** What Uitvoeren does to the workspace, undone by Ongedaan maken. */
+  readonly action?: ProposalAction
 }
 
 export type Chat = {

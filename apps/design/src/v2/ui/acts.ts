@@ -1,4 +1,3 @@
-import { setQuery, useQuery } from "../router.tsx"
 import { copyText } from "./share.tsx"
 import { toast } from "./toast.tsx"
 
@@ -54,18 +53,4 @@ export function undoable(title: string, undo: () => void, body?: string) {
       }
     }
   })
-}
-
-/* ── a filter in the address: `?status=vertraagd,retour` ─────────────────────────────────────── */
-
-/** The values of one filter in the query, as a list; empty when it is off. */
-export function useQueryList(key: string): ReadonlyArray<string> {
-  const raw = useQuery(key)
-  return raw === null || raw === "" ? [] : raw.split(",")
-}
-
-/** Turns one value of a query filter on or off, and goes back to the first page. */
-export function toggleQuery(key: string, current: ReadonlyArray<string>, value: string) {
-  const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
-  setQuery({ [key]: next.length === 0 ? null : next.join(","), pagina: null })
 }

@@ -32,6 +32,8 @@ export type CostLine = {
   readonly source: CostSource
   /** Vast: per month. Per bestelling: per order. Percentage: 0–100. Advertenties (getypt): per week. */
   readonly amount: number
+  /** What a month really cost, typed in the month grid, by month key (`2026-09`); overrides `amount`. */
+  readonly months?: Readonly<Record<string, number>>
 }
 
 export const COST_LINES: ReadonlyArray<CostLine> = [
@@ -158,6 +160,114 @@ export function figuresOf(lines: ReadonlyArray<CostLine>, days: ReadonlyArray<Da
     margin: revenue === 0 ? 0 : net / revenue,
     roas: ads === 0 ? 0 : revenue / ads
   }
+}
+
+/* ── Per maand ───────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The six months since the shop moved to Insyte, from the monthly totals the old exports gave: revenue
+ * excl. btw, orders, the purchase price and Meta's own spend. November runs to today (23 days).
+ */
+export type Month = {
+  readonly key: string
+  readonly label: string
+  readonly days: number
+  readonly running: boolean
+  readonly revenue: number
+  readonly orders: number
+  readonly purchase: number
+  readonly meta: number
+}
+
+export const MONTHS: ReadonlyArray<Month> = [
+  {
+    key: "2026-06",
+    label: "jun",
+    days: 30,
+    running: false,
+    revenue: 168_400,
+    orders: 4_190,
+    purchase: 57_930,
+    meta: 15_320
+  },
+  {
+    key: "2026-07",
+    label: "jul",
+    days: 31,
+    running: false,
+    revenue: 159_200,
+    orders: 3_985,
+    purchase: 54_610,
+    meta: 14_810
+  },
+  {
+    key: "2026-08",
+    label: "aug",
+    days: 31,
+    running: false,
+    revenue: 171_900,
+    orders: 4_310,
+    purchase: 58_790,
+    meta: 15_640
+  },
+  {
+    key: "2026-09",
+    label: "sep",
+    days: 30,
+    running: false,
+    revenue: 186_300,
+    orders: 4_620,
+    purchase: 63_710,
+    meta: 17_330
+  },
+  {
+    key: "2026-10",
+    label: "okt",
+    days: 31,
+    running: false,
+    revenue: 204_700,
+    orders: 5_080,
+    purchase: 69_600,
+    meta: 19_240
+  },
+  {
+    key: "2026-11",
+    label: "nov",
+    days: 23,
+    running: true,
+    revenue: 158_600,
+    orders: 3_960,
+    purchase: 53_920,
+    meta: 14_590
+  }
+]
+
+/** Whether a line's month can be typed over: fixed amounts and ads typed from the invoice. */
+export const monthEditable = (l: CostLine) => l.source === "getypt" && (l.kind === "vast" || l.kind === "advertenties")
+
+/** One line's cost in one month: what was typed for that month, or what its basis gives. */
+export function costInMonth(l: CostLine, m: Month): number {
+  const typed = l.months?.[m.key]
+  if (typed !== undefined) return typed
+  switch (l.kind) {
+    case "inkoop":
+      return m.purchase
+    case "percentage":
+      return (m.revenue * VAT * l.amount) / 100
+    case "per-bestelling":
+      return m.orders * l.amount
+    case "vast":
+      return l.amount
+    case "advertenties":
+      return l.source === "meta" ? m.meta : (l.amount * m.days) / 7
+  }
+}
+
+export function monthFigures(lines: ReadonlyArray<CostLine>, months: ReadonlyArray<Month>) {
+  const revenue = months.reduce((n, m) => n + m.revenue, 0)
+  const costs = months.reduce((n, m) => n + lines.reduce((k, l) => k + costInMonth(l, m), 0), 0)
+  const net = revenue - costs
+  return { revenue, costs, net, margin: revenue === 0 ? 0 : net / revenue }
 }
 
 /* ── INSYTE(): the figures a sheet may read ─────────────────────────────────────────────────────── */

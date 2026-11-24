@@ -43,7 +43,8 @@ export function toast(input: {
   return id
 }
 
-function dismissToast(id: number) {
+/** Takes a toast away before its time, e.g. when what it offers to undo was undone elsewhere. */
+export function dismissToast(id: number) {
   items = items.filter((item) => item.id !== id)
   emit()
 }

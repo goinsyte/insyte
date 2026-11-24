@@ -209,6 +209,9 @@ function stored(): View {
 let chosen: View = stored()
 let cache: { key: string; view: View } | null = null
 const listeners = new Set<() => void>()
+/** While a page's first visit "loads" (`holdLoading`): its own skeleton, then the chosen state. */
+let held = false
+let heldTimer: number | undefined
 
 /** The stored choice, overridden by the query of the current address. */
 export function getView(): View {
@@ -216,10 +219,12 @@ export function getView(): View {
   const staat = q.get("staat")
   const rol = q.get("rol")
   const affiliate = q.get("affiliate")
-  const key = `${chosen.staat}|${chosen.rol}|${chosen.affiliate}|${staat}|${rol}|${affiliate}`
+  const key = `${chosen.staat}|${chosen.rol}|${chosen.affiliate}|${staat}|${rol}|${affiliate}|${held}`
   if (cache?.key === key) return cache.view
+  const asked = isStaat(staat) ? staat : chosen.staat
   const view: View = {
-    staat: isStaat(staat) ? staat : chosen.staat,
+    // A state linked or chosen as laden or fout is shown as it is; the others load first.
+    staat: held && asked !== "fout" ? "laden" : asked,
     rol: isRol(rol) ? rol : chosen.rol,
     affiliate: isAff(affiliate) ? affiliate : chosen.affiliate
   }
@@ -245,7 +250,11 @@ export function useView(): View {
 
 /** Remember a new choice and drop the query that would override it. */
 export function setView(next: Partial<View>) {
+  // What the person sees without a first visit's hold: that `laden` is never remembered as a choice.
+  const wasHeld = held
+  held = false
   chosen = { ...getView(), ...next }
+  held = wasHeld
   try {
     window.localStorage.setItem(KEY, JSON.stringify(chosen))
   } catch {
@@ -255,6 +264,21 @@ export function setView(next: Partial<View>) {
   for (const k of ["staat", "rol", "affiliate"]) url.searchParams.delete(k)
   window.history.replaceState(null, "", url.pathname + url.search + url.hash)
   for (const listener of listeners) listener()
+}
+
+/**
+ * How the reference arrives (`shell/loading.tsx`): fixtures are on screen the moment the route matches,
+ * which would hide every loading state the product has. A page's first visit holds the view at
+ * `laden` for a moment, so its own skeleton shows, then lets go.
+ */
+export function holdLoading(ms: number) {
+  window.clearTimeout(heldTimer)
+  held = true
+  for (const listener of listeners) listener()
+  heldTimer = window.setTimeout(() => {
+    held = false
+    for (const listener of listeners) listener()
+  }, ms)
 }
 
 /**

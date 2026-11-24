@@ -1,100 +1,45 @@
-import { useEffect, useId, useRef, useState } from "react"
+import { useId, useState } from "react"
+import { plainOf } from "../ask/answer-text.tsx"
+import { MagnusThread } from "../ask/thread-view.tsx"
+import { allChats, findChat, useStartedChats, useThread } from "../ask/thread.ts"
 import { ASSISTANT } from "../assistant.ts"
 import { deleteChat, renameChat, useDemo } from "../demo.ts"
-import { CHATS } from "../fixtures/assistant.ts"
-import type { Chat, FollowUp, Proposal, Turn } from "../fixtures/assistant.ts"
-import { DEMO_NOW, WORKSPACE } from "../fixtures/workspace.ts"
+import type { Chat } from "../fixtures/assistant.ts"
+import { WORKSPACE } from "../fixtures/workspace.ts"
 import { Link, navigate, paths } from "../router.tsx"
 import { BarActions } from "../shell/bar-slot.tsx"
 import { Button, IconButton } from "../ui/button.tsx"
-import { Composer } from "../ui/composer.tsx"
 import { AlertDialog } from "../ui/dialog.tsx"
 import { DropdownItem, DropdownMenu, DropdownSeparator } from "../ui/dropdown.tsx"
 import { Copy, Edit, History, MessageSquare, MoreHorizontal, Share, Trash } from "../ui/icons.tsx"
 import { Input } from "../ui/input.tsx"
 import { Popover } from "../ui/popover.tsx"
-import type { ProposalState } from "../ui/proposal.tsx"
 import { copyText, SharePanel } from "../ui/share.tsx"
 import { toast } from "../ui/toast.tsx"
-import { MagnusMessage, MyMessage, ProposalCard, Thinking } from "./chat-parts.tsx"
 import { SoonScreen } from "./soon.tsx"
-
-type Entry =
-  | { readonly kind: "turn"; readonly turn: Turn }
-  | { readonly kind: "proposal"; readonly id: string; readonly proposal: Proposal }
-
-/** New turns are stamped on the demo clock (14:30), not the wall clock, so the thread stays one afternoon. */
-const now = () => DEMO_NOW.clock
 
 /**
  * A conversation with Magnus: the owner's screen, rebuilt. The thread sits at a reading measure in
- * the middle of the work surface, the composer stays at the foot. Follow-ups act: a question gets its
- * scripted answer, an action brings a proposal that waits for Uitvoeren.
+ * the middle of the work surface, the composer stays at the foot. A typed question is answered from
+ * the workspace by what it asks (`ask/scripts.ts`); follow-ups act: a question gets its answer, an
+ * action brings a proposal that waits for Uitvoeren and changes the workspace, with undo.
  */
 export function ChatScreen({ chatId }: { readonly chatId: string }) {
-  const chat = CHATS.find((c) => c.id === chatId)
+  useStartedChats()
+  const chat = findChat(chatId)
   const demo = useDemo()
-  const [entries, setEntries] = useState<ReadonlyArray<Entry>>(() =>
-    (chat?.turns ?? []).map((turn) => ({ kind: "turn", turn }))
-  )
-  const [states, setStates] = useState<Readonly<Record<string, ProposalState>>>({})
-  const [used, setUsed] = useState<ReadonlySet<string>>(new Set())
-  const [thinking, setThinking] = useState(false)
-  const end = useRef<HTMLDivElement>(null)
-  const timer = useRef<number | undefined>(undefined)
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-  useEffect(() => {
-    if (entries.length > (chat?.turns.length ?? 0) || thinking) {
-      end.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-    }
-  }, [entries.length, thinking, chat?.turns.length])
+  const thread = useThread(chatId)
 
   if (chat === undefined) return <SoonScreen section="magnus" page={chatId} />
   const title = demo.chatTitles[chat.id] ?? chat.title
   const transcript = () =>
-    entries.map((entry) =>
+    thread.entries.map((entry) =>
       entry.kind === "proposal"
         ? `Voorstel: ${entry.proposal.title}`
         : entry.turn.from === "me"
         ? `Jij (${entry.turn.at}): ${entry.turn.text}`
-        : `${ASSISTANT} (${entry.turn.at}): ${entry.turn.paragraphs.join(" ").replaceAll("**", "")}`
+        : `${ASSISTANT} (${entry.turn.at}): ${plainOf(entry.turn.paragraphs.join(" "))}`
     ).join("\n\n")
-
-  const reply = (turn: Turn) => {
-    setThinking(true)
-    timer.current = window.setTimeout(() => {
-      setThinking(false)
-      // A scripted answer is stamped when it arrives, so it never reads as older than the question.
-      setEntries((list) => [...list, { kind: "turn", turn: { ...turn, at: now() } }])
-    }, 900)
-  }
-
-  const onFollowUp = (followUp: FollowUp) => {
-    setUsed((set) => new Set(set).add(followUp.id))
-    setEntries((list) => [...list, { kind: "turn", turn: { from: "me", at: now(), text: followUp.label } }])
-    if (followUp.kind === "proposal") {
-      setThinking(true)
-      timer.current = window.setTimeout(() => {
-        setThinking(false)
-        setEntries((list) => [...list, { kind: "proposal", id: followUp.id, proposal: followUp.proposal }])
-      }, 700)
-      return
-    }
-    const answer = chat.answers?.[followUp.id]
-    if (answer !== undefined) reply(answer)
-  }
-
-  const onSend = (text: string) => {
-    setEntries((list) => [...list, { kind: "turn", turn: { from: "me", at: now(), text } }])
-    reply({
-      from: "magnus",
-      at: now(),
-      paragraphs: [
-        `Dit is de demo: ${ASSISTANT} antwoordt hier alleen op de vervolgstappen hierboven. In het product leest hij daarvoor je bestellingen, tickets en leveranciers, en zegt hij welke.`
-      ]
-    })
-  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -104,39 +49,7 @@ export function ChatScreen({ chatId }: { readonly chatId: string }) {
       </BarActions>
       <h1 className="sr-only">{title}</h1>
       <h2 className="sr-only">Gesprek</h2>
-
-      <div className="pane-scroll min-h-0 flex-1">
-        <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-7 px-4 pt-8 pb-10 sm:px-6">
-          {entries.map((entry, i) =>
-            entry.kind === "proposal"
-              ? (
-                <div key={`p-${entry.id}`} className="pl-10">
-                  <ProposalCard
-                    proposal={entry.proposal}
-                    state={states[entry.id] ?? "open"}
-                    onChange={(next) => setStates((s) => ({ ...s, [entry.id]: next }))}
-                  />
-                </div>
-              )
-              : entry.turn.from === "me"
-              ? <MyMessage key={i} at={entry.turn.at} text={entry.turn.text} />
-              : <MagnusMessage key={i} turn={entry.turn} used={used} onFollowUp={onFollowUp} />
-          )}
-          {thinking && <Thinking />}
-          <div ref={end} />
-        </div>
-      </div>
-
-      <div className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-5">
-        <div className="mx-auto w-full max-w-[44rem]">
-          <Composer
-            label={`Bericht aan ${ASSISTANT}`}
-            placeholder={`Vertel ${ASSISTANT} wat de volgende stap is`}
-            context={chat.id === "terugbetalingen" ? ["Terugbetalingen per product"] : []}
-            onSend={onSend}
-          />
-        </div>
-      </div>
+      <MagnusThread chatId={chat.id} context={chat.id === "terugbetalingen" ? ["Terugbetalingen per product"] : []} />
     </div>
   )
 }
@@ -189,7 +102,7 @@ function ChatActions({ chat, title, transcript }: {
           <div className="flex flex-col gap-1 p-1.5">
             <h2 className="px-2 pt-1.5 pb-1 text-xs font-medium text-ink-3">Eerdere gesprekken</h2>
             <ul className="flex flex-col">
-              {CHATS.filter((c) => !demo.deletedChats.includes(c.id)).map((c) => (
+              {allChats().filter((c) => !demo.deletedChats.includes(c.id)).map((c) => (
                 <li key={c.id}>
                   <Link
                     to={paths.chat(c.id)}

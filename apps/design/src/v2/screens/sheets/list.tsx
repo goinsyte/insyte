@@ -9,7 +9,7 @@ import { Button, IconButton } from "../../ui/button.tsx"
 import { RadioGroup } from "../../ui/checkbox.tsx"
 import { Dialog } from "../../ui/dialog.tsx"
 import { DropdownItem, DropdownLabel, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
-import { Archive, Folder, MoreHorizontal, Pin, Plus, Sheet as SheetGlyph, Undo, Users } from "../../ui/icons.tsx"
+import { Archive, Copy, Folder, MoreHorizontal, Pin, Plus, Sheet as SheetGlyph, Undo, Users } from "../../ui/icons.tsx"
 import { Field, Input, SearchField, Select } from "../../ui/input.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
@@ -18,7 +18,16 @@ import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dataState, setView, useView } from "../../view.ts"
-import { createFolder, createSheet, patchSheet, useFolders, useSheets } from "./store.ts"
+import {
+  createFolder,
+  createSheet,
+  duplicateSheet,
+  patchSheet,
+  removeCreated,
+  toggleShare,
+  useFolders,
+  useSheets
+} from "./store.ts"
 import type { Start } from "./store.ts"
 
 type View = "alle" | "vastgezet" | "gedeeld" | "archief"
@@ -269,7 +278,54 @@ function SheetTable({ sheets, canEdit }: { readonly sheets: ReadonlyArray<Sheet>
                             {f.name}
                           </DropdownItem>
                         ))}
+                        {s.owner === "elena" && (
+                          <>
+                            <DropdownSeparator />
+                            <DropdownLabel>Delen met</DropdownLabel>
+                            {(["sofia", "ethan", "liam", "maya"] as const).map((who) => (
+                              <DropdownItem
+                                key={who}
+                                checked={s.shared.includes(who)}
+                                onSelect={() => {
+                                  const on = s.shared.includes(who)
+                                  const first = PEOPLE[who].name.split(" ")[0] ?? ""
+                                  toggleShare(s, who)
+                                  toast({
+                                    title: on ? `Niet meer gedeeld met ${first}` : `Gedeeld met ${first}`,
+                                    body: on ? undefined : "Kan bekijken en bewerken.",
+                                    action: {
+                                      label: "Ongedaan maken",
+                                      onClick: () => patchSheet(s.id, { shared: s.shared })
+                                    }
+                                  })
+                                }}
+                              >
+                                {PEOPLE[who].name}
+                              </DropdownItem>
+                            ))}
+                          </>
+                        )}
                         <DropdownSeparator />
+                        <DropdownItem
+                          glyph={Copy}
+                          onSelect={() => {
+                            const id = duplicateSheet(s)
+                            close()
+                            navigate(paths.sheet(id))
+                            toast({
+                              title: `‘${s.title} (kopie)’ gemaakt`,
+                              action: {
+                                label: "Ongedaan maken",
+                                onClick: () => {
+                                  removeCreated(id)
+                                  navigate(paths.sheets)
+                                }
+                              }
+                            })
+                          }}
+                        >
+                          Dupliceren
+                        </DropdownItem>
                         <DropdownItem
                           glyph={s.archived ? Undo : Archive}
                           onSelect={() => {
@@ -299,6 +355,12 @@ function SheetTable({ sheets, canEdit }: { readonly sheets: ReadonlyArray<Sheet>
   )
 }
 
+const NAMES: Readonly<Record<Start, string>> = {
+  winst: "Winst per dag",
+  kanalen: "Advertenties per kanaal",
+  leeg: "Naamloos blad"
+}
+
 function NewSheet({ open, onClose }: { readonly open: boolean; readonly onClose: () => void }) {
   const folders = useFolders()
   const [start, setStart] = useState<Start>("winst")
@@ -316,7 +378,7 @@ function NewSheet({ open, onClose }: { readonly open: boolean; readonly onClose:
             variant="primary"
             onClick={() => {
               const id = createSheet(
-                title.trim() || (start === "winst" ? "Winst per dag" : "Naamloos blad"),
+                title.trim() || NAMES[start],
                 folder === "" ? null : folder,
                 start
               )
@@ -338,7 +400,12 @@ function NewSheet({ open, onClose }: { readonly open: boolean; readonly onClose:
             {
               value: "winst",
               label: "Winst per dag",
-              description: "Omzet, inkoop, advertenties en nettowinst per dag van de week, uit Insyte."
+              description: "Omzet, inkoop, advertenties en nettowinst per dag, met de marge tegen je doel."
+            },
+            {
+              value: "kanalen",
+              label: "Advertenties per kanaal",
+              description: "Wat Meta en Google per dag kostten, wat er binnenkwam en de ROAS."
             },
             { value: "leeg", label: "Leeg blad", description: "Typ zelf, of lees een cijfer met INSYTE()." }
           ]}
@@ -348,7 +415,7 @@ function NewSheet({ open, onClose }: { readonly open: boolean; readonly onClose:
             <Input
               {...control}
               value={title}
-              placeholder={start === "winst" ? "Winst per dag" : "Naamloos blad"}
+              placeholder={NAMES[start]}
               onChange={(event) => setTitle(event.target.value)}
             />
           )}

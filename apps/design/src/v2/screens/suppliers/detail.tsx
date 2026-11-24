@@ -1,5 +1,16 @@
 import { useState } from "react"
 import { APPROVALS } from "../../fixtures/home.ts"
+import {
+  CHECK_KIND,
+  CHECK_STATUS,
+  COMPLAINT_THRESHOLD,
+  percent,
+  productRows,
+  STOCK,
+  supplierQuality,
+  useProductState
+} from "../../fixtures/products.ts"
+import type { ProductRow } from "../../fixtures/products.ts"
 import { customer, euro, ORDER_STATUS, product, when } from "../../fixtures/records.ts"
 import type { Order } from "../../fixtures/records.ts"
 import {
@@ -16,12 +27,32 @@ import type { SupplierRow, Via } from "../../fixtures/suppliers.ts"
 import { PEOPLE } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
+import { copyAndSay } from "../../ui/acts.ts"
 import { Status } from "../../ui/badge.tsx"
 import { Button, ButtonLink, IconButton } from "../../ui/button.tsx"
 import { AlertDialog } from "../../ui/dialog.tsx"
 import { DropdownItem, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
-import { Eye, Factory, Mail, MoreHorizontal, Pause, Play, Send, UserX } from "../../ui/icons.tsx"
+import {
+  ClipboardCheck,
+  Copy,
+  Edit,
+  Eye,
+  Factory,
+  Mail,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Plug,
+  Receipt,
+  RefreshCcw,
+  Send,
+  Truck,
+  UserX,
+  XCircle
+} from "../../ui/icons.tsx"
+import { Field, Input } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
+import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
 import { EmptyState } from "../../ui/states.tsx"
@@ -29,8 +60,9 @@ import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented, Toggle, ToggleRow } from "../../ui/toggle.tsx"
 import { dataState, useView } from "../../view.ts"
+import { askRestock } from "../products/restock.ts"
 import { WaitingProposal } from "../waiting-proposal.tsx"
-import { MailDialog, withUndo } from "./dialogs.tsx"
+import { MailDialog, SupplierFormDialog, withUndo } from "./dialogs.tsx"
 import { Figures, PageError, RecordSkeleton, Side } from "./parts.tsx"
 
 /**
@@ -44,7 +76,8 @@ export function SupplierDetail({ id }: { readonly id: string }) {
   const st = useSupplierState()
   const access = useAccess("suppliers")
   const state = dataState(view)
-  const [dialog, setDialog] = useState<"mail" | "revoke" | null>(null)
+  const ps = useProductState()
+  const [dialog, setDialog] = useState<"mail" | "revoke" | "edit" | "unlink" | null>(null)
   const row = findSupplier(id, view, st)
 
   if (!access.view) {
@@ -86,6 +119,11 @@ export function SupplierDetail({ id }: { readonly id: string }) {
   }
 
   const owner = PEOPLE[row.owner]
+  const products = productRows(view, ps).filter((p) => p.supplierId === row.id)
+  const low = products.filter((p) =>
+    p.status === "actief" && p.level !== "op-voorraad" && ps.restock[p.id] === undefined
+  )
+  const quality = supplierQuality(row.id, ps)
   const proposal = row.id === "kestrel-goods" ? APPROVALS.find((a) => a.id === KESTREL_PROPOSAL) : undefined
   const late = row.late.toSorted((a, b) => a.placedAt.getTime() - b.placedAt.getTime())
   const invited = row.portal === "uitgenodigd"
@@ -93,7 +131,7 @@ export function SupplierDetail({ id }: { readonly id: string }) {
     withUndo(
       paused ? `${row.name} gepauzeerd` : `${row.name} hervat`,
       paused ? "Nieuwe bestellingen wachten tot je ze hervat; wat al onderweg is, gaat door." : undefined,
-      (s) => ({ edits: { ...s.edits, [row.id]: { ...s.edits[row.id], paused } } })
+      (s) => ({ ...s, edits: { ...s.edits, [row.id]: { ...s.edits[row.id], paused } } })
     )
 
   return (
@@ -123,6 +161,7 @@ export function SupplierDetail({ id }: { readonly id: string }) {
                   </IconButton>
                 )}
               >
+                <DropdownItem glyph={Edit} onSelect={() => setDialog("edit")}>Bewerken</DropdownItem>
                 <DropdownItem glyph={Eye} onSelect={() => navigate(paths.supplierPortal())}>
                   Bekijken zoals zij het zien
                 </DropdownItem>
@@ -193,7 +232,13 @@ export function SupplierDetail({ id }: { readonly id: string }) {
               label: "Te laat",
               value: <span className={late.length > 0 ? "text-bad-ink" : undefined}>{late.length}</span>
             },
-            { label: "Producten", value: row.products.length }
+            {
+              label: "Klachten",
+              note: "90 dagen",
+              value: quality.sold === 0
+                ? "—"
+                : <span className={quality.over ? "text-warn-ink" : undefined}>{percent(quality.rate, 1)}</span>
+            }
           ]}
         />
       )}
@@ -241,41 +286,83 @@ export function SupplierDetail({ id }: { readonly id: string }) {
           <PageSection
             id="producten"
             title="Producten"
-            meta={row.products.length === 0 ? undefined : String(row.products.length)}
+            meta={products.length === 0 ? undefined : String(products.length)}
+            actions={access.edit && products.length > 0
+              ? low.length > 0
+                ? (
+                  <Button size="sm" icon={<Truck />} onClick={() => askRestock(low)}>
+                    {low.length} bijbestellen
+                  </Button>
+                )
+                : <span className="text-xs text-ink-3">Niets bij te bestellen</span>
+              : undefined}
           >
-            {row.products.length === 0
+            {products.length === 0
               ? (
                 <p className="text-sm text-ink-3">
                   Nog geen producten gekoppeld. Dat doe je per product, of na het accepteren van de uitnodiging.
                 </p>
               )
-              : (
-                <Table label={`Producten van ${row.name}`} minWidth={440}>
-                  <THead>
-                    <Th>Product</Th>
-                    <Th align="right">Inkoop</Th>
-                    <Th align="right">Prijs</Th>
-                    <Th align="right">Voorraad</Th>
-                  </THead>
-                  <TBody>
-                    {row.products.map((p) => (
-                      <Tr key={p.id} onOpen={() => navigate(paths.product(p.id))}>
-                        <Td header>
-                          <Link to={paths.product(p.id)} className="hover:underline">{p.name}</Link>
-                        </Td>
-                        <Td figure align="right" muted>{euro(p.cost)}</Td>
-                        <Td figure align="right">{euro(p.price)}</Td>
-                        <Td figure align="right" className={p.stock < 40 ? "text-warn-ink" : undefined}>
-                          {p.stock.toLocaleString("nl-NL")}
-                        </Td>
-                      </Tr>
-                    ))}
-                  </TBody>
-                </Table>
+              : <ProductTable rows={products} label={`Producten van ${row.name}`} restock={ps.restock} />}
+          </PageSection>
+
+          <PageSection
+            id="kwaliteit"
+            title="Kwaliteit"
+            meta={quality.sold === 0 ? undefined : "laatste 90 dagen"}
+          >
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-pretty text-ink-2">
+                {quality.sold === 0
+                  ? "Nog niets verkocht om klachten tegen af te zetten."
+                  : (
+                    <>
+                      <span className={`figure ${quality.over ? "text-warn-ink" : "text-ink"}`}>
+                        {percent(quality.rate, 1)}
+                      </span>{" "}
+                      klachten op {quality.sold.toLocaleString("nl-NL")} verkocht
+                      {quality.over ? `, boven de grens van ${percent(COMPLAINT_THRESHOLD)}` : ""}.
+                    </>
+                  )} {quality.judged === 0
+                  ? "Nog geen controles beoordeeld."
+                  : `${quality.passed} van ${quality.judged} controles goedgekeurd.`}
+              </p>
+              {quality.open.length > 0 && (
+                <List label={`Lopende controles bij ${row.name}`}>
+                  {quality.open.map(({ check, product: p }) => (
+                    <ListRow
+                      key={check.id}
+                      padded={false}
+                      href={`${paths.product(p.id)}?tab=kwaliteit&controle=${check.id}`}
+                      lead={
+                        <GlyphTile size={30}>
+                          <ClipboardCheck />
+                        </GlyphTile>
+                      }
+                      title={`${CHECK_KIND[check.kind]} · ${p.name}`}
+                      meta={check.status === "ingestuurd"
+                        ? `Ingestuurd ${check.submission?.at ?? ""}, wacht op jouw oordeel`
+                        : `Gevraagd ${check.requestedAt}, uiterlijk ${check.due}`}
+                      trail={
+                        <Status
+                          tone={check.late === true && check.status === "aangevraagd"
+                            ? "bad"
+                            : CHECK_STATUS[check.status].tone}
+                        >
+                          {check.late === true && check.status === "aangevraagd"
+                            ? "Te laat"
+                            : CHECK_STATUS[check.status].label}
+                        </Status>
+                      }
+                    />
+                  ))}
+                </List>
               )}
+            </div>
           </PageSection>
 
           <Portal row={row} canEdit={access.edit} onRevoke={() => setDialog("revoke")} />
+          <ApiSection row={row} canEdit={access.edit} onUnlink={() => setDialog("unlink")} />
         </div>
 
         <aside className="flex min-w-0 flex-col gap-8">
@@ -293,6 +380,16 @@ export function SupplierDetail({ id }: { readonly id: string }) {
             />
           </Side>
           <Routing row={row} canEdit={access.edit} />
+          {row.portal === "actief" && row.scopes.includes("statements") && (
+            <Side id="afrekeningen" title="Afrekeningen">
+              <div className="flex flex-col items-start gap-2">
+                <p className="text-sm text-ink-2">Per maand, regel voor regel, met een factuur.</p>
+                <ButtonLink size="sm" icon={<Receipt />} to={paths.supplierPortal("afrekeningen")}>
+                  Afrekeningen bekijken
+                </ButtonLink>
+              </div>
+            </Side>
+          )}
         </aside>
       </div>
 
@@ -311,6 +408,28 @@ export function SupplierDetail({ id }: { readonly id: string }) {
           }
           : {})}
       />
+      <SupplierFormDialog open={dialog === "edit"} onClose={() => setDialog(null)} row={row} />
+      <AlertDialog
+        open={dialog === "unlink"}
+        onCancel={() => setDialog(null)}
+        onConfirm={() => {
+          setDialog(null)
+          withUndo(
+            `API van ${row.name} ontkoppeld`,
+            row.via === "api" ? "Bestellingen gaan nu per e-mail." : undefined,
+            (s) => ({
+              ...s,
+              edits: {
+                ...s.edits,
+                [row.id]: { ...s.edits[row.id], api: null, via: row.via === "api" ? "email" : row.via }
+              }
+            })
+          )
+        }}
+        title={`API van ${row.name} ontkoppelen?`}
+        body="Hun sleutel werkt direct niet meer. Bestellingen gaan per e-mail, en voorraad en track & trace komen niet meer vanzelf binnen."
+        confirmLabel="Ontkoppelen"
+      />
       <AlertDialog
         open={dialog === "revoke"}
         onCancel={() => setDialog(null)}
@@ -320,6 +439,7 @@ export function SupplierDetail({ id }: { readonly id: string }) {
             `Toegang van ${row.name} ingetrokken`,
             "Hun link werkt niet meer. Bestellingen gaan nu per e-mail.",
             (s) => ({
+              ...s,
               edits: {
                 ...s.edits,
                 [row.id]: { ...s.edits[row.id], portal: "geen", via: row.via === "portaal" ? "email" : row.via }
@@ -376,6 +496,219 @@ function OrderTable({ orders, supplierId, label, showDays = false }: {
   )
 }
 
+function ProductTable({ rows, label, restock }: {
+  readonly rows: ReadonlyArray<ProductRow>
+  readonly label: string
+  readonly restock: Readonly<Record<string, string>>
+}) {
+  return (
+    <Table label={label} minWidth={480}>
+      <THead>
+        <Th>Product</Th>
+        <Th align="right">Inkoop</Th>
+        <Th align="right">Prijs</Th>
+        <Th align="right">Voorraad</Th>
+      </THead>
+      <TBody>
+        {rows.map((p) => (
+          <Tr key={p.id} onOpen={() => navigate(paths.product(p.id))}>
+            <Td header>
+              <span className="flex min-w-0 flex-col">
+                <Link to={paths.product(p.id)} className="hover:underline">{p.name}</Link>
+                {restock[p.id] !== undefined && (
+                  <Link to={paths.ticket(restock[p.id] ?? "")} className="text-2xs text-ink-3 hover:underline">
+                    Bijbestelling gevraagd, ticket #{restock[p.id]}
+                  </Link>
+                )}
+              </span>
+            </Td>
+            <Td figure align="right" muted>{euro(p.cost)}</Td>
+            <Td figure align="right">{euro(p.price)}</Td>
+            <Td
+              figure
+              align="right"
+              className={p.level === "op" ? "text-bad-ink" : p.level === "laag" ? "text-warn-ink" : undefined}
+            >
+              {p.stock === 0 ? STOCK.op.label : p.stock.toLocaleString("nl-NL")}
+            </Td>
+          </Tr>
+        ))}
+      </TBody>
+    </Table>
+  )
+}
+
+/** A key their system signs its calls with: shown once, then only its last characters are known. */
+function newKey() {
+  const bytes = new Uint8Array(18)
+  crypto.getRandomValues(bytes)
+  return `isk_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`
+}
+
+const HTTPS = /^https:\/\/[^\s/]+\.[^\s/]+/
+
+/**
+ * Their API (`/app`'s supplier screen): where orders go as JSON and how it last answered, with a
+ * test, a new key and disconnecting. Connecting asks for the address and shows the key once, to pass
+ * on to whoever sets up their side.
+ */
+function ApiSection({ row, canEdit, onUnlink }: {
+  readonly row: SupplierRow
+  readonly canEdit: boolean
+  readonly onUnlink: () => void
+}) {
+  const [testing, setTesting] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [url, setUrl] = useState("https://")
+  const [tried, setTried] = useState(false)
+  const [key, setKey] = useState<string | null>(null)
+  const api = row.api
+  const who = row.contact === "—" ? row.name : row.contact
+  const invalid = !HTTPS.test(url.trim())
+
+  const test = () => {
+    setTesting(true)
+    window.setTimeout(() => {
+      setTesting(false)
+      const ping = 140 + Math.round(Math.random() * 120)
+      withUndo(`${row.name} is bereikbaar · ${ping} ms`, undefined, (s) => ({
+        ...s,
+        edits: { ...s.edits, [row.id]: { ...s.edits[row.id], api: { url: api?.url ?? "", ping, tested: "zojuist" } } }
+      }))
+    }, 800)
+  }
+  const connect = () => {
+    setTried(true)
+    if (invalid) return
+    withUndo(`API van ${row.name} gekoppeld`, "Test de verbinding zodra hun kant de sleutel heeft.", (s) => ({
+      ...s,
+      edits: { ...s.edits, [row.id]: { ...s.edits[row.id], api: { url: url.trim() } } }
+    }))
+    setConnecting(false)
+    setKey(newKey())
+  }
+
+  return (
+    <PageSection
+      id="api"
+      title="API"
+      meta={api === undefined ? undefined : <Status tone="good">Gekoppeld</Status>}
+      actions={canEdit && api !== undefined
+        ? (
+          <span className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" icon={<RefreshCcw />} loading={testing} onClick={test}>
+              Verbinding testen
+            </Button>
+            <DropdownMenu
+              label="Meer over de API"
+              placement="bottom-end"
+              trigger={(props) => (
+                <IconButton {...props} label="Meer over de API" tone="canvas">
+                  <MoreHorizontal />
+                </IconButton>
+              )}
+            >
+              <DropdownItem
+                glyph={Plug}
+                onSelect={() => {
+                  setKey(newKey())
+                  toast({ title: "Nieuwe sleutel gemaakt", body: "De oude werkt nog 24 uur.", tone: "good" })
+                }}
+              >
+                Opnieuw koppelen
+              </DropdownItem>
+              <DropdownItem glyph={XCircle} tone="danger" onSelect={onUnlink}>Ontkoppelen</DropdownItem>
+            </DropdownMenu>
+          </span>
+        )
+        : undefined}
+    >
+      <div className="flex flex-col gap-3">
+        {key !== null && (
+          <Notice tone="info" title="De sleutel voor hun kant" onDismiss={() => setKey(null)}>
+            <span className="flex flex-col items-start gap-2">
+              <span>Geef {who} deze sleutel om hun systeem te koppelen. Je ziet hem maar één keer.</span>
+              <span className="w-full rounded-sm bg-canvas px-2.5 py-1.5 text-sm break-all text-ink">{key}</span>
+              <Button size="sm" icon={<Copy />} onClick={() => copyAndSay(key, "Sleutel")}>Kopiëren</Button>
+            </span>
+          </Notice>
+        )}
+        {api !== undefined
+          ? (
+            <>
+              <KeyValue
+                items={[
+                  { label: "Adres", value: <span className="break-all">{api.url}</span> },
+                  {
+                    label: "Verbinding",
+                    value: api.ping === undefined
+                      ? <span className="text-ink-3">Nog niet getest</span>
+                      : (
+                        <span className={api.ping > 1000 ? "text-warn-ink" : undefined}>
+                          {api.ping > 1000 ? "Traag" : "Bereikbaar"} · {api.ping.toLocaleString("nl-NL")} ms
+                          {api.tested === undefined ? "" : <span className="text-ink-3">, {api.tested}</span>}
+                        </span>
+                      )
+                  }
+                ]}
+              />
+              <p className="text-xs text-pretty text-ink-3">
+                Bestellingen gaan als JSON naar dit adres. {row.name}{" "}
+                meldt acceptatie, problemen, track & trace en voorraad terug met hun sleutel.
+              </p>
+            </>
+          )
+          : connecting
+          ? (
+            <div className="flex flex-col gap-3">
+              <Field
+                label="Adres voor bestellingen"
+                hint={`Het adres waar het systeem van ${row.name} bestellingen ontvangt.`}
+                error={tried && invalid ? "Een https-adres, zoals https://orders.example.com/insyte" : undefined}
+              >
+                {(control) => (
+                  <Input
+                    {...control}
+                    type="url"
+                    value={url}
+                    placeholder="https://"
+                    onChange={(e) => setUrl(e.target.value)}
+                  />
+                )}
+              </Field>
+              <span className="flex gap-2">
+                <Button variant="primary" size="sm" onClick={connect}>Koppelen</Button>
+                <Button variant="ghost" size="sm" onClick={() => setConnecting(false)}>Annuleren</Button>
+              </span>
+            </div>
+          )
+          : (
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-pretty text-ink-3">
+                {row.name}{" "}
+                is niet via een API gekoppeld. Met een koppeling gaan bestellingen direct naar hun systeem, en komen
+                voorraad en track & trace vanzelf terug.
+              </p>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  icon={<Plug />}
+                  onClick={() => {
+                    setUrl("https://")
+                    setTried(false)
+                    setConnecting(true)
+                  }}
+                >
+                  API koppelen
+                </Button>
+              )}
+            </div>
+          )}
+      </div>
+    </PageSection>
+  )
+}
+
 /** How orders reach them: the portal, an e-mail per order, or their API; and whether it goes on its own. */
 function Routing({ row, canEdit }: { readonly row: SupplierRow; readonly canEdit: boolean }) {
   const options: ReadonlyArray<{ value: Via; label: string }> = [
@@ -404,6 +737,7 @@ function Routing({ row, canEdit }: { readonly row: SupplierRow; readonly canEdit
           value={row.via}
           onChange={(via) =>
             withUndo(`Bestellingen voor ${row.name} gaan nu via ${VIA[via].toLowerCase()}`, undefined, (s) => ({
+              ...s,
               edits: { ...s.edits, [row.id]: { ...s.edits[row.id], via } }
             }))}
           options={options}
@@ -423,14 +757,13 @@ function Routing({ row, canEdit }: { readonly row: SupplierRow; readonly canEdit
                 auto ? "Bestellingen gaan automatisch door" : "Je keurt bestellingen eerst goed",
                 undefined,
                 (s) => ({
+                  ...s,
                   edits: { ...s.edits, [row.id]: { ...s.edits[row.id], auto } }
                 })
               )}
           />
         </label>
-        {!row.apiConnected && (
-          <p className="text-xs text-ink-3">Een API-koppeling zetten ze zelf op vanuit het portaal.</p>
-        )}
+        {!row.apiConnected && <p className="text-xs text-ink-3">Koppel eerst hun API om bestellingen zo te sturen.</p>}
       </div>
     </Side>
   )
@@ -444,6 +777,7 @@ function Portal({ row, canEdit, onRevoke }: {
 }) {
   const invite = () =>
     withUndo(`Uitnodiging verstuurd naar ${row.contact}`, `${row.email}, 14 dagen geldig.`, (s) => ({
+      ...s,
       edits: { ...s.edits, [row.id]: { ...s.edits[row.id], portal: "uitgenodigd" } }
     }))
   return (
@@ -501,6 +835,7 @@ function Portal({ row, canEdit, onRevoke }: {
                         : `${scope.label} uit voor ${row.name}`,
                       undefined,
                       (s) => ({
+                        ...s,
                         edits: {
                           ...s.edits,
                           [row.id]: {

@@ -1,7 +1,19 @@
 import { useState } from "react"
 import type { AreaDef } from "../../areas.ts"
-import { costOn, daysOf, figuresOf, KIND_LABEL, money, percent, PERIOD_LABEL } from "../../fixtures/costs.ts"
-import type { CostKind, CostLine, Day, Period } from "../../fixtures/costs.ts"
+import {
+  costInMonth,
+  costOn,
+  daysOf,
+  figuresOf,
+  KIND_LABEL,
+  money,
+  monthEditable,
+  monthFigures,
+  MONTHS,
+  percent,
+  PERIOD_LABEL
+} from "../../fixtures/costs.ts"
+import type { CostKind, CostLine, Day, Month, Period } from "../../fixtures/costs.ts"
 import { navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, useAccess } from "../../ui/access.tsx"
 import { Button, IconButton } from "../../ui/button.tsx"
@@ -64,7 +76,9 @@ function CostsScreen() {
   const edit = useAccess("settings").edit
   const state = dataState(useView())
   const lines = useLines()
-  const period = (useQuery("periode") === "vandaag" ? "vandaag" : "week") satisfies Period
+  const asked = useQuery("periode")
+  const monthly = asked === "maand"
+  const period = (asked === "vandaag" ? "vandaag" : "week") satisfies Period
   const [dialog, setDialog] = useState<CostLine | "new" | null>(null)
 
   if (!view.view) {
@@ -78,13 +92,14 @@ function CostsScreen() {
 
   const days = daysOf(period)
   const f = figuresOf(lines, days)
+  const m = monthFigures(lines, MONTHS)
   const sorted = ORDER.flatMap((k) => lines.filter((l) => l.kind === k))
 
   return (
     <Page>
       <PageHead
         title="Kosten"
-        meta={`Van omzet naar nettowinst · ${PERIOD_LABEL[period]} · bedragen excl. btw`}
+        meta={`Van omzet naar nettowinst · ${monthly ? "jun–nov 2026" : PERIOD_LABEL[period]} · bedragen excl. btw`}
         actions={state === "ready" && (
           <>
             <Button icon={<SheetGlyph />} onClick={() => navigate(paths.sheet("winst-per-dag"))}>Winst per dag</Button>
@@ -136,27 +151,47 @@ function CostsScreen() {
         : (
           <div className="flex min-w-0 flex-col gap-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <p className="max-w-[64ch] text-md text-pretty text-ink">
-                {period === "week" ? "Deze week" : "Vandaag tot 14:30"} hield de winkel{" "}
-                <span className="figure font-semibold">{money(f.net)}</span> over van{" "}
-                <span className="figure">{money(f.revenue)}</span> omzet,{" "}
-                <span className="figure">{percent(f.margin)}</span>.{" "}
-                <span className="text-ink-2">
-                  Inkoop was <span className="figure">{percent(f.purchase / f.revenue)}</span>{" "}
-                  van de omzet, advertenties <span className="figure">{percent(f.ads / f.revenue)}</span>, een ROAS van
-                  {" "}
-                  <span className="figure">{f.roas.toLocaleString("nl-NL", { maximumFractionDigits: 1 })}</span>.
-                </span>
-              </p>
+              {monthly
+                ? (
+                  <p className="max-w-[64ch] text-md text-pretty text-ink">
+                    Sinds juni hield de winkel <span className="figure font-semibold">{money(m.net)}</span> over van
+                    {" "}
+                    <span className="figure">{money(m.revenue)}</span> omzet,{" "}
+                    <span className="figure">{percent(m.margin)}</span>.{" "}
+                    <span className="text-ink-2">
+                      November loopt nog. Klik op een vast bedrag om te typen wat die maand echt kostte.
+                    </span>
+                  </p>
+                )
+                : (
+                  <p className="max-w-[64ch] text-md text-pretty text-ink">
+                    {period === "week" ? "Deze week" : "Vandaag tot 14:30"} hield de winkel{" "}
+                    <span className="figure font-semibold">{money(f.net)}</span> over van{" "}
+                    <span className="figure">{money(f.revenue)}</span> omzet,{" "}
+                    <span className="figure">{percent(f.margin)}</span>.{" "}
+                    <span className="text-ink-2">
+                      Inkoop was <span className="figure">{percent(f.purchase / f.revenue)}</span>{" "}
+                      van de omzet, advertenties{" "}
+                      <span className="figure">{percent(f.ads / f.revenue)}</span>, een ROAS van{" "}
+                      <span className="figure">{f.roas.toLocaleString("nl-NL", { maximumFractionDigits: 1 })}</span>.
+                    </span>
+                  </p>
+                )}
               <Segmented
                 label="Periode"
-                value={period}
+                value={monthly ? "maand" : period}
                 onChange={(next) => setQuery({ periode: next === "week" ? null : next })}
-                options={[{ value: "week", label: "16–22 nov" }, { value: "vandaag", label: "Vandaag" }]}
+                options={[
+                  { value: "week", label: "16–22 nov" },
+                  { value: "vandaag", label: "Vandaag" },
+                  { value: "maand", label: "Per maand" }
+                ]}
               />
             </div>
 
-            <CostTable lines={sorted} days={days} canEdit={edit} onEdit={setDialog} />
+            {monthly
+              ? <MonthTable lines={sorted} canEdit={edit} onEdit={setDialog} />
+              : <CostTable lines={sorted} days={days} canEdit={edit} onEdit={setDialog} />}
 
             <PageSection id="bronnen" title="Waar de cijfers vandaan komen">
               <ul className="flex max-w-[68ch] flex-col gap-2 text-sm text-pretty text-ink-2">
@@ -254,6 +289,151 @@ function CostTable({ lines, days, canEdit, onEdit }: {
         ))}
       </TBody>
     </Table>
+  )
+}
+
+/**
+ * Per maand: every line by month since June, with Omzet, Alle kosten, Nettowinst and Marge under
+ * them. A fixed amount or a typed ad budget can be typed over for one month, right in its cell.
+ */
+function MonthTable({ lines, canEdit, onEdit }: {
+  readonly lines: ReadonlyArray<CostLine>
+  readonly canEdit: boolean
+  readonly onEdit: (l: CostLine) => void
+}) {
+  const per = MONTHS.map((mo) => monthFigures(lines, [mo]))
+  const all = monthFigures(lines, MONTHS)
+  const totals: ReadonlyArray<readonly [string, (i: number | null) => string, boolean]> = [
+    ["Omzet", (i) => amount(i === null ? all.revenue : (per[i]?.revenue ?? 0)), false],
+    ["Alle kosten", (i) => amount(i === null ? all.costs : (per[i]?.costs ?? 0)), false],
+    ["Nettowinst", (i) => amount(i === null ? all.net : (per[i]?.net ?? 0)), true],
+    ["Marge", (i) => percent(i === null ? all.margin : (per[i]?.margin ?? 0)), false]
+  ]
+  return (
+    <Table label="Kosten per maand" minWidth={1000}>
+      <THead>
+        <Th width="18rem">Post</Th>
+        {MONTHS.map((mo) => <Th key={mo.key} align="right">{mo.running ? `${mo.label} · loopt` : mo.label}</Th>)}
+        <Th align="right">Totaal</Th>
+        <Th width="3rem">
+          <span className="sr-only">Bewerken</span>
+        </Th>
+      </THead>
+      <TBody>
+        {lines.map((l) => (
+          <Tr key={l.id}>
+            <Td header>
+              <span className="flex items-center gap-2.5 py-1.5">
+                <AdLogo line={l} />
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium text-ink">{l.name}</span>
+                  <span className="text-xs text-ink-3">{KIND_LABEL[l.kind]} · {basis(l)}</span>
+                </span>
+              </span>
+            </Td>
+            {MONTHS.map((mo) => (
+              <Td key={mo.key} figure muted>
+                {canEdit && monthEditable(l) ? <AmountCell line={l} month={mo} /> : amount(costInMonth(l, mo))}
+              </Td>
+            ))}
+            <Td figure className="font-medium text-ink">
+              {amount(MONTHS.reduce((n, mo) => n + costInMonth(l, mo), 0))}
+            </Td>
+            <Td align="right">
+              {canEdit && typed(l) && (
+                <IconButton
+                  label={`${l.name} bewerken`}
+                  size="sm"
+                  className="pointer-coarse:size-11"
+                  onClick={() => onEdit(l)}
+                >
+                  <Edit />
+                </IconButton>
+              )}
+            </Td>
+          </Tr>
+        ))}
+        {totals.map(([label, at, strong], row) => (
+          <Tr key={label} className={cx(row === 0 && "border-t-2 border-t-line-strong")}>
+            <Td header>
+              <span className={cx(strong ? "font-semibold text-ink" : "font-medium text-ink-2")}>{label}</span>
+            </Td>
+            {MONTHS.map((mo, i) => (
+              <Td key={mo.key} figure className={cx(strong ? "font-semibold text-ink" : "text-ink-2")}>{at(i)}</Td>
+            ))}
+            <Td figure className={cx(strong ? "font-semibold text-ink" : "font-medium text-ink-2")}>{at(null)}</Td>
+            <Td />
+          </Tr>
+        ))}
+      </TBody>
+    </Table>
+  )
+}
+
+/**
+ * One month of one line, typed in place: click to type, Enter saves, Esc leaves it, empty goes back to
+ * the line's own amount. A typed month shows in the ink colour; each change has an undo.
+ */
+function AmountCell({ line, month }: { readonly line: CostLine; readonly month: Month }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const own = line.months?.[month.key]
+  const shown = costInMonth(line, month)
+  const label = `${line.name}, ${month.label}`
+  const save = () => {
+    if (draft === null) return
+    const raw = draft.trim()
+    setDraft(null)
+    const n = Number(raw.replace(/[€\s.]/g, "").replace(",", "."))
+    if (raw !== "" && (!Number.isFinite(n) || n < 0)) {
+      toast({ title: "Dat is geen bedrag", body: "Typ een bedrag, zoals 450 of 1.120,50.", tone: "bad" })
+      return
+    }
+    const next = raw === "" ? undefined : Math.round(n * 100) / 100
+    if (next === own) return
+    const before = line.months ?? {}
+    const { [month.key]: _old, ...rest } = before
+    updateLine(line.id, { months: next === undefined ? rest : { ...before, [month.key]: next } })
+    toast({
+      title: next === undefined
+        ? `${label}: terug naar ${money(line.amount)}`
+        : `${label}: ${money(next, next % 1 !== 0)}`,
+      body: next === undefined ? undefined : "Alleen voor deze maand. De andere maanden blijven zoals ze waren.",
+      action: { label: "Ongedaan maken", onClick: () => updateLine(line.id, { months: before }) }
+    })
+  }
+  if (draft !== null) {
+    return (
+      <input
+        aria-label={label}
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- the cell was just clicked to type in it
+        autoFocus
+        inputMode="decimal"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") save()
+          if (event.key === "Escape") {
+            event.preventDefault()
+            setDraft(null)
+          }
+        }}
+        className="figure h-7 w-24 rounded-xs bg-canvas px-1.5 text-right text-sm text-ink ring-1 ring-accent outline-none"
+      />
+    )
+  }
+  return (
+    <button
+      type="button"
+      aria-label={`${label}: ${amount(shown)}, typ wat het kostte`}
+      onClick={() => setDraft(own === undefined ? "" : String(own).replace(".", ","))}
+      className={cx(
+        "figure -mx-1.5 rounded-xs px-1.5 py-0.5 hover:bg-hover hover:text-ink",
+        own !== undefined && "font-medium text-ink"
+      )}
+    >
+      {amount(shown)}
+    </button>
   )
 }
 

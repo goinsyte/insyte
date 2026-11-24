@@ -54,6 +54,14 @@ export const PORTAL_SCOPES: ReadonlyArray<
   }
 ]
 
+/** Their system's order endpoint: where orders go as JSON, and how it last answered. */
+export type ApiLink = {
+  readonly url: string
+  /** The last test's round trip in ms; absent while it was never tested. */
+  readonly ping?: number
+  readonly tested?: string
+}
+
 type Extra = {
   readonly contact: string
   /** Who on the team follows this supplier up. */
@@ -67,6 +75,7 @@ type Extra = {
   readonly scopes: ReadonlyArray<string>
   readonly supplies: string
   readonly invitedAt?: string
+  readonly api?: ApiLink
 }
 
 const ALL_SCOPES = PORTAL_SCOPES.map((s) => s.id)
@@ -81,7 +90,8 @@ const EXTRA: Readonly<Record<string, Extra>> = {
     via: "api",
     auto: true,
     scopes: ALL_SCOPES,
-    supplies: "Fleece, sweaters en basics"
+    supplies: "Fleece, sweaters en basics",
+    api: { url: "https://api.allurefulfillment.com/v2/orders/inbound", ping: 182, tested: "vandaag 09:12" }
   },
   "dpc-apparel": {
     contact: "Inês Carvalho",
@@ -103,7 +113,8 @@ const EXTRA: Readonly<Record<string, Extra>> = {
     via: "api",
     auto: true,
     scopes: ALL_SCOPES,
-    supplies: "Jassen en tassen"
+    supplies: "Jassen en tassen",
+    api: { url: "https://orders.kestrelgoods.co/hooks/insyte", ping: 1840, tested: "gisteren 17:40" }
   },
   "black-cedar-studio": {
     contact: "Joris de Graaf",
@@ -145,6 +156,14 @@ const FALLBACK: Extra = {
 /* ── the demo's own changes ────────────────────────────────────────────────────────────────────── */
 
 export type SupplierEdit = {
+  readonly name?: string
+  readonly email?: string
+  /** Empty clears it. */
+  readonly phone?: string
+  readonly supplies?: string
+  readonly promiseDays?: number
+  /** null: the API was disconnected in the demo. */
+  readonly api?: ApiLink | null
   readonly paused?: boolean
   readonly portal?: PortalStatus
   readonly invitedTo?: string
@@ -153,18 +172,20 @@ export type SupplierEdit = {
   readonly scopes?: ReadonlyArray<string>
 }
 
-export type SupplierState = { readonly edits: Readonly<Record<string, SupplierEdit>> }
+/** A supplier added in the demo, with what the form asks. */
+export type NewSupplier = Supplier & { readonly supplies: string }
 
-let state: SupplierState = { edits: {} }
+export type SupplierState = {
+  readonly edits: Readonly<Record<string, SupplierEdit>>
+  readonly created: ReadonlyArray<NewSupplier>
+}
+
+let state: SupplierState = { edits: {}, created: [] }
 const listeners = new Set<() => void>()
 
 export function setSupplierState(next: (s: SupplierState) => SupplierState) {
   state = next(state)
   for (const l of listeners) l()
-}
-
-export function editSupplier(id: string, patch: SupplierEdit) {
-  setSupplierState((s) => ({ edits: { ...s.edits, [id]: { ...s.edits[id], ...patch } } }))
 }
 
 export function useSupplierState(): SupplierState {
@@ -190,14 +211,23 @@ export type SupplierRow = Supplier & Extra & {
   readonly paused: boolean
 }
 
-function rowOf(s: Supplier, st: SupplierState): SupplierRow {
+function rowOf(s: Supplier, st: SupplierState, supplies?: string): SupplierRow {
   const e = st.edits[s.id] ?? {}
-  const x = EXTRA[s.id] ?? FALLBACK
+  const x = EXTRA[s.id] ?? { ...FALLBACK, ...(supplies === undefined ? {} : { supplies }) }
   const orders = supplierOrders(s.id)
   const portal = e.portal ?? x.portal
+  const api = e.api === null ? undefined : e.api ?? x.api
+  const phone = e.phone === undefined ? s.phone : e.phone.trim() === "" ? undefined : e.phone
   return {
     ...s,
     ...x,
+    name: e.name ?? s.name,
+    email: e.email ?? s.email,
+    phone,
+    supplies: e.supplies ?? x.supplies,
+    promiseDays: e.promiseDays ?? s.promiseDays,
+    api,
+    apiConnected: api !== undefined,
     status: e.paused === true ? "gepauzeerd" : s.status,
     portal,
     via: e.via ?? x.via,
@@ -228,11 +258,13 @@ const BUSY: ReadonlyArray<Supplier> = Array.from({ length: 12 }, (_, i): Supplie
 
 export function supplierRows(view: View, st: SupplierState = state): ReadonlyArray<SupplierRow> {
   if (view.staat === "leeg") return []
-  const rows = SUPPLIERS.map((s) => rowOf(s, st))
+  const rows = [...SUPPLIERS.map((s) => rowOf(s, st)), ...st.created.map((s) => rowOf(s, st, s.supplies))]
   return view.staat === "druk" ? [...rows, ...BUSY.map((s) => rowOf(s, st))] : rows
 }
 
 export function findSupplier(id: string, view: View, st: SupplierState = state): SupplierRow | undefined {
+  const made = st.created.find((x) => x.id === id)
+  if (made !== undefined) return rowOf(made, st, made.supplies)
   const s = supplier(id) ?? (view.staat === "druk" ? BUSY.find((x) => x.id === id) : undefined)
   return s === undefined ? undefined : rowOf(s, st)
 }

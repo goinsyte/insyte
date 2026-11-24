@@ -329,3 +329,475 @@ export const FIRST_WEEK: ReadonlyArray<
     glyph: Inbox
   }
 ]
+
+/* ── a proposal drawn again (R on Start): the agent's next version of the same draft ────────────── */
+
+/**
+ * What an agent writes when it is asked to draw a proposal again: the same decision, said another
+ * way. Start cycles through these, the fixture's own draft first.
+ */
+export const REDRAFTS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  "korting-5146": [
+    "Hoi Luca, sorry: je bestelling #5309 had er al vier dagen moeten zijn. PostNL bezorgt hem morgen tussen 10:00 en 13:00. Als excuus: met SORRY10 krijg je 10% korting op je volgende bestelling.",
+    "Beste Luca, je bestelling #5309 is vertraagd en dat had niet mogen gebeuren. Morgen staat PostNL voor je deur. Gebruik SORRY10 bij je volgende bestelling voor 10% korting."
+  ],
+  "omruil-5321": [
+    "Hoi Astrid, dank voor je retour. Zal ik de Aurora voor je omruilen naar maat M? Hij ligt klaar en gaat morgen op de post; het label voor de S zit bij deze mail.",
+    "Hoi Astrid, de Aurora valt klein, dat horen we vaker. Maat M is op voorraad: zeg ja en we sturen hem morgen, met een gratis retourlabel voor de S."
+  ],
+  "mail-kestrel": [
+    "Beste Kestrel Goods, we wachten nog op antwoord over zes zendingen; de oudste is acht dagen onderweg. Wilt u vandaag voor 16:00 per zending de status en de nieuwe verzenddatum sturen? Dan kunnen wij onze klanten informeren.",
+    "Goedemiddag, zes van onze zendingen zijn langer dan vijf dagen onderweg, de oudste acht. Graag vandaag voor 16:00 per zending een status en een nieuwe datum. Lukt dat niet, bel dan even met Elena Hart."
+  ]
+}
+
+/* ── Mijn werk: everything that is yours to do, from across Insyte ────────────────────────────── */
+
+/** The kinds of dated things on Start (Mijn werk, Agenda, the board's "Agenda vandaag"). */
+export type MomentKind =
+  | "wachtrij"
+  | "ticket"
+  | "leverancier"
+  | "chargeback"
+  | "retour"
+  | "uitnodiging"
+  | "taak"
+  | "automatisering"
+  | "overzicht"
+  | "afspraak"
+  | "rapport"
+  | "uitbetaling"
+
+export const KIND_LABEL: Readonly<Record<MomentKind, string>> = {
+  wachtrij: "Wachtrij",
+  ticket: "Ticket",
+  leverancier: "Leverancier",
+  chargeback: "Chargeback",
+  retour: "Retour",
+  uitnodiging: "Uitnodiging",
+  taak: "Taak",
+  automatisering: "Automatisering",
+  overzicht: "Overzicht",
+  afspraak: "Afspraak",
+  rapport: "Rapport",
+  uitbetaling: "Uitbetaling"
+}
+
+/**
+ * One thing on Mijn werk. `day` is days after the demo's Monday (−1 is yesterday, so late); without
+ * it the item has no date. A proposal is not ticked here: deciding it is Start's, so its row opens it
+ * there. `doneAt` is set for what was already done today.
+ */
+export type WorkSeed = {
+  readonly id: string
+  readonly kind: MomentKind
+  readonly title: string
+  readonly record?: string
+  readonly where: string
+  readonly href: string
+  readonly day?: number
+  readonly time?: string
+  readonly doneAt?: string
+}
+
+/** What Mijn werk holds beyond Start's queue and the tickets assigned to you. */
+export const WORK_SEEDS: ReadonlyArray<WorkSeed> = [
+  {
+    id: "w-maya",
+    kind: "uitnodiging",
+    title: "Uitnodiging van Maya Roy opvolgen",
+    where: "Team",
+    href: "/v2/instellingen/team",
+    day: -1
+  },
+  {
+    id: "w-r881",
+    kind: "retour",
+    title: "Retour beoordelen voor Astrid Berg",
+    record: "R-881",
+    where: "Retouren",
+    href: "/v2/retouren/r-881",
+    day: 0,
+    time: "18:00"
+  },
+  {
+    id: "w-kestrel-bel",
+    kind: "leverancier",
+    title: "Kestrel Goods bellen over de Cascade Puffer",
+    where: "Leveranciers",
+    href: "/v2/leveranciers/kestrel-goods",
+    day: 1,
+    time: "10:00"
+  },
+  {
+    id: "w-cb2302",
+    kind: "chargeback",
+    title: "Verweer voor de PayPal-chargeback nalezen",
+    where: "Chargebacks",
+    href: "/v2/chargebacks",
+    day: 2,
+    time: "11:00"
+  },
+  {
+    id: "w-bf",
+    kind: "taak",
+    title: "Black Friday-kortingen controleren in Shopify",
+    where: "Producten",
+    href: "/v2/producten",
+    day: 3
+  },
+  {
+    id: "w-maand",
+    kind: "taak",
+    title: "Kosten van november naar de boekhouder",
+    where: "Kosten",
+    href: "/v2/kosten",
+    day: 8
+  },
+  {
+    id: "w-sale",
+    kind: "taak",
+    title: "Prijzen van de Sale-collectie nagekeken",
+    where: "Producten",
+    href: "/v2/producten",
+    day: 0,
+    doneAt: "11:20"
+  }
+]
+
+/** Your own list (the board's "Je lijst" and Mijn werk's quick add), as it stands this morning. */
+export const TODO_SEEDS: ReadonlyArray<{ readonly id: string; readonly text: string; readonly day?: number }> = [
+  { id: "t-foto", text: "Nieuwe foto's van de Field Pant Stone aanvragen" },
+  { id: "t-retourbeleid", text: "Retourbeleid nalezen voor de feestdagen", day: 1 },
+  { id: "t-allure", text: "Allure bellen over de maattabel", day: 4 }
+]
+
+/* ── the Agenda: every deadline and scheduled thing on one clock ──────────────────────────────── */
+
+export type Tone = "bad" | "warn" | "accent" | "good" | "neutral"
+
+export type Moment = {
+  readonly id: string
+  readonly kind: MomentKind
+  /** Days after the demo's Monday, and the time ("16:00"); all-day moments have no time. */
+  readonly day: number
+  readonly time?: string
+  readonly minutes: number
+  readonly title: string
+  readonly detail?: string
+  readonly tone: Tone
+  readonly href: string
+  /** The queue row it belongs to: opening it selects that row on Overzicht. */
+  readonly queueId?: string
+}
+
+/** The week of 23 November, from yesterday's report to Saturday's payout. */
+export const MOMENTS: ReadonlyArray<Moment> = [
+  {
+    id: "m-week",
+    kind: "rapport",
+    day: -1,
+    time: "20:00",
+    minutes: 15,
+    title: "Weekrapport 16–22 nov",
+    tone: "neutral",
+    href: "/v2/analyse/week"
+  },
+  {
+    id: "m-sync",
+    kind: "automatisering",
+    day: 0,
+    time: "07:00",
+    minutes: 15,
+    title: "Voorraad gelijkgezet met Shopify",
+    tone: "neutral",
+    href: "/v2/automatiseringen"
+  },
+  {
+    id: "m-digest-0",
+    kind: "overzicht",
+    day: 0,
+    time: "09:00",
+    minutes: 15,
+    title: "Ochtendoverzicht verstuurd",
+    tone: "neutral",
+    href: "/v2/start/meldingen"
+  },
+  {
+    id: "m-kestrel-mail",
+    kind: "leverancier",
+    day: 0,
+    time: "10:15",
+    minutes: 20,
+    title: "Mail aan Kestrel Goods",
+    detail: "6 zendingen langer dan 5 dagen onderweg",
+    tone: "neutral",
+    href: "/v2/leveranciers/kestrel-goods"
+  },
+  {
+    id: "m-inbox",
+    kind: "wachtrij",
+    day: 0,
+    time: "14:30",
+    minutes: 30,
+    title: "3 tickets wachten langer dan 4 uur",
+    tone: "bad",
+    href: "/v2/inbox",
+    queueId: "inbox"
+  },
+  {
+    id: "m-kestrel-2",
+    kind: "wachtrij",
+    day: 0,
+    time: "15:00",
+    minutes: 30,
+    title: "Tweede mail aan Kestrel Goods",
+    detail: "Kantoor sluit om 16:00",
+    tone: "warn",
+    href: "/v2",
+    queueId: "mail-kestrel"
+  },
+  {
+    id: "m-korting",
+    kind: "wachtrij",
+    day: 0,
+    time: "16:00",
+    minutes: 30,
+    title: "Kortingscode voor Luca Romano",
+    detail: "Bestelling #5309 is 4 dagen te laat",
+    tone: "warn",
+    href: "/v2",
+    queueId: "korting-5146"
+  },
+  {
+    id: "m-dpd",
+    kind: "ticket",
+    day: 0,
+    time: "17:00",
+    minutes: 30,
+    title: "DPD sluit claims voor Hannah Schmidt",
+    detail: "Ticket #5141",
+    tone: "bad",
+    href: "/v2/inbox/5141",
+    queueId: "dpd"
+  },
+  {
+    id: "m-omruil",
+    kind: "wachtrij",
+    day: 0,
+    time: "18:00",
+    minutes: 30,
+    title: "Omruiling voor Astrid Berg",
+    tone: "warn",
+    href: "/v2",
+    queueId: "omruil-5321"
+  },
+  {
+    id: "m-dagrapport",
+    kind: "rapport",
+    day: 0,
+    time: "18:00",
+    minutes: 15,
+    title: "Dagrapport naar het team",
+    tone: "neutral",
+    href: "/v2/analyse/week"
+  },
+  {
+    id: "m-payout-0",
+    kind: "uitbetaling",
+    day: 0,
+    minutes: 0,
+    title: "Uitbetaling Shopify Payments · € 18.420",
+    tone: "good",
+    href: "/v2/data"
+  },
+  {
+    id: "m-digest-1",
+    kind: "overzicht",
+    day: 1,
+    time: "09:00",
+    minutes: 15,
+    title: "Ochtendoverzicht",
+    tone: "neutral",
+    href: "/v2/start/meldingen"
+  },
+  {
+    id: "m-allure",
+    kind: "afspraak",
+    day: 1,
+    time: "10:00",
+    minutes: 30,
+    title: "Gesprek met Allure Fulfillment",
+    detail: "De maattabel van de Aurora",
+    tone: "accent",
+    href: "/v2/leveranciers/allure-fulfillment"
+  },
+  {
+    id: "m-cb2291",
+    kind: "chargeback",
+    day: 1,
+    time: "12:00",
+    minutes: 30,
+    title: "Bewijs voor CB-2291 bij Klarna",
+    detail: "€ 129,00 · bewijspakket staat klaar",
+    tone: "bad",
+    href: "/v2/chargebacks/cb-2291",
+    queueId: "cb-2291"
+  },
+  {
+    id: "m-dpc",
+    kind: "leverancier",
+    day: 1,
+    time: "14:00",
+    minutes: 15,
+    title: "DPC Apparel draagt over aan PostNL",
+    tone: "neutral",
+    href: "/v2/leveranciers/dpc-apparel"
+  },
+  {
+    id: "m-digest-2",
+    kind: "overzicht",
+    day: 2,
+    time: "09:00",
+    minutes: 15,
+    title: "Ochtendoverzicht",
+    tone: "neutral",
+    href: "/v2/start/meldingen"
+  },
+  {
+    id: "m-cb2302",
+    kind: "chargeback",
+    day: 2,
+    time: "11:00",
+    minutes: 30,
+    title: "Verweer voor de PayPal-chargeback",
+    tone: "warn",
+    href: "/v2/chargebacks"
+  },
+  {
+    id: "m-kestrel-dhl",
+    kind: "leverancier",
+    day: 2,
+    time: "15:00",
+    minutes: 15,
+    title: "Kestrel Goods draagt over aan DHL",
+    tone: "neutral",
+    href: "/v2/leveranciers/kestrel-goods"
+  },
+  {
+    id: "m-digest-3",
+    kind: "overzicht",
+    day: 3,
+    time: "09:00",
+    minutes: 15,
+    title: "Ochtendoverzicht",
+    tone: "neutral",
+    href: "/v2/start/meldingen"
+  },
+  {
+    id: "m-bf-mail",
+    kind: "automatisering",
+    day: 3,
+    time: "20:00",
+    minutes: 15,
+    title: "Black Friday-mail via Klaviyo",
+    detail: "Naar 18.240 abonnees",
+    tone: "neutral",
+    href: "/v2/automatiseringen"
+  },
+  {
+    id: "m-bf",
+    kind: "taak",
+    day: 4,
+    minutes: 0,
+    title: "Black Friday: kortingen staan aan",
+    tone: "accent",
+    href: "/v2/producten"
+  },
+  {
+    id: "m-digest-4",
+    kind: "overzicht",
+    day: 4,
+    time: "09:00",
+    minutes: 15,
+    title: "Ochtendoverzicht",
+    tone: "neutral",
+    href: "/v2/start/meldingen"
+  },
+  {
+    id: "m-payout-5",
+    kind: "uitbetaling",
+    day: 5,
+    minutes: 0,
+    title: "Uitbetaling Klarna · € 4.910",
+    tone: "good",
+    href: "/v2/data"
+  }
+]
+
+/* ── where a figure comes from: the KPI breakdown ─────────────────────────────────────────────── */
+
+/** Today's first replies, the median per channel and per person; the figure is the median of all 41. */
+export const FIRST_REPLY = {
+  replies: 41,
+  byChannel: [
+    { label: "Winkelchat", value: 2 },
+    { label: "WhatsApp", value: 6 },
+    { label: "Instagram", value: 9 },
+    { label: "E-mail", value: 14 }
+  ],
+  byPerson: [
+    { label: "Waar is mijn bestelling", value: 1, count: 17 },
+    { label: "Sofía Kim", value: 8, count: 12 },
+    { label: "Ethan Jeppesen", value: 13, count: 9 },
+    { label: "Elena Hart", value: 22, count: 3 }
+  ]
+} as const
+
+/**
+ * What a refresh brings in: the orders placed since the page opened, one per refresh, excl. btw
+ * (as Omzet counts). Today's figures on Start grow by them; the breakdown names them.
+ */
+export const ARRIVALS: ReadonlyArray<{ readonly amount: number; readonly what: string; readonly from: string }> = [
+  { amount: 65, what: "Aurora Hooded Fleece", from: "Haarlem" },
+  { amount: 40, what: "Drift Crewneck", from: "Amsterdam" },
+  { amount: 98, what: "Harbor Raincoat", from: "Rotterdam" },
+  { amount: 32, what: "Sailor Stripe Tee", from: "Gent" }
+]
+
+/* ── the board's other cards, where no area keeps the figure ──────────────────────────────────── */
+
+/** The records you opened last (the board's "Recent"). */
+export const RECENT: ReadonlyArray<
+  { readonly label: string; readonly kind: string; readonly at: string; readonly href: string }
+> = [
+  { label: "Ticket #5141", kind: "Pakket kwijt bij DPD", at: "14:21", href: "/v2/inbox/5141" },
+  { label: "Kestrel Goods", kind: "Leverancier", at: "13:58", href: "/v2/leveranciers/kestrel-goods" },
+  { label: "Aurora Hooded Fleece", kind: "Product", at: "12:40", href: "/v2/producten/aurora-hooded-fleece" },
+  { label: "CB-2291", kind: "Chargeback", at: "11:05", href: "/v2/chargebacks/cb-2291" },
+  { label: "Bestelling #5309", kind: "Bestelling", at: "10:47", href: "/v2/bestellingen/5309" }
+]
+
+/** What you pinned (the board's "Bladwijzers"). */
+export const BOOKMARKS: ReadonlyArray<{ readonly label: string; readonly detail: string; readonly href: string }> = [
+  {
+    label: "Vertraagde bestellingen",
+    detail: "Bestellingen · opgeslagen weergave",
+    href: "/v2/bestellingen?status=vertraagd"
+  },
+  { label: "Week 16–22 nov", detail: "Analyse · bord", href: "/v2/analyse/week" },
+  { label: "Allure Fulfillment", detail: "Leverancier", href: "/v2/leveranciers/allure-fulfillment" },
+  { label: "Retourbeleid", detail: "Instellingen", href: "/v2/instellingen/retouren" }
+]
+
+/** Orders this week by country, Monday 16 to today (the board's "Bestellingen per land"). */
+export const ORDERS_BY_COUNTRY: ReadonlyArray<{ readonly label: string; readonly value: number }> = [
+  { label: "Nederland", value: 612 },
+  { label: "België", value: 388 },
+  { label: "Duitsland", value: 142 },
+  { label: "Frankrijk", value: 61 },
+  { label: "Verenigde Staten", value: 87 }
+]
+
+/** The customer agent on the store chat today (the board's "Klantagent vandaag"). */
+export const CUSTOMER_AGENT_TODAY = { chats: 23, settled: 17, handedOver: 6, minutesSaved: 85 } as const

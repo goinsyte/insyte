@@ -1,17 +1,29 @@
 import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
+import { useStartedChats } from "../ask/thread.ts"
 import { useDemo } from "../demo.ts"
 import { STORES } from "../fixtures/workspace.ts"
 import { useRoute } from "../router.tsx"
 import { IconButton } from "../ui/button.tsx"
-import { Menu, X } from "../ui/icons.tsx"
-import { Toaster } from "../ui/toast.tsx"
+import { Menu, Pin, X } from "../ui/icons.tsx"
+import { toast, Toaster } from "../ui/toast.tsx"
+import { ShellBanners } from "./banners.tsx"
 import { AvatarMenu, NewMenu, NotificationsButton, SearchButton } from "./bar-actions.tsx"
 import { BarSlot } from "./bar-slot.tsx"
+import { ProposalsChip, SyncStatus } from "./bar-status.tsx"
+import { CustomiseDialog } from "./customise.tsx"
+import { useShellKeys } from "./keys.ts"
+import { ProgressLine } from "./loading.tsx"
+import { MagnusDrawer } from "./magnus-drawer.tsx"
+import { PageGuide } from "./page-guide.tsx"
+import { Palette, RECORD_KINDS } from "./palette.tsx"
 import { Rail } from "./rail.tsx"
-import { StoreSwitcher } from "./store-switcher.tsx"
+import { isPinned, pin, repin, unpin, useShellState, visit } from "./shell-state.ts"
+import { ShortcutsDialog } from "./shortcuts-dialog.tsx"
+import { StoreSwitcher, WorkspaceVeil } from "./store-switcher.tsx"
 import { SubPanel } from "./sub-panel.tsx"
 import { sectionOf, threadFor } from "./threads.ts"
+import type { ThreadItem } from "./threads.ts"
 import { Werkdraad } from "./werkdraad.tsx"
 
 const PANEL_KEY = "insyte:v2:panel"
@@ -39,6 +51,11 @@ function initialPanel(): boolean {
  * The store switcher and the rail form one dark L, joined by a concave corner. Below 768px the rail
  * and the menu move into a drawer behind the menu button, and the main bar keeps the werkdraad's
  * first item.
+ *
+ * Around that: the lines that say the console is not quite yours now (another role, support looking
+ * along), Magnus beside the work on the right (⌘J), the palette (⌘K), the shortcuts (?), G-keys,
+ * the rail's customisation, the page's guide, and a thin line across the top of the work while a
+ * page arrives. A record you open goes to Recent; the pin in the bar keeps it.
  */
 export function Shell({ children }: { readonly children: ReactNode }) {
   const { route, pathname } = useRoute()
@@ -51,7 +68,11 @@ export function Shell({ children }: { readonly children: ReactNode }) {
   const section = sectionOf(route)
   // Subscribed so a renamed chat renames its werkdraad too.
   useDemo()
+  // A chat started beside this page lands in its werkdraad (`threads.ts`), so listen for new ones.
+  useStartedChats()
   const thread = threadFor(route)
+  const head = thread.items[0]
+  useShellKeys()
   // An agent's page is two panes of its own (its chat, its job): the menu folds away there by itself,
   // as on the owner's screen, without touching what the person chose for every other page.
   const autoFold = route.name === "agent"
@@ -76,6 +97,14 @@ export function Shell({ children }: { readonly children: ReactNode }) {
     setDrawerOpen(false)
     setHere(null)
   }, [pathname])
+
+  // A record opened goes to the head of Recent, under the name the werkdraad gives it.
+  const recordKind = head !== undefined && RECORD_KINDS.has(head.kind) ? head.kind : null
+  const recordLabel = recordKind === null ? null : head?.label ?? null
+  useEffect(() => {
+    if (recordLabel === null || recordKind === null) return
+    visit({ href: pathname, label: recordLabel, kind: recordKind })
+  }, [pathname, recordLabel, recordKind])
 
   useEffect(() => {
     if (!drawerOpen) return
@@ -110,7 +139,12 @@ export function Shell({ children }: { readonly children: ReactNode }) {
             <Werkdraad thread={thread} />
           </div>
           <div className="col-start-3 flex items-center justify-end gap-0.5">
+            <span className="mr-1.5 flex min-w-0 items-center gap-1">
+              <SyncStatus />
+              <ProposalsChip />
+            </span>
             <div ref={setSlot} className="mr-2 hidden items-center gap-0.5 sm:flex empty:hidden" />
+            {recordLabel !== null && head !== undefined && <PinButton item={head} href={pathname} />}
             <span className="hidden sm:contents">
               <NewMenu />
             </span>
@@ -122,6 +156,8 @@ export function Shell({ children }: { readonly children: ReactNode }) {
           </div>
         </header>
       </div>
+
+      <ShellBanners />
 
       <div className="relative flex min-h-0 flex-1">
         <div className="hidden md:flex">
@@ -142,8 +178,10 @@ export function Shell({ children }: { readonly children: ReactNode }) {
           style={{ background: "radial-gradient(circle at 100% 100%, transparent 11.5px, var(--color-rail) 12px)" }}
         />
         <main id="main" className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+          <ProgressLine />
           <BarSlot value={slot}>{children}</BarSlot>
         </main>
+        <MagnusDrawer />
       </div>
 
       {drawerOpen && (
@@ -177,7 +215,44 @@ export function Shell({ children }: { readonly children: ReactNode }) {
           </div>
         </div>
       )}
+      <Palette />
+      <ShortcutsDialog />
+      <CustomiseDialog />
+      <WorkspaceVeil />
+      <PageGuide />
       <Toaster />
     </div>
+  )
+}
+
+/** The pin in the main bar: keep this record on Start and in the palette, or let it go again. */
+function PinButton({ item, href }: { readonly item: ThreadItem; readonly href: string }) {
+  const s = useShellState()
+  const on = isPinned(href, s)
+  return (
+    <IconButton
+      label={on ? `${item.label} losmaken` : `${item.label} vastzetten`}
+      pressed={on}
+      className="hidden sm:inline-flex"
+      onClick={() => {
+        if (on) {
+          const at = unpin(href)
+          const was = { href, label: item.label, kind: item.kind }
+          toast({
+            title: `${item.label} losgemaakt`,
+            action: { label: "Ongedaan maken", onClick: () => repin(was, at) }
+          })
+        } else {
+          pin({ href, label: item.label, kind: item.kind })
+          toast({
+            title: `${item.label} vastgezet`,
+            body: "Je vindt het op Start en in het zoekvenster.",
+            tone: "good"
+          })
+        }
+      }}
+    >
+      <Pin />
+    </IconButton>
   )
 }

@@ -1,6 +1,15 @@
 import { useSyncExternalStore } from "react"
 import { BUSY_TICKETS, TICKETS } from "../../fixtures/inbox.ts"
-import type { ChatMessage, Entry, PersonKey, Priority, StoreLine, Ticket, TicketStatus } from "../../fixtures/inbox.ts"
+import type {
+  ChatMessage,
+  Entry,
+  PersonKey,
+  Place,
+  Priority,
+  StoreLine,
+  Ticket,
+  TicketStatus
+} from "../../fixtures/inbox.ts"
 import { DEMO_NOW } from "../../fixtures/workspace.ts"
 import { useView } from "../../view.ts"
 
@@ -11,11 +20,15 @@ import { useView } from "../../view.ts"
  */
 
 type Patch = {
+  readonly subject?: string
   readonly status?: TicketStatus
   readonly priority?: Priority
   readonly assignee?: PersonKey | null
   readonly labels?: ReadonlyArray<string>
   readonly unread?: boolean
+  readonly starred?: boolean
+  readonly place?: Place
+  readonly with?: ReadonlyArray<PersonKey>
   /** Answered by us: the customer no longer waits. */
   readonly answered?: boolean
   readonly entries?: ReadonlyArray<Entry>
@@ -29,7 +42,19 @@ type State = {
   readonly readChats: ReadonlyArray<string>
   readonly storeLines: Readonly<Record<string, ReadonlyArray<StoreLine>>>
   readonly closedStoreChats: ReadonlyArray<string>
+  /** Who answers a store chat now, where a person took it over or gave it back to the agent. */
+  readonly storeChatOwner: Readonly<Record<string, PersonKey | "agent">>
+  /** Magnus's summaries asked for this visit, by ticket. */
+  readonly summaries: Readonly<Record<string, string>>
+  /** Where each command card in the team chat stands, by message. */
+  readonly actions: Readonly<Record<string, ActionState>>
 }
+
+/** A command card's state: waiting for a yes, run (with its undo until a time), taken back, or turned down. */
+export type ActionState =
+  | { readonly state: "bevestigen" | "voorgesteld" | "bezig" }
+  | { readonly state: "gedaan"; readonly by: string; readonly until: number; readonly undo?: () => void }
+  | { readonly state: "ongedaan" | "afgewezen"; readonly by: string }
 
 let state: State = {
   patches: {},
@@ -38,7 +63,10 @@ let state: State = {
   replies: {},
   readChats: [],
   storeLines: {},
-  closedStoreChats: []
+  closedStoreChats: [],
+  storeChatOwner: {},
+  summaries: {},
+  actions: {}
 }
 const listeners = new Set<() => void>()
 
@@ -122,6 +150,11 @@ export function createTicket(t: Omit<Ticket, "number">): string {
   return number
 }
 
+/** Take tickets made this visit back out (the undo of a ticket another area filed). */
+export function dropTickets(numbers: ReadonlyArray<string>) {
+  set((s) => ({ ...s, created: s.created.filter((t) => !numbers.includes(t.number)) }))
+}
+
 export function postChat(conversationId: string, message: ChatMessage) {
   set((s) => ({ ...s, chat: { ...s.chat, [conversationId]: [...(s.chat[conversationId] ?? []), message] } }))
 }
@@ -157,6 +190,24 @@ export function setStoreChatClosed(chatId: string, closed: boolean) {
       ? [...s.closedStoreChats.filter((c) => c !== chatId), chatId]
       : s.closedStoreChats.filter((c) => c !== chatId)
   }))
+}
+
+/** A record without one key, or with it set. */
+function put<V>(o: Readonly<Record<string, V>>, key: string, value: V | undefined): Readonly<Record<string, V>> {
+  const rest = Object.fromEntries(Object.entries(o).filter(([k]) => k !== key))
+  return value === undefined ? rest : { ...rest, [key]: value }
+}
+
+export function setStoreChatOwner(chatId: string, owner: PersonKey | "agent" | undefined) {
+  set((s) => ({ ...s, storeChatOwner: put(s.storeChatOwner, chatId, owner) }))
+}
+
+export function setSummary(number: string, text: string | undefined) {
+  set((s) => ({ ...s, summaries: put(s.summaries, number, text) }))
+}
+
+export function setAction(messageId: string, next: ActionState) {
+  set((s) => ({ ...s, actions: { ...s.actions, [messageId]: next } }))
 }
 
 /** New lines are stamped on the demo clock, so the thread stays one afternoon. */

@@ -29,15 +29,21 @@ export type BlockSize = "lead" | "normal" | "compact"
 
 const CHART_HEIGHT: Record<BlockSize, number> = { lead: 280, normal: 200, compact: 140 }
 
-export function BlockView({ block, compareLabel, keyLabels, actions, onAsk, size = "normal", className }: {
-  readonly block: Block
-  readonly compareLabel: string
-  readonly keyLabels?: KeyLabels
-  readonly actions?: ReactNode
-  readonly onAsk?: (text: string) => void
-  readonly size?: BlockSize
-  readonly className?: string
-}) {
+export function BlockView(
+  { block, compareLabel, keyLabels, actions, onAsk, onPick, compare = true, size = "normal", className }: {
+    readonly block: Block
+    readonly compareLabel: string
+    readonly keyLabels?: KeyLabels
+    readonly actions?: ReactNode
+    readonly onAsk?: (text: string) => void
+    /** A figure, point, bar or row opens what is behind it (by its index); funnels and tables do not. */
+    readonly onPick?: (index: number) => void
+    /** Off when the period is compared with nothing: no change, no period-before marks. */
+    readonly compare?: boolean
+    readonly size?: BlockSize
+    readonly className?: string
+  }
+) {
   const ask = block.note === undefined || onAsk === undefined ? undefined : () => onAsk(block.title)
   const headingId = `blok-${block.id}`
   return (
@@ -56,7 +62,13 @@ export function BlockView({ block, compareLabel, keyLabels, actions, onAsk, size
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col justify-center">
-        <Body block={block} compareLabel={compareLabel} height={CHART_HEIGHT[size]} />
+        <Body
+          block={block}
+          compareLabel={compareLabel}
+          compare={compare}
+          height={CHART_HEIGHT[size]}
+          {...(onPick === undefined ? {} : { onPick })}
+        />
       </div>
 
       {block.note !== undefined && <NoteLine note={block.note} onAsk={ask} />}
@@ -65,7 +77,7 @@ export function BlockView({ block, compareLabel, keyLabels, actions, onAsk, size
         {hasKey(block) ?
           (
             <Key
-              compare={hasCompare(block)}
+              compare={compare && hasCompare(block)}
               labels={keyLabels}
               mark={block.kind === "line" ? "line" : block.kind === "rank" ? "rank" : "bar"}
               focus={hasFocus(block)}
@@ -78,20 +90,23 @@ export function BlockView({ block, compareLabel, keyLabels, actions, onAsk, size
   )
 }
 
-function Body({ block, compareLabel, height }: {
+function Body({ block, compareLabel, compare, height, onPick }: {
   readonly block: Block
   readonly compareLabel: string
+  readonly compare: boolean
   readonly height: number
+  readonly onPick?: (index: number) => void
 }) {
+  const pick = onPick === undefined ? {} : { onPick }
   switch (block.kind) {
     case "figures":
-      return <Figures figures={block.figures} compareLabel={compareLabel} />
+      return <Figures figures={block.figures} compareLabel={compareLabel} compare={compare} {...pick} />
     case "line":
-      return <LineChart data={block.data} note={block.note} height={height} />
+      return <LineChart data={block.data} note={block.note} height={height} {...pick} />
     case "bar":
-      return <BarChart data={block.data} note={block.note} height={height} />
+      return <BarChart data={block.data} note={block.note} height={height} {...pick} />
     case "rank":
-      return <RankChart data={block.data} note={block.note} />
+      return <RankChart data={block.data} note={block.note} {...pick} />
     case "funnel":
       return <Funnel data={block.data} />
     case "table":

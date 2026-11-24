@@ -1,7 +1,6 @@
-import { useEffect } from "react"
 import { ASK_ASSISTANT } from "../assistant.ts"
 import type { Glyph } from "../fixtures/agents.ts"
-import { Link, navigate, paths } from "../router.tsx"
+import { Link } from "../router.tsx"
 import { Avatar } from "../ui/avatar.tsx"
 import { cx } from "../ui/cx.ts"
 import {
@@ -22,6 +21,7 @@ import {
   Workflow
 } from "../ui/icons.tsx"
 import { MagnusMark } from "../ui/magnus-mark.tsx"
+import { askMagnus, useShellState } from "./shell-state.ts"
 import type { Thread, ThreadItem, ThreadKind } from "./threads.ts"
 
 const GLYPH: Partial<Record<ThreadKind, Glyph>> = {
@@ -47,12 +47,12 @@ const GLYPH: Partial<Record<ThreadKind, Glyph>> = {
  * short ruled thread, ending in "Vraag Magnus" with that context. On a narrow bar the related records
  * fold away first, then their clauses; the thing itself always stays.
  *
- * ⌘J (Ctrl+J) is "Vraag Magnus" from anywhere: with this screen's context, or, where the screen is
- * already a conversation, straight into its composer.
+ * "Vraag Magnus" (and ⌘J from anywhere, `keys.ts`) opens him beside the work with this screen as
+ * the context; pressed again, he closes.
  */
 export function Werkdraad({ thread }: { readonly thread: Thread }) {
   const [current, ...related] = thread.items
-  useAskShortcut(thread.ask)
+  const { drawer } = useShellState()
   if (current === undefined) return null
   return (
     <nav aria-label="Werkdraad" className="flex min-w-0 items-center">
@@ -79,16 +79,22 @@ export function Werkdraad({ thread }: { readonly thread: Thread }) {
       {thread.ask !== null && (
         <>
           <Joint />
-          <Link
-            to={paths.newChat(thread.ask)}
+          <button
+            type="button"
+            onClick={askMagnus}
+            aria-expanded={drawer}
+            aria-controls="magnus-drawer"
             aria-keyshortcuts="Meta+J Control+J"
             title={`${ASK_ASSISTANT} (⌘J)`}
-            className="flex shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-sm font-medium whitespace-nowrap text-ai-ink hover:bg-hover"
+            className={cx(
+              "flex shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-sm font-medium whitespace-nowrap text-ai-ink hover:bg-hover",
+              drawer && "bg-selected"
+            )}
           >
             <MagnusMark size={15} />
             <span className="hidden sm:inline">{ASK_ASSISTANT}</span>
             <span className="figure hidden text-2xs font-normal text-ink-3 xl:inline">⌘J</span>
-          </Link>
+          </button>
         </>
       )}
     </nav>
@@ -142,23 +148,4 @@ function Related({ item }: { readonly item: ThreadItem }) {
       )}
     </span>
   )
-}
-
-/** ⌘J / Ctrl+J: open a chat with this screen's context, or focus the composer that is already here. */
-function useAskShortcut(ask: string | null) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "j" || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
-      event.preventDefault()
-      if (ask !== null) {
-        navigate(paths.newChat(ask))
-        return
-      }
-      const field = document.querySelector<HTMLTextAreaElement>("#main form textarea")
-      if (field === null) navigate(paths.newChat())
-      else field.focus()
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [ask])
 }

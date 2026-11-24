@@ -5,10 +5,13 @@ import {
   busyTags,
   CARRIERS,
   changeDesk,
+  counted,
   deskOrders,
   isClosed,
+  isConcept,
   KNOWN_TAGS,
   money,
+  PAYMENTS,
   restoreDesk,
   setStatus,
   shipped,
@@ -19,23 +22,25 @@ import {
   units,
   useDesk
 } from "../../fixtures/order-desk.ts"
-import { customer, ORDER_STATUS, supplier, SUPPLIERS } from "../../fixtures/records.ts"
+import { customer, CUSTOMERS, ORDER_STATUS, product, PRODUCTS, supplier, SUPPLIERS } from "../../fixtures/records.ts"
 import type { Order, OrderStatus } from "../../fixtures/records.ts"
-import { STORES } from "../../fixtures/workspace.ts"
+import { ME, STORES } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Status, Tag } from "../../ui/badge.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
 import { Button, ButtonLink } from "../../ui/button.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
 import { AlertDialog } from "../../ui/dialog.tsx"
-import { AddFilter, ColumnPicker, FilterChip, ListToolbar, SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import type { ColumnOption, FilterField } from "../../ui/filters.tsx"
+import { emptyGroup } from "../../ui/filter-model.ts"
+import { ColumnPicker, FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
+import type { ColumnOption } from "../../ui/filters.tsx"
 import {
   AlertTriangle,
-  Building,
+  Check,
   Copy,
   Download,
-  Factory,
+  MessageSquare,
   Plus,
   Send,
   ShoppingBag,
@@ -52,9 +57,13 @@ import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import type { Sort } from "../../ui/table.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { dataState, useView } from "../../view.ts"
+import { fileSupplierTickets } from "../suppliers/tickets.ts"
 import { NewOrderDialog, TagDialog } from "./dialogs.tsx"
-import { copyText, exportCsv, LoadError, TableSkeleton, toggleQuery, undoable, useQueryList } from "./parts.tsx"
+import { filterRows, isoDay, manyField, rule, useListFilter, where } from "./list-filter.ts"
+import type { Address, ListField } from "./list-filter.ts"
+import { copyText, exportCsv, LoadError, TableSkeleton, undoable } from "./parts.tsx"
 
 /*
  * Bestellingen (`/app`'s `_admin/orders/index.tsx`, `orders-screen.tsx`): every order from 16 November
@@ -100,70 +109,84 @@ function choosePeriod(next: Period) {
   })
 }
 
-/* The filters: the address holds slugs, the chips and the menu show words. */
-type Field = FilterField & {
-  readonly values: Readonly<Record<string, string>>
-  readonly match: (o: Order, v: string) => boolean
+/*
+ * What the list can be cut by. The address keeps the cuts other screens link to: Start's statuses
+ * (`?status=vertraagd`), a supplier's orders (`?leverancier=kestrel-goods`), a customer's and a
+ * product's (`?klant=…`, `?product=…`).
+ */
+const STATUS_FIELD: ListField<Order> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: Object.values(ORDER_STATUS).map((s) => s.label),
+  get: (o) => ORDER_STATUS[o.status].label
 }
+const SUPPLIER_FIELD = manyField<Order>(
+  "leverancier",
+  "Leverancier",
+  SUPPLIERS.map((s) => s.name),
+  (o) => suppliersOf(o).map((s) => supplier(s)?.name ?? s)
+)
+const LABEL_FIELD = manyField<Order>("label", "Label", KNOWN_TAGS, (o) => o.tags)
+const TOTAL_FIELD: ListField<Order> = { key: "totaal", label: "Totaal", type: "number", get: (o) => o.total }
 
-const FIELDS: ReadonlyArray<Field> = [
-  {
-    key: "status",
-    label: "Status",
-    glyph: TagGlyph,
-    values: Object.fromEntries(Object.entries(ORDER_STATUS).map(([k, v]) => [k, v.label])),
-    options: Object.values(ORDER_STATUS).map((s) => s.label),
-    match: (o, v) => o.status === v
-  },
-  {
-    key: "leverancier",
-    label: "Leverancier",
-    glyph: Factory,
-    values: Object.fromEntries(SUPPLIERS.map((s) => [s.id, s.name])),
-    options: SUPPLIERS.map((s) => s.name),
-    match: (o, v) => suppliersOf(o).includes(v)
-  },
-  {
-    key: "vervoerder",
-    label: "Vervoerder",
-    glyph: Truck,
-    values: Object.fromEntries(CARRIERS.map((c) => [c.toLowerCase(), c])),
-    options: [...CARRIERS],
-    match: (o, v) => o.carrier.toLowerCase() === v
-  },
+const FIELDS: ReadonlyArray<ListField<Order>> = [
+  STATUS_FIELD,
+  SUPPLIER_FIELD,
+  { key: "vervoerder", label: "Vervoerder", type: "option", options: [...CARRIERS], get: (o) => o.carrier },
   {
     key: "winkel",
     label: "Winkel",
-    glyph: Building,
-    values: Object.fromEntries(STORES.filter((s) => s.connected).map((s) => [s.id, s.name])),
+    type: "option",
     options: STORES.filter((s) => s.connected).map((s) => s.name),
-    match: (o, v) => o.storeId === v
+    get: (o) => storeName(o.storeId)
   },
+  LABEL_FIELD,
+  manyField<Order>(
+    "product",
+    "Product",
+    PRODUCTS.map((p) => p.name),
+    (o) => [...new Set(o.lines.map((l) => product(l.productId)?.name ?? l.productId))]
+  ),
+  { key: "klant", label: "Klant", type: "text", get: (o) => customer(o.customerId)?.name ?? "" },
+  TOTAL_FIELD,
+  { key: "artikelen", label: "Artikelen", type: "number", get: units },
   {
-    key: "label",
-    label: "Label",
-    glyph: TagGlyph,
-    values: Object.fromEntries(KNOWN_TAGS.map((t) => [t, t])),
-    options: [...KNOWN_TAGS],
-    match: (o, v) => o.tags.includes(v)
-  }
+    key: "betaling",
+    label: "Betaalmethode",
+    type: "option",
+    options: [...PAYMENTS],
+    get: (o) => o.payment
+  },
+  { key: "geplaatst", label: "Geplaatst", type: "date", get: (o) => isoDay(o.placedAt) }
 ]
 
-const clear = () =>
-  setQuery({
-    q: null,
-    status: null,
-    leverancier: null,
-    vervoerder: null,
-    winkel: null,
-    label: null,
-    periode: null,
-    van: null,
-    tot: null,
-    pagina: null
-  })
+const ADDRESS: Address = {
+  params: [
+    {
+      param: "status",
+      field: "status",
+      values: Object.fromEntries(Object.entries(ORDER_STATUS).map(([k, v]) => [k, v.label]))
+    },
+    { param: "leverancier", field: "leverancier", values: Object.fromEntries(SUPPLIERS.map((s) => [s.id, s.name])) },
+    { param: "vervoerder", field: "vervoerder", values: Object.fromEntries(CARRIERS.map((c) => [c.toLowerCase(), c])) },
+    {
+      param: "winkel",
+      field: "winkel",
+      values: Object.fromEntries(STORES.filter((s) => s.connected).map((s) => [s.id, s.name]))
+    },
+    { param: "label", field: "label" },
+    { param: "product", field: "product", values: Object.fromEntries(PRODUCTS.map((p) => [p.id, p.name])) },
+    { param: "klant", field: "klant", values: Object.fromEntries(CUSTOMERS.map((c) => [c.id, c.name])) }
+  ]
+}
 
-const slugOf = (field: Field, label: string) => Object.entries(field.values).find(([, l]) => l === label)?.[0] ?? label
+const VIEWS = "bestellingen"
+seedViews(VIEWS, [
+  { name: "Te laat", pinned: false, filter: where("and", rule(STATUS_FIELD, "any", ["Vertraagd"])) },
+  { name: "Wacht op leverancier", pinned: false, filter: where("and", rule(STATUS_FIELD, "any", ["Bij leverancier"])) },
+  { name: "VIP", pinned: false, filter: where("and", rule(LABEL_FIELD, "any", ["vip"])) }
+])
 
 const COLUMNS: ReadonlyArray<ColumnOption> = [
   { key: "number", label: "Bestelling", locked: true },
@@ -188,6 +211,30 @@ function standing(orders: ReadonlyArray<Order>): string {
   } onderweg · ${late} vertraagd`
 }
 
+/** Moves orders to a status, with a line in their history and the way back. */
+const mark = (list: ReadonlyArray<Order>, status: OrderStatus, title: string, line: string) => {
+  const before = changeDesk((d) => setStatus(d, list.map((o) => o.number), status, () => line))
+  undoable(title, () => restoreDesk(before))
+}
+const orders = (list: ReadonlyArray<Order>) => counted(list.length, "bestelling", "bestellingen")
+const followUp = (list: ReadonlyArray<Order>) =>
+  fileSupplierTickets(
+    list.flatMap((o) =>
+      suppliersOf(o).map((s) => ({
+        supplierId: s,
+        subject: `Overdrachtsdatum bevestigen voor #${o.number}`,
+        note: `Vraag ${
+          supplier(s)?.name ?? "de leverancier"
+        } om de overdrachtsdatum en het track & trace-nummer van #${o.number}, en laat het daarna ${
+          busyName(o, false)
+        } weten.`,
+        priority: o.status === "vertraagd" ? "hoog" as const : "gemiddeld" as const,
+        customerId: o.customerId,
+        order: o.number
+      }))
+    )
+  )
+
 export function OrdersList() {
   const view = useView()
   const access = useAccess("orders")
@@ -198,13 +245,7 @@ export function OrdersList() {
   const q = useQuery("q") ?? ""
   const page = Math.max(1, Number(useQuery("pagina") ?? "1") || 1)
   const newOpen = useQuery("nieuw") === "1" && access.edit
-  const filters = {
-    status: useQueryList("status"),
-    leverancier: useQueryList("leverancier"),
-    vervoerder: useQueryList("vervoerder"),
-    winkel: useQueryList("winkel"),
-    label: useQueryList("label")
-  } as const
+  const [filter, setFilter] = useListFilter(VIEWS, FIELDS, ADDRESS)
   const [visible, setVisible] = useState<ReadonlySet<string>>(DEFAULT_COLUMNS)
   const [sort, setSort] = useState<{ readonly key: "placed" | "total"; readonly dir: Exclude<Sort, null> }>({
     key: "placed",
@@ -222,32 +263,16 @@ export function OrdersList() {
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/^#/, "")
-    const shown = inPeriod.filter((o) => {
-      if (needle !== "") {
-        const hay = `${o.number} ${busyName(o, busy)} ${customer(o.customerId)?.email ?? ""}`.toLowerCase()
-        if (!hay.includes(needle)) return false
-      }
-      return FIELDS.every((f) => {
-        const on = filters[f.key as keyof typeof filters]
-        return on.length === 0 || on.some((v) => f.match(o, v))
-      })
+    const shown = filterRows(inPeriod, filter, FIELDS, isoDay(TODAY)).filter((o) => {
+      if (needle === "") return true
+      const hay = `${o.number} ${busyName(o, busy)} ${customer(o.customerId)?.email ?? ""}`.toLowerCase()
+      return hay.includes(needle)
     })
     const dir = sort.dir === "asc" ? 1 : -1
     return shown.toSorted((a, b) =>
       sort.key === "total" ? (a.total - b.total) * dir : (a.placedAt.getTime() - b.placedAt.getTime()) * dir
     )
-    // The filter lists are new arrays per render; their joined values are what changes.
-  }, [
-    inPeriod,
-    q,
-    busy,
-    sort,
-    filters.status.join(),
-    filters.leverancier.join(),
-    filters.vervoerder.join(),
-    filters.winkel.join(),
-    filters.label.join()
-  ])
+  }, [inPeriod, q, busy, sort, filter])
 
   const last = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const at = Math.min(page, last)
@@ -255,11 +280,13 @@ export function OrdersList() {
   const picked = rows.filter((o) => selected.has(o.number))
   const allOn = pageRows.length > 0 && pageRows.every((o) => selected.has(o.number))
   const someOn = pageRows.some((o) => selected.has(o.number))
-  const active = FIELDS.flatMap((f) => filters[f.key as keyof typeof filters].map((v) => ({ field: f, value: v })))
-  const anyFilter = active.length > 0 || q !== "" || period.preset !== "alles"
   const show = (key: string) => visible.has(key)
   const toggleSort = (key: "placed" | "total") =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }))
+  const clear = () => {
+    setFilter(emptyGroup())
+    setQuery({ q: null, periode: null, van: null, tot: null, pagina: null })
+  }
 
   if (!access.view) {
     return (
@@ -319,92 +346,129 @@ export function OrdersList() {
     )
   }
 
-  const mark = (list: ReadonlyArray<Order>, status: OrderStatus, title: string, line: string) => {
-    const before = changeDesk((d) => setStatus(d, list.map((o) => o.number), status, () => line))
-    setSelected(new Set())
-    undoable(title, () => restoreDesk(before))
-  }
-  const late = picked.filter((o) => !isClosed(o) && o.status !== "vertraagd" && o.status !== "bezorgd")
-  const tracked = picked.filter((o) => shipped(o.status) && !isClosed(o))
-  const cancellable = picked.filter((o) => !isClosed(o) && !shipped(o.status))
+  const EDIT = { area: "orders", level: 2 } as const
+  /** One list for the bar, the Acties menu and the keys; each says which ticked orders it fits. */
+  const actions: ReadonlyArray<RowAction<Order>> = [
+    {
+      id: "label",
+      label: "Label toevoegen",
+      icon: <TagGlyph />,
+      bar: true,
+      shortcut: "l",
+      needs: EDIT,
+      run: setTagging
+    },
+    {
+      id: "afgehandeld",
+      label: "Als afgehandeld markeren",
+      icon: <Truck />,
+      group: "Status",
+      bar: true,
+      shortcut: "a",
+      needs: EDIT,
+      applies: (o) => !isClosed(o) && !shipped(o.status) && !isConcept(o),
+      run: (list) =>
+        mark(
+          list,
+          "verzonden",
+          `${orders(list)} als afgehandeld gemarkeerd`,
+          `Als afgehandeld gemarkeerd door ${ME.name}`
+        )
+    },
+    {
+      id: "vertraagd",
+      label: "Als vertraagd markeren",
+      icon: <AlertTriangle />,
+      group: "Status",
+      shortcut: "v",
+      needs: EDIT,
+      applies: (o) => !isClosed(o) && o.status !== "vertraagd" && o.status !== "bezorgd",
+      run: (list) =>
+        mark(list, "vertraagd", `${orders(list)} als vertraagd gemarkeerd`, `Als vertraagd gemarkeerd door ${ME.name}`)
+    },
+    {
+      id: "vertraging-wissen",
+      label: "Vertraging wissen",
+      icon: <Check />,
+      group: "Status",
+      needs: EDIT,
+      applies: (o) => o.status === "vertraagd",
+      run: (list) =>
+        mark(list, "verzonden", `Vertraging gewist bij ${orders(list)}`, `Vertraging gewist door ${ME.name}`)
+    },
+    {
+      id: "opvolgen",
+      label: "Leverancier opvolgen",
+      icon: <MessageSquare />,
+      group: "Opvolgen",
+      bar: true,
+      shortcut: "o",
+      needs: EDIT,
+      applies: (o) => !isClosed(o) && (!shipped(o.status) || o.status === "vertraagd"),
+      run: followUp
+    },
+    {
+      id: "track-trace",
+      label: "Track & trace sturen",
+      icon: <Send />,
+      group: "Opvolgen",
+      shortcut: "t",
+      needs: EDIT,
+      applies: (o) => shipped(o.status) && !isClosed(o),
+      run: (list) => {
+        const before = changeDesk((d) =>
+          list.reduce((acc, o) => addEvent(acc, o.number, "Track & trace-update gestuurd aan de klant"), d)
+        )
+        undoable(
+          `Track & trace-update gaat naar ${counted(list.length, "klant", "klanten")}`,
+          () => restoreDesk(before),
+          "Hij vertrekt na de verzendtijd van 30 seconden."
+        )
+      }
+    },
+    {
+      id: "kopieren",
+      label: "Nummers kopiëren",
+      icon: <Copy />,
+      group: "Delen",
+      shortcut: "c",
+      run: (list) =>
+        copyText(list.map((o) => `#${o.number}`).join("\n"), list.length === 1 ? "Bestelnummer" : "Bestelnummers")
+    },
+    {
+      id: "exporteren",
+      label: "Exporteren",
+      icon: <Download />,
+      group: "Delen",
+      shortcut: "e",
+      run: (list) => exportOrders(list, busy)
+    },
+    {
+      id: "annuleren",
+      label: "Annuleren",
+      icon: <XCircle />,
+      group: "Delen",
+      tone: "danger",
+      needs: EDIT,
+      applies: (o) => !isClosed(o) && !shipped(o.status),
+      run: setCancelling
+    }
+  ]
 
   return (
     <Page>
       {head}
       {!access.edit && <ReadOnlyNotice area="orders" />}
       <div className="flex flex-col gap-3">
+        <SavedViews list={VIEWS} value={filter} onPick={setFilter} allLabel="Alle bestellingen" />
         {picked.length > 0
           ? (
             <SelectionBar
-              count={picked.length}
+              rows={picked}
+              actions={actions}
               noun={["bestelling", "bestellingen"]}
               onClear={() => setSelected(new Set())}
-            >
-              {access.edit && (
-                <SelectionAction icon={<TagGlyph />} onClick={() => setTagging(picked)}>
-                  Label toevoegen
-                </SelectionAction>
-              )}
-              {access.edit && late.length > 0 && (
-                <SelectionAction
-                  icon={<AlertTriangle />}
-                  onClick={() =>
-                    mark(
-                      late,
-                      "vertraagd",
-                      `${late.length === 1 ? "1 bestelling" : `${late.length} bestellingen`} als vertraagd gemarkeerd`,
-                      "Als vertraagd gemarkeerd door Elena Hart"
-                    )}
-                >
-                  Als vertraagd markeren
-                </SelectionAction>
-              )}
-              {access.edit && tracked.length > 0 && (
-                <SelectionAction
-                  icon={<Send />}
-                  onClick={() => {
-                    const before = changeDesk((d) =>
-                      tracked.reduce(
-                        (acc, o) => addEvent(acc, o.number, "Track & trace-update gestuurd aan de klant"),
-                        d
-                      )
-                    )
-                    setSelected(new Set())
-                    undoable(
-                      `Track & trace-update gaat naar ${
-                        tracked.length === 1 ? "1 klant" : `${tracked.length} klanten`
-                      }`,
-                      () => restoreDesk(before),
-                      "Hij vertrekt na de verzendtijd van 30 seconden."
-                    )
-                  }}
-                >
-                  Track & trace sturen
-                </SelectionAction>
-              )}
-              <SelectionAction
-                icon={<Copy />}
-                onClick={() =>
-                  copyText(
-                    picked.map((o) => `#${o.number}`).join("\n"),
-                    picked.length === 1 ? "Bestelnummer" : "Bestelnummers"
-                  )}
-              >
-                Nummers kopiëren
-              </SelectionAction>
-              <SelectionAction icon={<Download />} onClick={() => exportOrders(picked, busy)}>
-                Exporteren
-              </SelectionAction>
-              {access.edit && cancellable.length > 0 && (
-                <SelectionAction
-                  icon={<XCircle />}
-                  tone="danger"
-                  onClick={() => setCancelling(cancellable)}
-                >
-                  Annuleren
-                </SelectionAction>
-              )}
-            </SelectionBar>
+            />
           )
           : (
             <ListToolbar
@@ -418,29 +482,8 @@ export function OrdersList() {
                       placeholder="Zoek op nummer, klant of e-mail"
                     />
                   </div>
-                  {active.map(({ field, value }) => (
-                    <FilterChip
-                      key={`${field.key}-${value}`}
-                      field={field.label}
-                      value={field.values[value] ?? value}
-                      onRemove={() => toggleQuery(field.key, filters[field.key as keyof typeof filters], value)}
-                    />
-                  ))}
-                  <AddFilter
-                    fields={FIELDS}
-                    active={new Set(active.map(({ field, value }) => `${field.key}:${field.values[value] ?? value}`))}
-                    onAdd={(key, label) => {
-                      const field = FIELDS.find((f) => f.key === key)
-                      if (field !== undefined) {
-                        toggleQuery(
-                          key,
-                          filters[key as keyof typeof filters],
-                          slugOf(field, label)
-                        )
-                      }
-                    }}
-                  />
-                  {anyFilter && <Button variant="ghost" size="sm" onClick={clear}>Wissen</Button>}
+                  <FilterRules fields={FIELDS} rows={inPeriod} value={filter} onChange={setFilter} />
+                  <FilterBuilder fields={FIELDS} rows={inPeriod} value={filter} onChange={setFilter} views={VIEWS} />
                 </>
               }
               end={
@@ -638,7 +681,7 @@ export function OrdersList() {
               d,
               list.map((o) => o.number),
               "geannuleerd",
-              () => "Geannuleerd door Elena Hart; de klant krijgt een mail"
+              () => `Geannuleerd door ${ME.name}; de klant krijgt een mail`
             )
           )
           setCancelling(null)

@@ -11,9 +11,10 @@ import {
 import { money } from "../../fixtures/order-desk.ts"
 import { customer } from "../../fixtures/records.ts"
 import { paths } from "../../router.tsx"
-import { MenuItem, MenuList } from "../../shell/nav.tsx"
+import { MenuButton, MenuFoot, MenuItem, MenuList } from "../../shell/nav.tsx"
 import type { ThreadItem } from "../../shell/threads.ts"
-import { Clock, CreditCard, FileText } from "../../ui/icons.tsx"
+import { useAccess } from "../../ui/access.tsx"
+import { Clock, CreditCard, FileText, Plus } from "../../ui/icons.tsx"
 import { ChargebacksList } from "./list.tsx"
 import { ChargebackRecord } from "./record.tsx"
 
@@ -66,30 +67,38 @@ function ChargebacksMenu({ route, pathname }: MenuProps) {
   const weergave = new URLSearchParams(route.search).get("weergave")
   const list = pathname === paths.chargebacks
   const soon = dueSoon(s)
+  const access = useAccess("chargebacks")
   return (
-    <MenuList>
-      <MenuItem
-        to={paths.chargebacks}
-        glyph={CreditCard}
-        label="Open zaken"
-        count={openCases(s).length}
-        active={list && weergave === null}
-      />
-      {soon.length > 0 && (
+    <>
+      <MenuList>
         <MenuItem
-          to={soon.length === 1 ? paths.chargeback(soon[0]?.id ?? "") : paths.chargebacks}
-          glyph={Clock}
-          label="Deadline binnen 48 uur"
-          count={soon.length}
-          active={soon.length === 1 && pathname === paths.chargeback(soon[0]?.id ?? "")}
+          to={paths.chargebacks}
+          glyph={CreditCard}
+          label="Open zaken"
+          count={openCases(s).length}
+          active={list && weergave === null}
         />
+        {soon.length > 0 && (
+          <MenuItem
+            to={soon.length === 1 ? paths.chargeback(soon[0]?.id ?? "") : paths.chargebacks}
+            glyph={Clock}
+            label="Deadline binnen 48 uur"
+            count={soon.length}
+            active={soon.length === 1 && pathname === paths.chargeback(soon[0]?.id ?? "")}
+          />
+        )}
+        <MenuItem
+          to={`${paths.chargebacks}?weergave=gesloten`}
+          glyph={FileText}
+          label="Afgesloten"
+          active={list && weergave === "gesloten"}
+        />
+      </MenuList>
+      {access.edit && (
+        <MenuFoot>
+          <MenuButton to={`${paths.chargebacks}?nieuw=1`} glyph={Plus} label="Nieuwe chargeback" />
+        </MenuFoot>
       )}
-      <MenuItem
-        to={`${paths.chargebacks}?weergave=gesloten`}
-        glyph={FileText}
-        label="Afgesloten"
-        active={list && weergave === "gesloten"}
-      />
-    </MenuList>
+    </>
   )
 }

@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react"
 import { ASSISTANT } from "../../assistant.ts"
 import {
+  CATEGORIES,
   decimal,
   lowStockPick,
   percent,
+  PHASE,
   productCounts,
   productRows,
   qualityOf,
@@ -11,18 +13,20 @@ import {
   STOCK,
   useProductState
 } from "../../fixtures/products.ts"
-import type { ProductRow } from "../../fixtures/products.ts"
+import type { Category, ProductRow } from "../../fixtures/products.ts"
 import { euro } from "../../fixtures/records.ts"
 import type { ProductStatus } from "../../fixtures/records.ts"
 import { ME } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Status } from "../../ui/badge.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
 import { Button } from "../../ui/button.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
-import { AddFilter, ColumnPicker, FilterChip, ListToolbar, SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import type { ColumnOption, FilterField } from "../../ui/filters.tsx"
-import { Archive, BadgePercent, Copy, Download, Edit, Package, Play, Plus, Upload } from "../../ui/icons.tsx"
+import { appendTo, emptyGroup, updateNode } from "../../ui/filter-model.ts"
+import { ColumnPicker, FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
+import type { ColumnOption } from "../../ui/filters.tsx"
+import { Archive, BadgePercent, Copy, Download, Edit, Package, Play, Plus, Truck, Upload } from "../../ui/icons.tsx"
 import { SearchField } from "../../ui/input.tsx"
 import { MagnusMark } from "../../ui/magnus-mark.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
@@ -32,9 +36,14 @@ import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import type { Sort } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
+import { Segmented } from "../../ui/toggle.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { dataState, useView } from "../../view.ts"
+import { filterRows, rule, useListFilter, where } from "../orders/list-filter.ts"
+import type { Address, ListField } from "../orders/list-filter.ts"
 import { ImportDialog, MarginDialog, NewProductDialog, withUndo } from "./dialogs.tsx"
 import { PageError, TableSkeleton } from "./parts.tsx"
+import { askRestock } from "./restock.ts"
 
 const PAGE = 25
 
@@ -50,17 +59,101 @@ const COLUMNS: ReadonlyArray<ColumnOption> = [
   { key: "supplier", label: "Leverancier" }
 ]
 
-/** The menu's cuts, as the address says them. */
-const VIEWS: Readonly<Record<string, { readonly label: string; readonly test: (r: ProductRow) => boolean }>> = {
-  actief: { label: "Actief", test: (r) => r.status === "actief" },
-  concept: { label: "Concept", test: (r) => r.status === "concept" },
-  gearchiveerd: { label: "Gearchiveerd", test: (r) => r.status === "gearchiveerd" },
-  laag: { label: "Lage voorraad", test: (r) => r.status === "actief" && r.level !== "op-voorraad" },
-  retour: { label: "Retour boven 10%", test: (r) => r.rate > 0.1 },
-  toezicht: { label: "Onder toezicht", test: (r) => qualityOf(r).phase === "toezicht" }
+const STATUS_FIELD: ListField<ProductRow> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: Object.values(STATUS).map((x) => x.label),
+  get: (r) => STATUS[r.status].label
+}
+const STOCK_FIELD: ListField<ProductRow> = {
+  key: "voorraad",
+  label: "Voorraad",
+  type: "option",
+  options: Object.values(STOCK).map((x) => x.label),
+  get: (r) => STOCK[r.level].label
+}
+const CATEGORY_FIELD: ListField<ProductRow> = {
+  key: "categorie",
+  label: "Categorie",
+  type: "option",
+  options: CATEGORIES,
+  get: (r) => r.category
+}
+const QUALITY_FIELD: ListField<ProductRow> = {
+  key: "kwaliteit",
+  label: "Kwaliteit",
+  type: "option",
+  options: Object.values(PHASE).map((x) => x.label),
+  get: (r) => PHASE[qualityOf(r).phase].label
+}
+const MARGIN_FIELD: ListField<ProductRow> = {
+  key: "marge",
+  label: "Marge, %",
+  type: "number",
+  get: (r) => r.margin * 100
+}
+const RATE_FIELD: ListField<ProductRow> = {
+  key: "retour",
+  label: "Retour, %",
+  type: "number",
+  get: (r) => r.rate * 100
 }
 
+const FIELDS: ReadonlyArray<ListField<ProductRow>> = [
+  STATUS_FIELD,
+  STOCK_FIELD,
+  CATEGORY_FIELD,
+  { key: "leverancier", label: "Leverancier", type: "option", get: (r) => r.supplierName },
+  QUALITY_FIELD,
+  { key: "prijs", label: "Prijs", type: "number", get: (r) => r.price },
+  MARGIN_FIELD,
+  { key: "aantal", label: "Aantal op voorraad", type: "number", get: (r) => r.stock },
+  { key: "verkocht", label: "Verkocht, 16–22 nov", type: "number", get: (r) => r.sold },
+  RATE_FIELD,
+  { key: "sku", label: "SKU", type: "text", get: (r) => r.sku }
+]
+
+const LOW = where("and", rule(STATUS_FIELD, "any", ["Actief"]), rule(STOCK_FIELD, "none", ["Op voorraad"]))
+const HIGH_RETURNS = where("and", rule(RATE_FIELD, "gt", "10"))
+
+/** The menu's cuts as the address says them (`?weergave=laag`), and the links by supplier and category. */
+const ADDRESS: Address = {
+  params: [{ param: "leverancier", field: "leverancier" }, { param: "categorie", field: "categorie" }],
+  cuts: {
+    param: "weergave",
+    filters: {
+      actief: where("and", rule(STATUS_FIELD, "any", ["Actief"])),
+      concept: where("and", rule(STATUS_FIELD, "any", ["Concept"])),
+      gearchiveerd: where("and", rule(STATUS_FIELD, "any", ["Gearchiveerd"])),
+      laag: LOW,
+      retour: HIGH_RETURNS,
+      toezicht: where("and", rule(QUALITY_FIELD, "any", [PHASE.toezicht.label]))
+    }
+  }
+}
+
+const VIEWS = "producten"
+seedViews(VIEWS, [
+  { name: "Lage voorraad", pinned: false, filter: LOW },
+  { name: "Retour boven 10%", pinned: false, filter: HIGH_RETURNS },
+  { name: "Marge onder 50%", pinned: false, filter: where("and", rule(MARGIN_FIELD, "lt", "50")) }
+])
+
 type SortKey = "name" | "price" | "margin" | "stock" | "sold" | "rate"
+
+/** Low enough to order more: active, and not plainly in stock. */
+const needsRestock = (r: ProductRow) => r.status === "actief" && r.level !== "op-voorraad"
+
+const setStatus = (list: ReadonlyArray<ProductRow>, status: ProductStatus) =>
+  withUndo(
+    `${list.length} ${list.length === 1 ? "product" : "producten"} op ${STATUS[status].label.toLowerCase()} gezet`,
+    undefined,
+    (st) => ({
+      ...st,
+      edits: { ...st.edits, ...Object.fromEntries(list.map((p) => [p.id, { ...st.edits[p.id], status }])) }
+    })
+  )
 
 /**
  * Producten (`/app/products`): the catalogue with what an operator decides on: stock against the
@@ -73,8 +166,7 @@ export function ProductsList() {
   const s = useProductState()
   const access = useAccess("products")
   const state = dataState(view)
-  const weergave = useQuery("weergave")
-  const leverancier = useQuery("leverancier")
+  const layout = useQuery("indeling") === "categorieen" ? "categorieen" : "lijst"
   const zoek = useQuery("zoek") ?? ""
 
   const [visible, setVisible] = useState<ReadonlySet<string>>(new Set(COLUMNS.map((c) => c.key)))
@@ -82,18 +174,20 @@ export function ProductsList() {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [dialog, setDialog] = useState<"new" | "import" | "margin" | null>(null)
+  // The rows the margin dialog works on: the selection is cleared as soon as an action starts.
+  const [dialogRows, setDialogRows] = useState<ReadonlyArray<ProductRow>>([])
+  const [filter, setFilter] = useListFilter(VIEWS, FIELDS, ADDRESS, () => setPage(1))
+  // The shell's Nieuw menu and ⌘K open it with `?nieuw=1`.
+  const asked = useQuery("nieuw") === "1" && access.edit
 
   const all = productRows(view, s)
   const counts = productCounts(view, s)
   const pick = lowStockPick(all)
-  const cut = weergave === null ? undefined : VIEWS[weergave]
 
   const rows = useMemo(() => {
     const q = zoek.trim().toLowerCase()
-    const out = all.filter((r) =>
-      (q === "" || r.name.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q)) &&
-      (cut === undefined || cut.test(r)) &&
-      (leverancier === null || r.supplierName === leverancier)
+    const out = filterRows(all, filter, FIELDS, "2026-11-23").filter((r) =>
+      q === "" || r.name.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q)
     )
     const val = (r: ProductRow) =>
       sort.key === "price"
@@ -109,44 +203,103 @@ export function ProductsList() {
         : 0
     const dir = sort.dir === "asc" ? 1 : -1
     return out.toSorted((a, b) => (sort.key === "name" ? a.name.localeCompare(b.name, "nl") : val(a) - val(b)) * dir)
-  }, [all, zoek, cut, leverancier, sort])
+  }, [all, zoek, filter, sort])
 
   const pageRows = rows.slice((page - 1) * PAGE, page * PAGE)
-  const picked = all.filter((r) => selected.has(r.id))
+  const picked = rows.filter((r) => selected.has(r.id))
   const allOn = pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))
   const someOn = pageRows.some((r) => selected.has(r.id))
   const show = (key: string) => visible.has(key)
   const toggleSort = (key: SortKey) =>
     setSort((cur) => (cur.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }))
   const sortOf = (key: SortKey) => (sort.key === key ? sort.dir : null)
-  const setStatus = (status: ProductStatus) => {
-    withUndo(
-      `${picked.length} ${picked.length === 1 ? "product" : "producten"} op ${
-        STATUS[status].label.toLowerCase()
-      } gezet`,
-      undefined,
-      (st) => ({
-        ...st,
-        edits: { ...st.edits, ...Object.fromEntries(picked.map((p) => [p.id, { ...st.edits[p.id], status }])) }
-      })
+  /** A category opens the list cut to it, the other filters kept. */
+  const openCategory = (c: Category) => {
+    const rest = updateNode(
+      filter,
+      filter.id,
+      (g) =>
+        g.kind === "group"
+          ? { ...g, children: g.children.filter((n) => n.kind !== "rule" || n.field !== "categorie") }
+          : g
     )
-    setSelected(new Set())
+    setFilter(appendTo(rest, rest.id, rule(CATEGORY_FIELD, "any", [c])))
+    setQuery({ indeling: null })
   }
 
-  const FIELDS: ReadonlyArray<FilterField> = [
-    { key: "weergave", label: "Weergave", options: Object.values(VIEWS).map((v) => v.label) },
-    { key: "leverancier", label: "Leverancier", options: [...new Set(all.map((r) => r.supplierName))].toSorted() }
+  const EDIT = { area: "products", level: 2 } as const
+  /** One list for the bar, the Acties menu and the keys; each says which ticked products it fits. */
+  const actions: ReadonlyArray<RowAction<ProductRow>> = [
+    {
+      id: "marges",
+      label: "Marges herberekenen",
+      icon: <BadgePercent />,
+      bar: true,
+      shortcut: "m",
+      needs: EDIT,
+      run: (list) => {
+        setDialogRows(list)
+        setDialog("margin")
+      }
+    },
+    {
+      id: "bijbestellen",
+      label: "Bijbestelling aanvragen",
+      icon: <Truck />,
+      bar: true,
+      shortcut: "b",
+      needs: EDIT,
+      applies: needsRestock,
+      run: (list) => askRestock(list)
+    },
+    {
+      id: "actief",
+      label: "Op actief zetten",
+      icon: <Play />,
+      group: "Status",
+      needs: EDIT,
+      applies: (r) => r.status !== "actief",
+      run: (list) => setStatus(list, "actief")
+    },
+    {
+      id: "concept",
+      label: "Op concept zetten",
+      icon: <Edit />,
+      group: "Status",
+      needs: EDIT,
+      applies: (r) => r.status !== "concept",
+      run: (list) => setStatus(list, "concept")
+    },
+    {
+      id: "archiveren",
+      label: "Archiveren",
+      icon: <Archive />,
+      group: "Status",
+      tone: "danger",
+      needs: EDIT,
+      applies: (r) => r.status !== "gearchiveerd",
+      run: (list) => setStatus(list, "gearchiveerd")
+    },
+    {
+      id: "kopieren",
+      label: "SKU's kopiëren",
+      icon: <Copy />,
+      group: "Delen",
+      shortcut: "c",
+      run: (list) => {
+        void navigator.clipboard?.writeText(list.map((p) => p.sku).join("\n")).catch(() => undefined)
+        toast({ title: `${list.length} SKU's gekopieerd` })
+      }
+    },
+    {
+      id: "csv",
+      label: "CSV",
+      icon: <Download />,
+      group: "Delen",
+      shortcut: "e",
+      run: () => toast({ title: "Export gestart", body: "producten.csv staat zo bij je downloads." })
+    }
   ]
-  const active = new Set([
-    ...(cut === undefined ? [] : [`weergave:${cut.label}`]),
-    ...(leverancier === null ? [] : [`leverancier:${leverancier}`])
-  ])
-  const addFilter = (field: string, value: string) => {
-    setPage(1)
-    if (field === "weergave") {
-      setQuery({ weergave: Object.entries(VIEWS).find(([, v]) => v.label === value)?.[0] ?? null })
-    } else setQuery({ leverancier: value })
-  }
 
   if (!access.view) {
     return (
@@ -226,15 +379,14 @@ export function ProductsList() {
                 doneBy={ME.name.split(" ")[0] ?? ME.name}
                 onChange={(next) => {
                   if (next === "done") {
-                    withUndo(
-                      `Advertenties voor ${pick.row.name} gepauzeerd`,
-                      `Bijbestelling gevraagd bij ${pick.row.supplierName}.`,
-                      (st) => ({
+                    askRestock([pick.row], {
+                      title: `Advertenties voor ${pick.row.name} gepauzeerd en bijbestelling gevraagd`,
+                      with: (st) => ({
                         ...st,
                         advice: "done",
                         edits: { ...st.edits, [pick.row.id]: { ...st.edits[pick.row.id], adsPaused: true } }
                       })
-                    )
+                    })
                   } else {
                     withUndo("Voorstel genegeerd", undefined, (st) => ({ ...st, advice: next }))
                   }
@@ -243,54 +395,16 @@ export function ProductsList() {
             </section>
           )}
 
-          <div className="flex min-w-0 flex-col">
-            {selected.size > 0
+          <div className="flex min-w-0 flex-col gap-3">
+            <SavedViews list={VIEWS} value={filter} onPick={setFilter} allLabel="Alle producten" />
+            {picked.length > 0
               ? (
                 <SelectionBar
-                  count={selected.size}
+                  rows={picked}
+                  actions={actions}
                   noun={["product", "producten"]}
                   onClear={() => setSelected(new Set())}
-                >
-                  {access.edit && (
-                    <SelectionAction icon={<BadgePercent />} onClick={() => setDialog("margin")}>
-                      Marges herberekenen
-                    </SelectionAction>
-                  )}
-                  {access.edit && (
-                    <SelectionAction icon={<Play />} onClick={() => setStatus("actief")}>
-                      Op actief zetten
-                    </SelectionAction>
-                  )}
-                  {access.edit && (
-                    <SelectionAction icon={<Edit />} onClick={() => setStatus("concept")}>
-                      Op concept zetten
-                    </SelectionAction>
-                  )}
-                  {access.edit && (
-                    <SelectionAction
-                      icon={<Archive />}
-                      tone="danger"
-                      onClick={() => setStatus("gearchiveerd")}
-                    >
-                      Archiveren
-                    </SelectionAction>
-                  )}
-                  <SelectionAction
-                    icon={<Copy />}
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(picked.map((p) => p.sku).join("\n")).catch(() => undefined)
-                      toast({ title: `${picked.length} SKU's gekopieerd` })
-                    }}
-                  >
-                    SKU's kopiëren
-                  </SelectionAction>
-                  <SelectionAction
-                    icon={<Download />}
-                    onClick={() => toast({ title: "Export gestart", body: "producten.csv staat zo bij je downloads." })}
-                  >
-                    CSV
-                  </SelectionAction>
-                </SelectionBar>
+                />
               )
               : (
                 <ListToolbar
@@ -307,28 +421,31 @@ export function ProductsList() {
                           placeholder="Zoek op naam of SKU"
                         />
                       </div>
-                      {cut !== undefined && (
-                        <FilterChip
-                          field="Weergave"
-                          value={cut.label}
-                          onRemove={() => setQuery({ weergave: null })}
-                        />
-                      )}
-                      {leverancier !== null && (
-                        <FilterChip
-                          field="Leverancier"
-                          value={leverancier}
-                          onRemove={() => setQuery({ leverancier: null })}
-                        />
-                      )}
-                      <AddFilter fields={FIELDS} active={active} onAdd={addFilter} />
+                      <FilterRules fields={FIELDS} rows={all} value={filter} onChange={setFilter} />
+                      <FilterBuilder fields={FIELDS} rows={all} value={filter} onChange={setFilter} views={VIEWS} />
                     </>
                   }
-                  end={<ColumnPicker columns={COLUMNS} visible={visible} onChange={setVisible} />}
+                  end={
+                    <span className="flex items-center gap-2">
+                      <Segmented
+                        label="Indeling"
+                        size="sm"
+                        value={layout}
+                        onChange={(next) => {
+                          setPage(1)
+                          setQuery({ indeling: next === "lijst" ? null : next })
+                        }}
+                        options={[{ value: "lijst", label: "Lijst" }, { value: "categorieen", label: "Categorieën" }]}
+                      />
+                      {layout === "lijst" && <ColumnPicker columns={COLUMNS} visible={visible} onChange={setVisible} />}
+                    </span>
+                  }
                 />
               )}
 
-            {rows.length === 0
+            {layout === "categorieen" && rows.length > 0
+              ? <Categories rows={rows} restock={s.restock} onOpen={openCategory} />
+              : rows.length === 0
               ? (
                 <EmptyState
                   glyph={Package}
@@ -336,7 +453,13 @@ export function ProductsList() {
                   title="Geen producten voor deze filters"
                   className="py-14"
                   action={
-                    <Button size="sm" onClick={() => setQuery({ weergave: null, leverancier: null, zoek: null })}>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setFilter(emptyGroup())
+                        setQuery({ zoek: null })
+                      }}
+                    >
                       Filters wissen
                     </Button>
                   }
@@ -345,7 +468,7 @@ export function ProductsList() {
                 </EmptyState>
               )
               : (
-                <Table label="Producten" minWidth={980} className="mt-1">
+                <Table label="Producten" minWidth={980}>
                   <THead>
                     <Th width={40}>
                       <RowCheckbox
@@ -414,6 +537,7 @@ export function ProductsList() {
                             <span className="truncate text-2xs text-ink-3">
                               {r.sku}
                               {r.adsPaused && " · advertenties gepauzeerd"}
+                              {s.restock[r.id] !== undefined && ` · bijbestelling gevraagd`}
                             </span>
                           </span>
                         </Td>
@@ -468,8 +592,8 @@ export function ProductsList() {
                   </TBody>
                 </Table>
               )}
-            {rows.length > PAGE && (
-              <div className="pt-3">
+            {layout === "lijst" && rows.length > PAGE && (
+              <div>
                 <Pagination
                   page={page}
                   pageSize={PAGE}
@@ -483,9 +607,78 @@ export function ProductsList() {
         </div>
       )}
 
-      <NewProductDialog open={dialog === "new"} onClose={() => setDialog(null)} />
+      <NewProductDialog
+        open={dialog === "new" || asked}
+        onClose={() => {
+          setDialog(null)
+          setQuery({ nieuw: null })
+        }}
+      />
       <ImportDialog open={dialog === "import"} onClose={() => setDialog(null)} />
-      <MarginDialog open={dialog === "margin"} onClose={() => setDialog(null)} picked={picked} />
+      <MarginDialog open={dialog === "margin"} onClose={() => setDialog(null)} picked={dialogRows} />
     </Page>
+  )
+}
+
+/**
+ * The catalogue by category (`/app`'s `categories-view.tsx`): how many products, how many to order
+ * more of, and the average margin as a short bar. A category opens the list filtered to it.
+ */
+function Categories({ rows, restock, onOpen: openCategory }: {
+  readonly rows: ReadonlyArray<ProductRow>
+  readonly restock: Readonly<Record<string, string>>
+  readonly onOpen: (category: Category) => void
+}) {
+  const groups = CATEGORIES.map((c: Category) => {
+    const items = rows.filter((r) => r.category === c)
+    const low = items.filter(needsRestock)
+    return {
+      category: c,
+      count: items.length,
+      low: low.length,
+      asked: low.filter((r) => restock[r.id] !== undefined).length,
+      margin: items.length === 0 ? 0 : items.reduce((n, r) => n + r.margin, 0) / items.length,
+      sold: items.reduce((n, r) => n + r.sold, 0)
+    }
+  }).filter((g) => g.count > 0)
+  return (
+    <Table label="Producten per categorie" minWidth={640}>
+      <THead>
+        <Th>Categorie</Th>
+        <Th align="right">Producten</Th>
+        <Th align="right">Verkocht, 16–22 nov</Th>
+        <Th align="right">Bij te bestellen</Th>
+        <Th>Gemiddelde marge</Th>
+      </THead>
+      <TBody>
+        {groups.map((g) => (
+          <Tr key={g.category} onOpen={() => openCategory(g.category)}>
+            <Td header>
+              <button type="button" onClick={() => openCategory(g.category)} className="font-medium hover:underline">
+                {g.category}
+              </button>
+            </Td>
+            <Td figure align="right">{g.count}</Td>
+            <Td figure align="right">{g.sold.toLocaleString("nl-NL")}</Td>
+            <Td figure align="right" className={g.low - g.asked > 0 ? "text-warn-ink" : "text-ink-3"}>
+              {g.low === 0 ? "—" : g.asked === g.low ? `${g.low} gevraagd` : g.low}
+            </Td>
+            <Td>
+              <span className="flex items-center gap-2.5">
+                <span aria-hidden="true" className="h-1 w-24 overflow-hidden rounded-full bg-well">
+                  <span
+                    className={`block h-full rounded-full ${g.margin < 0.5 ? "bg-warn" : "bg-ink-3"}`}
+                    style={{ width: `${Math.round(g.margin * 100)}%` }}
+                  />
+                </span>
+                <span className={`figure text-sm ${g.margin < 0.5 ? "text-warn-ink" : "text-ink"}`}>
+                  {percent(g.margin)}
+                </span>
+              </span>
+            </Td>
+          </Tr>
+        ))}
+      </TBody>
+    </Table>
   )
 }

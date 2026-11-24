@@ -14,19 +14,20 @@ import type { Channel, Priority, Ticket, TicketStatus } from "../../fixtures/inb
 import { PEOPLE, TODAY } from "../../fixtures/workspace.ts"
 import { Link, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, useAccess } from "../../ui/access.tsx"
-import { Avatar } from "../../ui/avatar.tsx"
-import { Button, ButtonLink } from "../../ui/button.tsx"
+import { Avatar, AvatarStack } from "../../ui/avatar.tsx"
+import { Button, ButtonLink, IconButton } from "../../ui/button.tsx"
 import { cx } from "../../ui/cx.ts"
 import { AddFilter, FilterChip } from "../../ui/filters.tsx"
 import type { FilterField } from "../../ui/filters.tsx"
-import { Inbox, Plus } from "../../ui/icons.tsx"
+import { Edit, Inbox, Plus, Star } from "../../ui/icons.tsx"
 import { SearchField } from "../../ui/input.tsx"
 import { List, ListRow } from "../../ui/list.tsx"
 
 import { Skeleton, SkeletonText } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { dataState, setView, useView } from "../../view.ts"
-import { ChannelGlyph, MY_KEY, Panes, TicketStatusTag } from "./parts.tsx"
+import { ComposeDialog } from "./compose.tsx"
+import { assigneesOf, ChannelGlyph, MY_KEY, Panes, TicketStatusTag } from "./parts.tsx"
 import { customerName } from "./record.tsx"
 import { useTickets } from "./store.ts"
 import { TicketDetail } from "./ticket.tsx"
@@ -37,25 +38,38 @@ export const VIEWS = {
   mij: "Aan mij toegewezen",
   "niet-toegewezen": "Niet toegewezen",
   wacht: "Wacht langer dan 4 uur",
-  klaar: "Klaar vandaag"
+  klaar: "Klaar vandaag",
+  ster: "Met ster",
+  archief: "Archief",
+  spam: "Spam"
 } as const
 
 export type ViewId = keyof typeof VIEWS
 
 export const isView = (v: string | null): v is ViewId => v !== null && v in VIEWS
 
+/** Open and kept in the inbox: not archived, not reported as spam. */
+const inInbox = (t: Ticket) => (t.place ?? "inbox") === "inbox"
+const openHere = (t: Ticket) => inInbox(t) && isOpen(t)
+
 export function inView(t: Ticket, view: ViewId): boolean {
   switch (view) {
     case "open":
-      return isOpen(t)
+      return openHere(t)
     case "mij":
-      return isOpen(t) && t.assignee === MY_KEY
+      return openHere(t) && (t.assignee === MY_KEY || (t.with ?? []).includes(MY_KEY))
     case "niet-toegewezen":
-      return isOpen(t) && t.assignee === null
+      return openHere(t) && t.assignee === null
     case "wacht":
-      return isOpen(t) && (waitedMinutes(t) ?? 0) > LONG_WAIT
+      return openHere(t) && (waitedMinutes(t) ?? 0) > LONG_WAIT
     case "klaar":
-      return t.status === "klaar"
+      return inInbox(t) && t.status === "klaar"
+    case "ster":
+      return inInbox(t) && t.starred === true
+    case "archief":
+      return t.place === "archief"
+    case "spam":
+      return t.place === "spam"
   }
 }
 
@@ -91,6 +105,7 @@ export function InboxScreen({ ticketId, search }: { readonly ticketId: string | 
   const status = useQuery("status")
   const prioriteit = useQuery("prioriteit")
   const [q, setQ] = useState("")
+  const [compose, setCompose] = useState(false)
   const current: ViewId = isView(weergave) ? weergave : "open"
   const channel = isChannel(kanaal) ? kanaal : null
 
@@ -146,7 +161,14 @@ export function InboxScreen({ ticketId, search }: { readonly ticketId: string | 
                 {title}
               </h2>
             )}
-          {state === "ready" && <span className="figure text-xs text-ink-3">{shown.length}</span>}
+          <span className="flex items-center gap-1">
+            {state === "ready" && <span className="figure text-xs text-ink-3">{shown.length}</span>}
+            {access.edit && (
+              <IconButton label="Nieuwe e-mail" size="sm" onClick={() => setCompose(true)}>
+                <Edit />
+              </IconButton>
+            )}
+          </span>
         </div>
         <SearchField value={q} onChange={setQ} label="Gesprekken zoeken" placeholder="Zoek op naam, onderwerp of #" />
         <div className="flex flex-wrap items-center gap-1.5">
@@ -187,9 +209,9 @@ export function InboxScreen({ ticketId, search }: { readonly ticketId: string | 
           )
           : shown.length === 0
           ? (
-            <EmptyState size="sm" title={q === "" ? "Niets in deze weergave" : `Geen gesprek gevonden voor ‘${q}’`}>
+            <EmptyState size="sm" title={q === "" ? EMPTY[current].title : `Geen gesprek gevonden voor ‘${q}’`}>
               {q === ""
-                ? "Alles is beantwoord of staat in een andere weergave."
+                ? EMPTY[current].body
                 : "Zoek op een naam, een onderwerp of een ticketnummer."}
             </EmptyState>
           )
@@ -239,7 +261,23 @@ export function InboxScreen({ ticketId, search }: { readonly ticketId: string | 
     )
     : <Overview tickets={tickets} search={search} />
 
-  return <Panes list={list} detail={detail} show={ticketId === null ? "list" : "detail"} listWidth="21rem" />
+  return (
+    <>
+      <Panes list={list} detail={detail} show={ticketId === null ? "list" : "detail"} listWidth="21rem" />
+      <ComposeDialog open={compose} onClose={() => setCompose(false)} />
+    </>
+  )
+}
+
+const EMPTY: Readonly<Record<ViewId, { readonly title: string; readonly body: string }>> = {
+  open: { title: "Niets in deze weergave", body: "Alles is beantwoord of staat in een andere weergave." },
+  mij: { title: "Niets voor jou", body: "Alles wat aan jou is toegewezen, is beantwoord." },
+  "niet-toegewezen": { title: "Alles heeft iemand", body: "Elk open gesprek is aan iemand toegewezen." },
+  wacht: { title: "Niemand wacht lang", body: "Geen klant wacht langer dan 4 uur op antwoord." },
+  klaar: { title: "Nog niets klaar vandaag", body: "Afgeronde gesprekken van vandaag komen hier." },
+  ster: { title: "Nog geen ster", body: "Geef een gesprek een ster om het hier terug te vinden." },
+  archief: { title: "Het archief is leeg", body: "Gearchiveerde gesprekken blijven hier staan en zijn te doorzoeken." },
+  spam: { title: "Geen spam", body: "Wat je als spam meldt, komt hier en niet meer in de inbox." }
 }
 
 function FirstDayActions() {
@@ -270,6 +308,9 @@ function ThreadRow({ t, active, search }: { readonly t: Ticket; readonly active:
           <span className={cx("min-w-0 flex-1 truncate text-sm", t.unread ? "font-semibold text-ink" : "text-ink")}>
             {name}
           </span>
+          {t.starred === true && (
+            <Star size={13} fill="currentColor" className="shrink-0 self-center text-warn-ink" aria-label="Met ster" />
+          )}
           {t.unread && <span className="size-1.5 shrink-0 self-center rounded-full bg-accent" aria-label="Ongelezen" />}
           <span className="shrink-0 text-xs">
             {mins === null
@@ -290,6 +331,8 @@ function ThreadRow({ t, active, search }: { readonly t: Ticket; readonly active:
           <span className="ml-auto flex items-center">
             {t.assignee === null
               ? <span>Niet toegewezen</span>
+              : (t.with ?? []).length > 0
+              ? <AvatarStack names={assigneesOf(t).map((k) => PEOPLE[k].name)} size={18} />
               : <Avatar name={PEOPLE[t.assignee].name} size={18} on="panel" />}
           </span>
         </span>
@@ -317,7 +360,7 @@ function ListSkeleton() {
  * instead of opening the top one for you.
  */
 function Overview({ tickets, search }: { readonly tickets: ReadonlyArray<Ticket>; readonly search: string }) {
-  const open = tickets.filter(isOpen)
+  const open = tickets.filter(openHere)
   const long = open.filter((t) => (waitedMinutes(t) ?? 0) > LONG_WAIT).toSorted(byWait)
   const mine = open.filter((t) => t.assignee === MY_KEY)
   const agentsDone = tickets.filter((t) => t.status === "klaar")

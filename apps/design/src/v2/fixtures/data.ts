@@ -48,6 +48,50 @@ export function parseCsv(text: string): Parsed {
 /** Whether a row's sku is a product Insyte knows. */
 export const knownSku = (sku: string) => PRODUCTS.some((p) => p.sku === sku)
 
+/** A file imported earlier: who brought it in, where its rows went, and the rows themselves. */
+export type ImportBatch = {
+  readonly id: string
+  readonly name: string
+  readonly into: string
+  readonly at: string
+  readonly by: keyof typeof PEOPLE
+  readonly header: ReadonlyArray<string>
+  readonly rows: ReadonlyArray<ReadonlyArray<string>>
+}
+
+/** Two earlier imports: last week's stock list from Allure, and the customers from the old shop. */
+export const IMPORT_BATCHES: ReadonlyArray<ImportBatch> = [
+  {
+    id: "imp-allure-16",
+    name: "voorraad-allure-16-nov.csv",
+    into: "Producten (voorraad en inkoopprijs)",
+    at: "16 nov, 09:12",
+    by: "ethan",
+    header: ["sku", "naam", "voorraad", "inkoopprijs"],
+    rows: PRODUCTS.filter((p) => p.supplierId === "allure-fulfillment").map((p, i) => [
+      p.sku,
+      p.name,
+      String(p.stock + 120 - i * 9),
+      p.cost.toFixed(2).replace(".", ",")
+    ])
+  },
+  {
+    id: "imp-klanten-okt",
+    name: "klanten-oude-winkel-okt.csv",
+    into: "Klanten",
+    at: "28 okt, 16:40",
+    by: "elena",
+    header: ["naam", "e-mail", "plaats", "land", "bestellingen"],
+    rows: CUSTOMERS.filter((c) => c.duplicateOf === undefined).slice(0, 24).map((c) => [
+      c.name,
+      c.email,
+      c.city,
+      c.country,
+      String(Math.max(1, c.ordersCount - 1))
+    ])
+  }
+]
+
 export type ExportKind = "bestellingen" | "klanten" | "producten"
 export const EXPORT_COLUMNS: Readonly<
   Record<ExportKind, ReadonlyArray<{ readonly id: string; readonly label: string }>>

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import type { Resource } from "../../fixtures/affiliate-portal.ts"
 import {
   affiliateCounts,
   affiliateRows,
@@ -6,6 +7,7 @@ import {
   inviteRows,
   PAYOUT_MONTH,
   payoutRows,
+  resourceRows,
   RETURN_DAYS,
   tierOf,
   TIERS,
@@ -19,9 +21,25 @@ import { Avatar } from "../../ui/avatar.tsx"
 import { Status } from "../../ui/badge.tsx"
 import { Button, ButtonLink } from "../../ui/button.tsx"
 import { Sheet } from "../../ui/dialog.tsx"
-import { Check, Eye, Pause, Play, Send, UserPlus, Users, X } from "../../ui/icons.tsx"
+import { FileDrop } from "../../ui/file-drop.tsx"
+import {
+  Check,
+  Download,
+  Eye,
+  FileText,
+  Image,
+  Pause,
+  Play,
+  Send,
+  Trash,
+  UserPlus,
+  Users,
+  Video,
+  X
+} from "../../ui/icons.tsx"
 import { Field, Select } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
+import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { hasLogo, ServiceLogo } from "../../ui/service-logo.tsx"
@@ -33,12 +51,18 @@ import { dataState, useView } from "../../view.ts"
 import { ApproveDialog, InviteDialog, RejectDialog, withUndo } from "./dialogs.tsx"
 import { PageError, TableSkeleton } from "./parts.tsx"
 
-export type Weergave = "actief" | "aanmeldingen" | "uitbetalingen" | "uitnodigingen"
+export type Weergave = "actief" | "aanmeldingen" | "uitbetalingen" | "uitnodigingen" | "materiaal"
 
-const WEERGAVEN: ReadonlyArray<Weergave> = ["actief", "aanmeldingen", "uitbetalingen", "uitnodigingen"]
+const WEERGAVEN: ReadonlySet<string> = new Set<Weergave>([
+  "actief",
+  "aanmeldingen",
+  "uitbetalingen",
+  "uitnodigingen",
+  "materiaal"
+])
 
 export const weergaveOf = (raw: string | null): Weergave =>
-  WEERGAVEN.includes(raw as Weergave) ? (raw as Weergave) : "actief"
+  raw !== null && WEERGAVEN.has(raw) ? (raw as Weergave) : "actief"
 
 /**
  * Affiliates (`/app/affiliates`): the people who sell for the brand on commission. Who is in and what
@@ -122,13 +146,15 @@ export function AffiliatesPage() {
               { value: "actief", label: "Actief", count: counts.actief },
               { value: "aanmeldingen", label: "Aanmeldingen", count: counts.aanmeldingen },
               { value: "uitbetalingen", label: "Uitbetalingen", count: counts.uitbetalingen },
-              { value: "uitnodigingen", label: "Uitnodigingen", count: counts.uitnodigingen }
+              { value: "uitnodigingen", label: "Uitnodigingen", count: counts.uitnodigingen },
+              { value: "materiaal", label: "Materiaal", count: counts.materiaal }
             ]}
           />
           {tab === "actief" && <Active rows={people} />}
           {tab === "aanmeldingen" && <Applications canEdit={access.edit} onApprove={setApprove} onReject={setReject} />}
           {tab === "uitbetalingen" && <Payouts canEdit={access.edit} />}
           {tab === "uitnodigingen" && <Invites canEdit={access.edit} onInvite={() => setInviting(true)} />}
+          {tab === "materiaal" && <Material canEdit={access.edit} />}
         </div>
       )}
 
@@ -521,5 +547,115 @@ function Invites({ canEdit, onInvite }: { readonly canEdit: boolean; readonly on
         ))}
       </TBody>
     </Table>
+  )
+}
+
+/* ── material ──────────────────────────────────────────────────────────────────────────────────── */
+
+const KIND_GLYPH = { logo: Image, afbeelding: Image, video: Video, document: FileText, gids: FileText } as const
+const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+const dayLabel = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()] ?? ""}`
+
+const kindOf = (type: string): Resource["kind"] =>
+  type.startsWith("image/") ? "afbeelding" : type.startsWith("video/") ? "video" : "document"
+
+const sizeOf = (file: File) => {
+  const ext = (file.name.split(".").pop() ?? "").toUpperCase()
+  const mb = file.size / 1_000_000
+  const size = mb >= 1
+    ? `${mb.toLocaleString("nl-NL", { maximumFractionDigits: 1 })} MB`
+    : `${Math.max(1, Math.round(file.size / 1000))} KB`
+  return ext === "" ? size : `${size} · ${ext}`
+}
+
+/** New material from dropped or picked files, with an undo. */
+function upload(files: ReadonlyArray<File>) {
+  if (files.length === 0) return
+  const made = files.map((f, i): Resource => ({
+    id: `res_${Math.random().toString(36).slice(2, 8)}${i}`,
+    name: f.name.replace(/\.[^.]+$/, ""),
+    kind: kindOf(f.type),
+    size: sizeOf(f),
+    updatedAt: new Date(2026, 10, 23, 14, 30)
+  }))
+  withUndo(
+    made.length === 1 ? `${made[0]?.name ?? ""} geüpload` : `${made.length} bestanden geüpload`,
+    "Je affiliates zien het nu bij Materiaal in hun portaal.",
+    (st) => ({ ...st, uploaded: [...made, ...st.uploaded] })
+  )
+}
+
+/**
+ * Materiaal: what the affiliates download in their portal (logos, photos, reels, guides). Uploading
+ * and taking down is for whoever may change the programme; a removal can be undone.
+ */
+function Material({ canEdit }: { readonly canEdit: boolean }) {
+  const view = useView()
+  const s = useAffiliateState()
+  const items = resourceRows(view, s)
+
+  return (
+    <div className="flex max-w-3xl flex-col gap-5">
+      {canEdit && (
+        <FileDrop
+          accept="image/png,image/jpeg,image/webp,image/svg+xml,application/pdf,video/mp4,application/zip"
+          label="Sleep bestanden hierheen of kies ze"
+          hint="Logo's, foto's, reels en gidsen: PNG, JPG, SVG, PDF, MP4 of ZIP"
+          onFiles={upload}
+        />
+      )}
+      {items.length === 0
+        ? (
+          <EmptyState size="sm" glyph={FileText} title="Nog geen materiaal">
+            Logo's, productfoto's en richtlijnen die je hier zet, kunnen je affiliates in hun portaal downloaden.
+          </EmptyState>
+        )
+        : (
+          <List label="Materiaal" divided>
+            {items.map((r) => {
+              const G = KIND_GLYPH[r.kind]
+              return (
+                <ListRow
+                  key={r.id}
+                  padded={false}
+                  lead={
+                    <GlyphTile>
+                      <G size={15} />
+                    </GlyphTile>
+                  }
+                  title={r.name}
+                  meta={`${r.size} · bijgewerkt ${dayLabel(r.updatedAt)}`}
+                  trail={
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<Download />}
+                        onClick={() => toast({ title: `${r.name} wordt gedownload`, body: r.size })}
+                      >
+                        Downloaden
+                      </Button>
+                      {canEdit && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={<Trash />}
+                          onClick={() =>
+                            withUndo(`${r.name} verwijderd`, "Affiliates zien het niet meer in hun portaal.", (st) => ({
+                              ...st,
+                              removed: [...st.removed, r.id]
+                            }))}
+                        >
+                          Verwijderen
+                        </Button>
+                      )}
+                    </>
+                  }
+                />
+              )
+            })}
+          </List>
+        )}
+    </div>
   )
 }

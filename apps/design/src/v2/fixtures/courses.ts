@@ -13,7 +13,14 @@ export type PersonKey = keyof typeof PEOPLE
 export type Block =
   | { readonly id: string; readonly kind: "text"; readonly title: string; readonly body: string }
   | { readonly id: string; readonly kind: "video"; readonly title: string; readonly minutes: number }
-  | { readonly id: string; readonly kind: "image"; readonly title: string; readonly caption: string }
+  | {
+    readonly id: string
+    readonly kind: "image"
+    readonly title: string
+    readonly caption: string
+    /** The uploaded picture, as a data address; without it the block shows its drawn example. */
+    readonly src?: string
+  }
   | {
     readonly id: string
     readonly kind: "quiz"
@@ -507,4 +514,42 @@ export function courseCounts(courses: ReadonlyArray<Course>, questions: Readonly
     archived: courses.filter((c) => c.status === "archief").length,
     open: questions.filter((q) => q.answer === undefined).length
   }
+}
+
+export type QuizBlock = Extract<Block, { kind: "quiz" }>
+
+/**
+ * Magnus's quiz proposal: questions made from sentences in the course's text blocks that hold a
+ * figure or a term ("binnen 4 werkuren", "langer dan 5 werkdagen"). The wrong answers are the same
+ * sentence with another figure, so the question tests the number, not the wording. At most `max`.
+ */
+export function suggestQuestions(c: Pick<Course, "id" | "blocks">, max = 3): ReadonlyArray<QuizBlock> {
+  const asked = new Set(c.blocks.flatMap((b) => (b.kind === "quiz" ? b.options : [])))
+  const sentences = c.blocks
+    .flatMap((b) => (b.kind === "text" ? b.body.split(/(?<=[.!?])\s+|\n+/) : []))
+    .map((x) => x.replace(/^[-#*\s]+/, "").trim())
+    .filter((x) => x.length > 24 && x.length < 170 && /\d/.test(x) && !asked.has(x))
+  const out: Array<QuizBlock> = []
+  for (const [i, sentence] of sentences.entries()) {
+    const m = sentence.match(/(\d+(?:[.,]\d+)?)/)
+    const raw = m?.[1]
+    if (raw === undefined) continue
+    const n = Number(raw.replace(",", "."))
+    const fmt = (x: number) => (Number.isInteger(n) ? String(Math.round(x)) : x.toFixed(2).replace(".", ","))
+    const wrong = [n * 2, Math.max(1, Math.round(n / 2))].filter((x) => x !== n).map((x) =>
+      sentence.replace(raw, fmt(x))
+    )
+    if (wrong.length < 2) continue
+    const options = [sentence, ...wrong].toSorted((a, b) => a.length - b.length || a.localeCompare(b))
+    out.push({
+      id: `${c.id}-voorstel-${i}`,
+      kind: "quiz",
+      question: "Welke zin klopt?",
+      options,
+      correct: options.indexOf(sentence),
+      explain: sentence
+    })
+    if (out.length >= max) break
+  }
+  return out
 }

@@ -1,33 +1,26 @@
-import { useEffect, useState } from "react"
-import { ASK_ASSISTANT } from "../assistant.ts"
+import { useState } from "react"
 import { setNotesRead, unreadNotes, useDemo } from "../demo.ts"
 import { AGENTS } from "../fixtures/agents.ts"
-import { NOTIFICATIONS } from "../fixtures/notifications.ts"
-import { ME, RECORDS } from "../fixtures/workspace.ts"
+import { bellNotes, noteAbout } from "../fixtures/notifications.ts"
+import type { NOTIFICATIONS } from "../fixtures/notifications.ts"
+import { ME } from "../fixtures/workspace.ts"
 import { navigate, paths } from "../router.tsx"
 import { AgentAvatar, Avatar } from "../ui/avatar.tsx"
 import { IconButton } from "../ui/button.tsx"
-import { CommandPalette } from "../ui/command.tsx"
-import type { Command } from "../ui/command.tsx"
 import { DropdownItem, DropdownLabel, DropdownMenu, DropdownSeparator } from "../ui/dropdown.tsx"
 import {
   Bell,
   Bot,
-  CreditCard,
   Eye,
-  Factory,
   Home,
-  Inbox,
+  Keyboard,
   LayoutGrid,
+  LayoutList,
   LogOut,
-  MessageSquare,
-  Package,
   Plus,
   Search,
   Settings,
-  ShoppingBag,
-  User,
-  Workflow
+  User
 } from "../ui/icons.tsx"
 import { GlyphTile } from "../ui/list.tsx"
 import { NotificationList } from "../ui/notifications.tsx"
@@ -36,35 +29,52 @@ import { Rich } from "../ui/rich.tsx"
 import { ServiceLogo } from "../ui/service-logo.tsx"
 import { ThemePicker } from "../ui/theme-picker.tsx"
 import { toast } from "../ui/toast.tsx"
+import { useView } from "../view.ts"
+import { CREATE_ITEMS, createBlocked } from "./create.ts"
 import { DemoViewDialog } from "./demo-view.tsx"
-import { SECTIONS } from "./sections.ts"
+import { openOverlay } from "./shell-state.ts"
+import { useWorkspaces } from "./store-switcher.tsx"
 
 /*
  * The main bar's right end: Nieuw, Zoeken (⌘K), Meldingen and the avatar menu, each built from the
- * library (`DropdownMenu`, `CommandPalette`, `Popover`, `NotificationList`, `ThemePicker`).
+ * library (`DropdownMenu`, `Popover`, `NotificationList`, `ThemePicker`); the palette itself is
+ * `palette.tsx`.
  */
 
-/** "Nieuw": the records you can start from anywhere. */
+/**
+ * "Nieuw": everything the console can make (`create.ts`), each opening its dialog on its own page.
+ * What the role may not make, or what starts from another record, stays listed, greyed, with the
+ * short reason; the palette says it in full.
+ */
 export function NewMenu() {
+  const view = useView()
   return (
     <DropdownMenu
       label="Nieuw"
       placement="bottom-end"
+      width="w-64"
       trigger={(props) => (
         <IconButton label="Nieuw" {...props}>
           <Plus />
         </IconButton>
       )}
     >
-      <DropdownItem glyph={ShoppingBag} shortcut="B" onSelect={() => navigate(`${paths.orders}?nieuw=1`)}>
-        Bestelling
-      </DropdownItem>
-      <DropdownItem glyph={Inbox} shortcut="T" onSelect={() => navigate(`${paths.tickets}?nieuw=1`)}>
-        Ticket
-      </DropdownItem>
-      <DropdownItem glyph={Workflow} onSelect={() => navigate(`${paths.automations}?nieuw=1`)}>
-        Automatisering
-      </DropdownItem>
+      <DropdownLabel>Nieuw</DropdownLabel>
+      {CREATE_ITEMS.map((item) => {
+        const blocked = createBlocked(view, item)
+        return (
+          <DropdownItem
+            key={item.kind}
+            glyph={item.glyph}
+            shortcut={blocked === null ? item.key : undefined}
+            hint={blocked === null ? undefined : item.startsFrom === undefined ? "geen rechten" : "via record"}
+            disabled={blocked !== null}
+            onSelect={() => navigate(item.href)}
+          >
+            {item.label}
+          </DropdownItem>
+        )
+      })}
       <DropdownSeparator />
       <DropdownItem glyph={Bot} hint="met Magnus" onSelect={() => navigate(paths.newChat("Nieuwe agent"))}>
         Agent
@@ -73,97 +83,12 @@ export function NewMenu() {
   )
 }
 
-const COMMANDS: ReadonlyArray<Command> = [
-  ...SECTIONS.map((section) => ({
-    id: `ga-${section.id}`,
-    label: section.label,
-    group: "Ga naar",
-    glyph: section.glyph ?? MessageSquare,
-    run: () => navigate(section.href)
-  })),
-  {
-    id: "kit",
-    label: "Onderdelen",
-    group: "Ga naar",
-    glyph: LayoutGrid,
-    keywords: "kit ui componenten",
-    run: () => navigate(paths.parts)
-  },
-  {
-    id: "rec-aurora",
-    label: RECORDS.aurora.label,
-    group: "Records",
-    glyph: Package,
-    meta: "Product · € 79,00",
-    run: () => navigate(RECORDS.aurora.href)
-  },
-  {
-    id: "rec-kestrel",
-    label: RECORDS.kestrel.label,
-    group: "Records",
-    glyph: Factory,
-    meta: "Leverancier",
-    run: () => navigate(RECORDS.kestrel.href)
-  },
-  {
-    id: "rec-cb",
-    label: "Chargeback #CB-2291",
-    group: "Records",
-    glyph: CreditCard,
-    meta: "Klarna · € 129,00",
-    keywords: "klarna dispuut",
-    run: () => navigate("/v2/chargebacks/cb-2291")
-  },
-  ...AGENTS.slice(0, 3).map((agent) => ({
-    id: `agent-${agent.id}`,
-    label: agent.name,
-    group: "Agents",
-    glyph: agent.glyph,
-    run: () => navigate(paths.agent(agent.id))
-  })),
-  {
-    id: "act-ticket",
-    label: "Nieuw ticket",
-    group: "Acties",
-    glyph: Plus,
-    shortcut: "T",
-    run: () => navigate(`${paths.tickets}?nieuw=1`)
-  },
-  {
-    id: "act-settings",
-    label: "Instellingen",
-    group: "Acties",
-    glyph: Settings,
-    run: () => navigate(paths.settings())
-  }
-]
-
-/** The search button and ⌘K: both open the palette. */
+/** The search button: opens the palette, as ⌘K does anywhere (`keys.ts`, `palette.tsx`). */
 export function SearchButton() {
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        setOpen((o) => !o)
-      }
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [])
   return (
-    <>
-      <IconButton label="Zoeken (⌘K)" onClick={() => setOpen(true)} aria-haspopup="dialog">
-        <Search />
-      </IconButton>
-      <CommandPalette
-        open={open}
-        onClose={() => setOpen(false)}
-        commands={COMMANDS}
-        askLabel={(query) => <>{ASK_ASSISTANT}: ‘{query}’</>}
-        onAsk={(query) => navigate(paths.newChat(query))}
-      />
-    </>
+    <IconButton label="Zoeken (⌘K)" onClick={() => openOverlay("palette")} aria-haspopup="dialog">
+      <Search />
+    </IconButton>
   )
 }
 
@@ -192,13 +117,14 @@ export function NotificationsButton() {
   const demo = useDemo()
   const read = demo.notesRead
   const unread = unreadNotes(demo)
-  const items = NOTIFICATIONS.map((n) => ({
+  const items = bellNotes().map((n) => ({
     id: n.id,
     mark: noteMark(n.from),
     text: <Rich text={n.text} />,
     at: n.at,
     href: n.href,
-    unread: n.unread && !read
+    unread: n.unread && !read,
+    about: noteAbout(n)
   }))
   return (
     <Popover
@@ -236,7 +162,7 @@ export function NotificationsButton() {
         </button>
       </div>
       <div className="pane-scroll max-h-[60vh] p-1.5">
-        <NotificationList items={items} />
+        <NotificationList items={items} tabs />
       </div>
     </Popover>
   )
@@ -248,6 +174,7 @@ export function NotificationsButton() {
  */
 export function AvatarMenu({ portal }: { readonly portal?: { readonly name: string; readonly who: string } }) {
   const [demo, setDemo] = useState(false)
+  const { current } = useWorkspaces()
   const name = portal?.who ?? ME.name
   return (
     <>
@@ -266,7 +193,7 @@ export function AvatarMenu({ portal }: { readonly portal?: { readonly name: stri
           <span className="flex min-w-0 flex-col">
             <span className="truncate text-sm font-medium text-ink">{name}</span>
             <span className="truncate text-xs text-ink-3">
-              {portal === undefined ? `${ME.role} · Northwind` : `${portal.name} · Northwind`}
+              {portal === undefined ? `${current.role} · ${current.name}` : `${portal.name} · Northwind`}
             </span>
           </span>
         </div>
@@ -281,6 +208,12 @@ export function AvatarMenu({ portal }: { readonly portal?: { readonly name: stri
             <>
               <DropdownItem glyph={User} onSelect={() => navigate(paths.person(ME.id))}>Je profiel</DropdownItem>
               <DropdownItem glyph={Settings} onSelect={() => navigate(paths.settings())}>Instellingen</DropdownItem>
+              <DropdownItem glyph={Keyboard} shortcut="?" onSelect={() => openOverlay("shortcuts")}>
+                Sneltoetsen
+              </DropdownItem>
+              <DropdownItem glyph={LayoutList} onSelect={() => openOverlay("customise")}>
+                Zijbalk aanpassen
+              </DropdownItem>
               <DropdownItem glyph={LayoutGrid} onSelect={() => navigate(paths.parts)}>Onderdelen</DropdownItem>
             </>
           )

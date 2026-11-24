@@ -362,9 +362,21 @@ type Desk = {
   readonly refunded: Readonly<Record<string, number>>
   /** Concept orders made in this visit, newest first. */
   readonly created: ReadonlyArray<Order>
+  /** The late-order advice on a record: drafted as a ticket (its number) or set aside. */
+  readonly advice: Readonly<Record<string, { readonly state: "done" | "discarded"; readonly ticket?: string }>>
 }
 
-let desk: Desk = { status: {}, tags: {}, notes: {}, events: {}, legs: {}, address: {}, refunded: {}, created: [] }
+let desk: Desk = {
+  status: {},
+  tags: {},
+  notes: {},
+  events: {},
+  legs: {},
+  address: {},
+  refunded: {},
+  created: [],
+  advice: {}
+}
 const listeners = new Set<() => void>()
 const emit = () => {
   for (const l of listeners) l()
@@ -671,6 +683,56 @@ export function busyTags(o: Order, busy: boolean): ReadonlyArray<string> {
   const own = ownTags(o)
   if (!busy || Number(o.number) % 5 !== 0) return own
   return [...own, "cadeauverpakking gevraagd", "terugbellen na 17:00", "vip"]
+}
+
+/* ── what the customer said and is worth ───────────────────────────────────────────────────────── */
+
+/** What a customer typed in the checkout's note field, for the few orders that carry one. */
+const CHECKOUT_NOTES: ReadonlyArray<string> = [
+  "Graag bij de buren op nummer 12 afgeven als ik niet thuis ben.",
+  "Het is een cadeau: graag zonder pakbon met prijzen.",
+  "Bel even aan, de bel aan de voorkant doet het niet.",
+  "Kan het voor vrijdag? Ik vertrek zaterdag op vakantie."
+]
+const NOTED: Readonly<Record<string, number>> = { "5309": 3, "5296": 1 }
+
+export function checkoutNote(o: Order): string | undefined {
+  if (isConcept(o)) return undefined
+  const pinned = NOTED[o.number]
+  if (pinned !== undefined) return CHECKOUT_NOTES[pinned]
+  const n = Number(o.number)
+  return n % 9 === 0 ? CHECKOUT_NOTES[n % CHECKOUT_NOTES.length] : undefined
+}
+
+/** A customer's orders and what they paid over all of them (CLV): before this week, and the visit's own. */
+export function customerValue(customerId: string, d: Desk = desk): { readonly orders: number; readonly value: number } {
+  const c = customer(customerId)
+  const mine = deskOrders(d).filter((o) => o.customerId === customerId && !isConcept(o))
+  const kept = mine.filter((o) => !isClosed(o)).reduce((s, o) => s + o.total - (d.refunded[o.number] ?? 0), 0)
+  return {
+    orders: (c?.ordersCount ?? 0) + mine.length,
+    value: Math.round(((c?.lifetimeValue ?? 0) + kept) * 100) / 100
+  }
+}
+
+/** The mail to a shopper whose order a supplier could not take, in Northwind's words, from the leg's reason. */
+export function customerMail(
+  o: Order,
+  leg: Leg
+): { readonly to: string; readonly subject: string; readonly body: string } {
+  const c = customer(o.customerId)
+  const first = (c?.name ?? "").split(" ")[0] ?? ""
+  const line = o.lines.find((l) => product(l.productId)?.supplierId === (leg.from ?? leg.supplierId))
+  const what = line === undefined
+    ? "een artikel"
+    : `${product(line.productId)?.name ?? "Het artikel"}${line.size === "Eén maat" ? "" : ` in maat ${line.size}`}`
+  return {
+    to: c?.email ?? "",
+    subject: `Over je bestelling #${o.number}`,
+    body: leg.reason === "adres"
+      ? `Hoi ${first},\n\nBedankt voor je bestelling #${o.number}. Om hem te kunnen versturen, missen we je huisnummer. Kun je het adres even aanvullen door op deze mail te antwoorden?\n\nGroet,\nNorthwind`
+      : `Hoi ${first},\n\nBedankt voor je bestelling #${o.number}. ${what} is bij onze leverancier helaas net uitverkocht. We kunnen hem rond 30 november alsnog sturen, of je het bedrag meteen terugbetalen. Laat je weten wat je wilt?\n\nGroet,\nNorthwind`
+  }
 }
 
 export const CARRIERS: ReadonlyArray<Carrier> = ["PostNL", "DHL", "DPD", "UPS"]

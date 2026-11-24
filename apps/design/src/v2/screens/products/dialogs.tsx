@@ -293,11 +293,13 @@ const flip = (
 ) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v])
 
 /** Controle aanvragen: what the supplier must send, for which sizes, by when. They answer via their link. */
-export function CheckDialog({ open, onClose, product, supplierName }: {
+export function CheckDialog({ open, onClose, product, supplierName, initialKind = "batch" }: {
   readonly open: boolean
   readonly onClose: () => void
   readonly product: Product
   readonly supplierName: string
+  /** Controle aanvragen opens on Batchfoto's, Monster bestellen on Monster. */
+  readonly initialKind?: CheckKind
 }) {
   const [kind, setKind] = useState<CheckKind>("batch")
   const [sizes, setSizes] = useState<ReadonlyArray<string>>([])
@@ -306,13 +308,13 @@ export function CheckDialog({ open, onClose, product, supplierName }: {
   const [note, setNote] = useState("")
   useEffect(() => {
     if (open) {
-      setKind("batch")
+      setKind(initialKind)
       setSizes([])
       setDeliver(["foto", "batch"])
       setDue("week")
       setNote("")
     }
-  }, [open])
+  }, [open, initialKind])
   const request = () => {
     const id = `qc-${310 + getProductState().checks.length}`
     withUndo(
@@ -326,6 +328,7 @@ export function CheckDialog({ open, onClose, product, supplierName }: {
             productId: product.id,
             kind,
             sizes,
+            deliver: DELIVER.filter((d) => deliver.includes(d.id)).map((d) => d.id),
             status: "aangevraagd",
             requestedBy: ME.name,
             requestedAt: "vandaag",
@@ -342,7 +345,7 @@ export function CheckDialog({ open, onClose, product, supplierName }: {
     <Dialog
       open={open}
       onClose={onClose}
-      title="Controle aanvragen"
+      title={kind === "monster" ? "Monster bestellen" : "Controle aanvragen"}
       description={`${supplierName} krijgt een link en ziet het verzoek in het portaal.`}
       footer={
         <>

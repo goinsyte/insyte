@@ -11,6 +11,7 @@ import { KeyValue } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
+import { pathOf } from "./edits.ts"
 import { addRun } from "./store.ts"
 
 /** The glyph a step's kind draws on the flow's line. */
@@ -36,11 +37,18 @@ export function RunStatusLabel({ status }: { readonly status: Run["status"] }) {
 export const chain = (steps: ReadonlyArray<Step>) =>
   steps.length === 0 ? "Nog geen stappen" : steps.map((st) => stepType(st.type)?.label ?? st.summary).join(" → ")
 
-/** "Als de levering vertraagd is, dan …": the sentence a flow is. */
+const lower = (x: string) => x.charAt(0).toLowerCase() + x.slice(1)
+const lane = (xs: ReadonlyArray<Step>) => (xs.length === 0 ? "niets" : xs.map((x) => lower(x.summary)).join(" en "))
+
+/** "Als de levering vertraagd is, dan …": the sentence a flow is; a splitsing says both ways. */
 export function sentence(a: Pick<Automation, "steps">): string {
   const [first, ...rest] = a.steps
   if (first === undefined) return "Deze flow heeft nog geen stappen."
-  const then = rest.map((st) => st.summary.charAt(0).toLowerCase() + st.summary.slice(1))
+  const then = rest.map((st) =>
+    st.branches === undefined
+      ? lower(st.summary)
+      : `${lower(st.summary).replace(/\?$/, "")}: ja, ${lane(st.branches.yes)}; nee, ${lane(st.branches.no)}`
+  )
   const list = then.length <= 1 ? then.join("") : `${then.slice(0, -1).join(", ")} en ${then.at(-1) ?? ""}`
   return then.length === 0
     ? `Als: ${first.summary.toLowerCase()}.`
@@ -112,10 +120,9 @@ export function RunSheet({ run, flow, onClose, canEdit }: {
 }) {
   const [stopping, setStopping] = useState(false)
   if (run === null) return null
-  const stoppedAt = run.failed === undefined
-    ? -1
-    : flow?.steps.findIndex((st) => st.summary === run.failed?.step) ?? -1
-  const waitingAt = run.status === "wacht" ? Math.max(1, (flow?.steps.length ?? 2) - 2) : -1
+  const path = flow === undefined ? [] : pathOf(flow.steps, run.lane === "yes")
+  const stoppedAt = run.failed === undefined ? -1 : path.findIndex((st) => st.summary === run.failed?.step)
+  const waitingAt = run.status === "wacht" ? Math.max(1, path.length - 2) : -1
 
   const again = () => {
     addRun({
@@ -182,11 +189,17 @@ export function RunSheet({ run, flow, onClose, canEdit }: {
             </Notice>
           )}
           {run.waiting !== undefined && <Notice tone="warn" title="Deze run wacht">{run.waiting}</Notice>}
-          {flow !== undefined && flow.steps.length > 0 && (
+          {run.input !== undefined && (
+            <section aria-labelledby={`${run.id}-invoer`} className="flex flex-col gap-2">
+              <h3 id={`${run.id}-invoer`} className="text-sm font-semibold text-ink">Invoer</h3>
+              <KeyValue items={Object.entries(run.input).map(([label, value]) => ({ label, value }))} />
+            </section>
+          )}
+          {path.length > 0 && (
             <section aria-labelledby={`${run.id}-stappen`} className="flex flex-col gap-2">
               <h3 id={`${run.id}-stappen`} className="text-sm font-semibold text-ink">Stappen</h3>
               <ol className="flex flex-col">
-                {flow.steps.map((st, i) => {
+                {path.map((st, i) => {
                   const failed = i === stoppedAt
                   const skipped = (stoppedAt >= 0 && i > stoppedAt) || run.status === "dubbel" && i > 0
                     || (waitingAt >= 0 && i > waitingAt)
@@ -210,6 +223,7 @@ export function RunSheet({ run, flow, onClose, canEdit }: {
                         <span className="text-xs text-ink-3">
                           {STEP_KIND[stepType(st.type)?.kind ?? "actie"]} ·{" "}
                           {failed ? "mislukt" : skipped ? "niet uitgevoerd" : waits ? "wacht" : "gedaan"}
+                          {st.lane !== undefined && ` · bij ${st.lane === "yes" ? "Ja" : "Nee"}`}
                         </span>
                       </span>
                     </li>

@@ -1,71 +1,80 @@
 import { useState } from "react"
 import {
   changesOf,
-  CHECK_KIND,
-  CHECK_STATUS,
-  COMPLAINT_THRESHOLD,
   daysLeft,
   decimal,
   findProduct,
   marginOf,
   percent,
-  PHASE,
+  photosOf,
   qualityOf,
   RETURN_REASONS,
+  setProductState,
+  silhouetteOf,
   STATUS,
   STOCK,
+  SUPPLIER_MEDIA,
   useProductState,
   variantsOf
 } from "../../fixtures/products.ts"
-import type { ProductRow } from "../../fixtures/products.ts"
-import { customer, euro, ORDER_STATUS, productOrders, supplier, when } from "../../fixtures/records.ts"
+import type { CheckKind, ProductRow } from "../../fixtures/products.ts"
+import { customer, euro, ORDER_STATUS, productOrders, supplier, SUPPLIERS, when } from "../../fixtures/records.ts"
 import type { ProductStatus } from "../../fixtures/records.ts"
+import { FEED, findSupplier } from "../../fixtures/suppliers.ts"
 import { PEOPLE } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Avatar } from "../../ui/avatar.tsx"
-import { Status } from "../../ui/badge.tsx"
+import { RecordLabel, Status, Tag } from "../../ui/badge.tsx"
 import { Button, ButtonLink, IconButton } from "../../ui/button.tsx"
-import { DropdownItem, DropdownMenu } from "../../ui/dropdown.tsx"
+import { cx } from "../../ui/cx.ts"
+import { DropdownItem, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
 import {
   Archive,
+  Check,
   ClipboardCheck,
   Edit,
-  MessageSquare,
+  ExternalLink,
+  ImageOff,
   MoreHorizontal,
   Package,
+  Paperclip,
   Play,
-  Returns
+  RefreshCcw
 } from "../../ui/icons.tsx"
-import { Field, Input } from "../../ui/input.tsx"
+import { Field, Input, Select } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
-import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
-import { Toggle } from "../../ui/toggle.tsx"
+import { toast } from "../../ui/toast.tsx"
 import { dataState, useView } from "../../view.ts"
 import type { View } from "../../view.ts"
+import { UnsavedBar } from "../settings/parts.tsx"
 import { CheckDialog, withUndo } from "./dialogs.tsx"
-import { Figures, PageError, RecordSkeleton, Side } from "./parts.tsx"
+import { Figures, InlineText, PageError, ProductArt, RecordSkeleton, Side } from "./parts.tsx"
+import { QualityTab } from "./quality.tsx"
 
 type Tab = "overzicht" | "kwaliteit"
 
+/** Shopify's admin for a product: the record of truth for media, variants and SEO. */
+const shopifyUrl = (row: ProductRow) => `https://northwind-eu.myshopify.com/admin/products?query=${row.sku}`
+
 /**
  * One product (`/app/products/$productId`): how it sells and comes back, by size; stock against its
- * pace; price, cost and margin (edited in place); the supplier; and on the second tab the quality
- * record (phase, complaint rate against the 5% line, the checks the supplier answered, the complaints).
+ * pace; and everything the operator edits where it is read (title, photos, description, price and
+ * cost, status, supplier, labels), held as a draft until the bar at the foot saves it with Undo.
+ * Shopify stays the record: the next sync takes the new values there, and the page opens it for
+ * what Insyte does not edit. The second tab is the quality record (`quality.tsx`).
  */
 export function ProductDetail({ id }: { readonly id: string }) {
   const view = useView()
   const s = useProductState()
   const access = useAccess("products")
   const state = dataState(view)
-  const tab: Tab = useQuery("tab") === "kwaliteit" ? "kwaliteit" : "overzicht"
-  const [checkOpen, setCheckOpen] = useState(false)
   const row = findProduct(id, view, s)
 
   if (!access.view) {
@@ -105,93 +114,222 @@ export function ProductDetail({ id }: { readonly id: string }) {
       </Page>
     )
   }
+  return <ProductRecord key={row.id} row={row} canEdit={access.edit} />
+}
 
+/* ── the draft ─────────────────────────────────────────────────────────────────────────────────── */
+
+type Draft = {
+  readonly name: string
+  readonly description: string
+  readonly price: string
+  readonly cost: string
+  readonly status: ProductStatus
+  readonly supplierId: string
+  readonly tags: ReadonlyArray<string>
+}
+
+const draftOf = (r: ProductRow): Draft => ({
+  name: r.name,
+  description: r.description,
+  price: String(r.price).replace(".", ","),
+  cost: String(r.cost).replace(".", ","),
+  status: r.status,
+  supplierId: r.supplierId,
+  tags: r.tags
+})
+
+const amount = (v: string) => Number(v.trim().replace(",", "."))
+
+/** What changed, in a few words, for the bar and the toast. */
+function changed(a: Draft, b: Draft): ReadonlyArray<string> {
+  const out: Array<string> = []
+  if (a.name !== b.name) out.push("titel")
+  if (a.description !== b.description) out.push("beschrijving")
+  if (a.price !== b.price || a.cost !== b.cost) out.push("prijs")
+  if (a.status !== b.status) out.push("status")
+  if (a.supplierId !== b.supplierId) out.push("leverancier")
+  if (a.tags.join() !== b.tags.join()) out.push("labels")
+  return out
+}
+
+function ProductRecord({ row, canEdit }: { readonly row: ProductRow; readonly canEdit: boolean }) {
+  const s = useProductState()
+  const tab: Tab = useQuery("tab") === "kwaliteit" ? "kwaliteit" : "overzicht"
+  const [check, setCheck] = useState<CheckKind | null>(null)
+  const [sync, setSync] = useState<"idle" | "busy" | "done">("idle")
+  const saved = draftOf(row)
+  const savedKey = JSON.stringify(saved)
+  // The draft follows the saved values: a save, an undo or another tab's change starts it again.
+  const [held, setHeld] = useState<{ readonly key: string; readonly draft: Draft }>({ key: savedKey, draft: saved })
+  const draft = held.key === savedKey ? held.draft : saved
+  const set = (patch: Partial<Draft>) => setHeld({ key: savedKey, draft: { ...draft, ...patch } })
+  const diff = changed(saved, draft)
+  const price = amount(draft.price)
+  const cost = amount(draft.cost)
+  const valid = Number.isFinite(price) && Number.isFinite(cost) && price > 0 && cost >= 0 && draft.name.trim() !== ""
   const quality = qualityOf(row, s)
   const days = daysLeft(row)
+  const statusTone = STATUS[draft.status]
+
+  const save = () => {
+    if (!valid) {
+      toast({ title: "Niet opgeslagen", body: "Een product heeft een titel en een prijs boven € 0.", tone: "bad" })
+      return
+    }
+    withUndo(
+      `${
+        diff.length === 1 ? (diff[0] ?? "") : diff.slice(0, -1).join(", ") + " en " + (diff.at(-1) ?? "")
+      } van ${draft.name.trim()} opgeslagen`.replace(/^./, (c) => c.toUpperCase()),
+      "Shopify neemt de nieuwe waarden over bij de volgende synchronisatie.",
+      (st) => ({
+        ...st,
+        edits: {
+          ...st.edits,
+          [row.id]: {
+            ...st.edits[row.id],
+            name: draft.name.trim(),
+            description: draft.description,
+            price,
+            cost,
+            status: draft.status,
+            supplierId: draft.supplierId,
+            tags: draft.tags
+          }
+        }
+      })
+    )
+  }
   const setStatus = (status: ProductStatus) =>
     withUndo(`${row.name} op ${STATUS[status].label.toLowerCase()} gezet`, undefined, (st) => ({
       ...st,
       edits: { ...st.edits, [row.id]: { ...st.edits[row.id], status } }
     }))
+  const syncNow = () => {
+    setSync("busy")
+    window.setTimeout(() => {
+      setSync("done")
+      setProductState((st) => ({ ...st, synced: { ...st.synced, [row.id]: "zojuist" } }))
+      toast({
+        title: `${row.name} gesynchroniseerd vanuit Shopify`,
+        body: "Titel, varianten, prijs en voorraad staan gelijk met Northwind EU.",
+        tone: "good"
+      })
+    }, 900)
+  }
+  const lastSync = s.synced[row.id] ?? "vandaag 14:02"
 
   return (
     <Page width="record">
       <PageHead
         title={
           <span className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            <span>{row.name}</span>
-            <Status tone={STATUS[row.status].tone}>{STATUS[row.status].label}</Status>
+            <InlineText value={draft.name} onChange={(name) => set({ name })} label="Titel" readOnly={!canEdit} />
+            <Status tone={statusTone.tone}>{statusTone.label}</Status>
           </span>
         }
         meta={
           <>
-            {row.sku} · {row.sizes.length === 1 ? "één maat" : `maten ${row.sizes.join(", ")}`} · van{" "}
+            {row.sku} · {row.category} · {row.sizes.length === 1 ? "één maat" : `maten ${row.sizes.join(", ")}`} · van
+            {" "}
             <Link to={paths.supplier(row.supplierId)} className="text-ink-2 hover:text-ink hover:underline">
               {row.supplierName}
             </Link>
+            {` · gesynchroniseerd ${lastSync}`}
           </>
         }
-        actions={access.edit
-          ? (
-            <>
-              <Button icon={<ClipboardCheck />} onClick={() => setCheckOpen(true)}>Controle aanvragen</Button>
-              <DropdownMenu
-                label="Meer acties"
-                placement="bottom-end"
-                trigger={(props) => (
-                  <IconButton {...props} label="Meer acties" tone="outline">
-                    <MoreHorizontal />
-                  </IconButton>
-                )}
+        actions={
+          <>
+            {canEdit && (
+              <Button
+                variant="ghost"
+                loading={sync === "busy"}
+                icon={sync === "done" ? <Check /> : <RefreshCcw />}
+                onClick={syncNow}
               >
-                {row.status !== "actief" && (
-                  <DropdownItem glyph={Play} onSelect={() => setStatus("actief")}>Op actief zetten</DropdownItem>
-                )}
-                {row.status !== "concept" && (
-                  <DropdownItem glyph={Edit} onSelect={() => setStatus("concept")}>Op concept zetten</DropdownItem>
-                )}
-                {row.status !== "gearchiveerd" && (
-                  <DropdownItem
-                    glyph={Archive}
-                    tone="danger"
-                    onSelect={() => setStatus("gearchiveerd")}
-                  >
-                    Archiveren
-                  </DropdownItem>
-                )}
-              </DropdownMenu>
-            </>
-          )
-          : undefined}
+                {sync === "busy" ? "Synchroniseren" : sync === "done" ? "Zojuist gesynchroniseerd" : "Synchroniseren"}
+              </Button>
+            )}
+            {canEdit && <Button icon={<ClipboardCheck />} onClick={() => setCheck("batch")}>Controle aanvragen</Button>}
+            <DropdownMenu
+              label="Meer acties"
+              placement="bottom-end"
+              trigger={(props) => (
+                <IconButton {...props} label="Meer acties" tone="outline">
+                  <MoreHorizontal />
+                </IconButton>
+              )}
+            >
+              <DropdownItem glyph={ExternalLink} onSelect={() => window.open(shopifyUrl(row), "_blank", "noopener")}>
+                Openen in Shopify
+              </DropdownItem>
+              {canEdit && <DropdownSeparator />}
+              {canEdit && row.status !== "actief" && (
+                <DropdownItem glyph={Play} onSelect={() => setStatus("actief")}>Op actief zetten</DropdownItem>
+              )}
+              {canEdit && row.status !== "concept" && (
+                <DropdownItem glyph={Edit} onSelect={() => setStatus("concept")}>Op concept zetten</DropdownItem>
+              )}
+              {canEdit && row.status !== "gearchiveerd" && (
+                <DropdownItem
+                  glyph={Archive}
+                  tone="danger"
+                  onSelect={() => setStatus("gearchiveerd")}
+                >
+                  Archiveren
+                </DropdownItem>
+              )}
+            </DropdownMenu>
+          </>
+        }
       />
-      {!access.edit && <ReadOnlyNotice area="products" />}
+      {!canEdit && <ReadOnlyNotice area="products" />}
       <Tabs
         label="Productweergave"
         value={tab}
-        onChange={(next) => setQuery({ tab: next === "overzicht" ? null : next })}
+        onChange={(next) => setQuery({ tab: next === "overzicht" ? null : next, controle: null })}
         tabs={[
           { value: "overzicht", label: "Overzicht" },
-          { value: "kwaliteit", label: "Kwaliteit", count: quality.checks.length + quality.complaints.length }
+          {
+            value: "kwaliteit",
+            label: quality.phase === "toezicht" ? "Kwaliteit · onder toezicht" : "Kwaliteit",
+            count: quality.checks.length + quality.complaints.length
+          }
         ]}
       />
 
       {tab === "overzicht"
-        ? <Overview row={row} days={days} canEdit={access.edit} />
-        : <Quality row={row} canEdit={access.edit} onRequest={() => setCheckOpen(true)} />}
+        ? <Overview row={row} days={days} canEdit={canEdit} draft={draft} set={set} />
+        : <QualityTab row={row} canEdit={canEdit} onRequest={setCheck} />}
 
-      <CheckDialog open={checkOpen} onClose={() => setCheckOpen(false)} product={row} supplierName={row.supplierName} />
+      {canEdit && (
+        <UnsavedBar
+          dirty={diff.length > 0}
+          note={diff.join(", ")}
+          onReset={() => setHeld({ key: savedKey, draft: saved })}
+          onSave={save}
+        />
+      )}
+      <CheckDialog
+        open={check !== null}
+        onClose={() => setCheck(null)}
+        product={row}
+        supplierName={row.supplierName}
+        initialKind={check ?? "batch"}
+      />
     </Page>
   )
 }
 
 /* ── overview ──────────────────────────────────────────────────────────────────────────────────── */
 
-function Overview({ row, days, canEdit }: {
+function Overview({ row, days, canEdit, draft, set }: {
   readonly row: ProductRow
   readonly days: number | null
   readonly canEdit: boolean
+  readonly draft: Draft
+  readonly set: (patch: Partial<Draft>) => void
 }) {
-  const sup = supplier(row.supplierId)
   const reasons = RETURN_REASONS[row.id] ?? []
   const variants = variantsOf(row)
   const orders = productOrders(row.id).slice(0, 6)
@@ -203,11 +341,38 @@ function Overview({ row, days, canEdit }: {
 
   return (
     <div className="flex flex-col gap-10">
+      {row.adsPaused && (
+        <Notice
+          tone="warn"
+          title="Advertenties staan op pauze"
+          action={canEdit
+            ? (
+              <Button
+                size="sm"
+                onClick={() =>
+                  withUndo(
+                    `Advertenties voor ${row.name} hervat`,
+                    "Meta stuurt weer kopers naar het product.",
+                    (st) => ({ ...st, edits: { ...st.edits, [row.id]: { ...st.edits[row.id], adsPaused: false } } })
+                  )}
+              >
+                Advertenties hervatten
+              </Button>
+            )
+            : undefined}
+        >
+          De advertenties voor {row.name} staan op pauze tot het weer op voorraad is.
+        </Notice>
+      )}
       {aurora && (
         <Notice
           tone="warn"
           title={`${row.returned} van de ${row.sold} kwamen terug, 21 omdat hij te klein valt`}
-          action={<ButtonLink size="sm" to={paths.qualityCheck("qc-301")}>Controle bekijken</ButtonLink>}
+          action={
+            <ButtonLink size="sm" to={`${paths.product(row.id)}?tab=kwaliteit&controle=qc-301`}>
+              Controle bekijken
+            </ButtonLink>
+          }
         >
           Bijna alles in maat S. Sofía Kim wijzigde de maattabel op 20 nov; bij Allure Fulfillment staat een
           batchcontrole open tot vr 27 nov.
@@ -237,6 +402,20 @@ function Overview({ row, days, canEdit }: {
 
       <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="flex min-w-0 flex-col gap-10">
+          <Gallery row={row} />
+
+          <PageSection id="beschrijving" title="Beschrijving">
+            <InlineText
+              value={draft.description}
+              onChange={(description) => set({ description })}
+              label="Beschrijving"
+              multiline
+              readOnly={!canEdit}
+              placeholder="Nog geen beschrijving. Klik om er een te schrijven."
+              className="block max-w-[68ch] text-sm leading-relaxed whitespace-pre-line text-ink-2"
+            />
+          </PageSection>
+
           <PageSection
             id="maten"
             title="Per maat"
@@ -260,7 +439,7 @@ function Overview({ row, days, canEdit }: {
                       <Td header>{v.size}</Td>
                       <Td muted>{v.sku}</Td>
                       <Td figure align="right" className={v.stock < 40 ? "text-warn-ink" : undefined}>
-                        {v.stock.toLocaleString("nl-NL")}
+                        {v.stock === 0 ? "Op" : v.stock.toLocaleString("nl-NL")}
                       </Td>
                       <Td figure align="right">{v.sold.toLocaleString("nl-NL")}</Td>
                       <Td figure align="right" className={rate > 0.1 ? "font-medium text-bad-ink" : undefined}>
@@ -359,47 +538,93 @@ function Overview({ row, days, canEdit }: {
         </div>
 
         <aside className="flex min-w-0 flex-col gap-8">
-          <Pricing row={row} canEdit={canEdit} />
-          <Side id="leverancier" title="Leverancier">
-            <KeyValue
-              items={[
-                {
-                  label: "Naam",
-                  value: <Link to={paths.supplier(row.supplierId)} className="hover:underline">{row.supplierName}</Link>
-                },
-                ...(sup === undefined
-                  ? []
-                  : [
-                    {
-                      label: "Levertijd",
-                      value: (
-                        <span className={sup.leadDays > sup.promiseDays ? "text-warn-ink" : undefined}>
-                          {decimal(sup.leadDays)} van {sup.promiseDays} dagen
-                        </span>
-                      ),
-                      figure: true
-                    },
-                    { label: "Land", value: sup.country }
-                  ])
-              ]}
-            />
-          </Side>
+          <Pricing row={row} canEdit={canEdit} draft={draft} set={set} />
+          <Delivery row={row} canEdit={canEdit} draft={draft} set={set} />
+          <Labels canEdit={canEdit} tags={draft.tags} onChange={(tags) => set({ tags })} />
         </aside>
       </div>
     </div>
   )
 }
 
-const n = (v: string) => Number(v.replace(",", "."))
+/**
+ * The product's photographs: the one picked, large, with the rest as a strip under it. Shopify holds
+ * the media, so a product without any says where to add them.
+ */
+function Gallery({ row }: { readonly row: ProductRow }) {
+  const photos = photosOf(row.id)
+  const [index, setIndex] = useState(0)
+  const at = Math.min(index, Math.max(0, photos.length - 1))
+  const shape = silhouetteOf(row.id)
+  return (
+    <PageSection
+      id="fotos"
+      title="Foto's"
+      meta={photos.length === 0 ? undefined : `${photos.length} uit Shopify`}
+      actions={
+        <a
+          href={shopifyUrl(row)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink hover:underline"
+        >
+          Beheren in Shopify
+          <ExternalLink size={12} />
+        </a>
+      }
+    >
+      {photos.length === 0
+        ? (
+          <div className="flex aspect-[16/7] flex-col items-center justify-center gap-2 rounded-md bg-well text-sm text-ink-3">
+            <ImageOff size={20} />
+            Nog geen foto's. Voeg ze toe in Shopify; ze komen bij de volgende synchronisatie binnen.
+          </div>
+        )
+        : (
+          <div className="flex flex-col gap-2">
+            <figure className="flex flex-col gap-1.5">
+              <span className="flex aspect-[16/9] items-center justify-center rounded-md bg-well">
+                <ProductArt shape={shape} view={at} className="h-4/5" />
+              </span>
+              <figcaption className="text-xs text-ink-3">
+                {photos[at]} · {at + 1} van {photos.length}
+              </figcaption>
+            </figure>
+            {photos.length > 1 && (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Foto's van het product">
+                {photos.map((label, i) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setIndex(i)}
+                    aria-label={`Foto ${i + 1} van ${photos.length}: ${label}`}
+                    aria-pressed={i === at}
+                    className={cx(
+                      "flex size-14 items-center justify-center rounded-sm bg-well transition-opacity",
+                      i === at ? "ring-2 ring-accent" : "opacity-70 hover:opacity-100"
+                    )}
+                  >
+                    <ProductArt shape={shape} view={i} className="size-10" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+    </PageSection>
+  )
+}
 
-/** Price and cost, edited in place: the margin follows as you type, the save can be undone. */
-function Pricing({ row, canEdit }: { readonly row: ProductRow; readonly canEdit: boolean }) {
-  const [price, setPrice] = useState(String(row.price))
-  const [cost, setCost] = useState(String(row.cost))
-  const p = n(price)
-  const c = n(cost)
+/** Price and cost in the draft: the margin follows as you type; the bar at the foot saves it. */
+function Pricing({ row, canEdit, draft, set }: {
+  readonly row: ProductRow
+  readonly canEdit: boolean
+  readonly draft: Draft
+  readonly set: (patch: Partial<Draft>) => void
+}) {
+  const p = amount(draft.price)
+  const c = amount(draft.cost)
   const valid = Number.isFinite(p) && Number.isFinite(c) && p > 0 && c >= 0
-  const dirty = valid && (p !== row.price || c !== row.cost)
   const margin = valid ? marginOf(p, c) : row.margin
 
   if (!canEdit) {
@@ -417,26 +642,16 @@ function Pricing({ row, canEdit }: { readonly row: ProductRow; readonly canEdit:
   }
   return (
     <Side id="prijs" title="Prijs en marge">
-      <form
-        className="flex flex-col gap-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!dirty) return
-          withUndo(`Prijs van ${row.name} bijgewerkt`, `${euro(p)}, ${percent(marginOf(p, c))} marge.`, (st) => ({
-            ...st,
-            edits: { ...st.edits, [row.id]: { ...st.edits[row.id], price: p, cost: c } }
-          }))
-        }}
-      >
+      <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Prijs">
+          <Field label="Prijs" error={Number.isFinite(p) && p > 0 ? undefined : "Boven € 0"}>
             {(control) => (
               <Input
                 {...control}
                 prefix="€"
                 inputMode="decimal"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                value={draft.price}
+                onChange={(e) => set({ price: e.target.value })}
               />
             )}
           </Field>
@@ -446,8 +661,8 @@ function Pricing({ row, canEdit }: { readonly row: ProductRow; readonly canEdit:
                 {...control}
                 prefix="€"
                 inputMode="decimal"
-                value={cost}
-                onChange={(e) => setCost(e.target.value)}
+                value={draft.cost}
+                onChange={(e) => set({ cost: e.target.value })}
               />
             )}
           </Field>
@@ -457,150 +672,151 @@ function Pricing({ row, canEdit }: { readonly row: ProductRow; readonly canEdit:
           <span className={`figure text-sm ${margin < 0.5 ? "text-warn-ink" : "text-ink"}`}>{percent(margin)}</span>
           {valid && <>· {euro(Math.round((p - c) * 100) / 100)} per stuk</>}
         </p>
-        {dirty && (
-          <div className="flex gap-2">
-            <Button type="submit" variant="primary" size="sm">Opslaan</Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setPrice(String(row.price))
-                setCost(String(row.cost))
-              }}
-            >
-              Annuleren
-            </Button>
-          </div>
-        )}
-      </form>
+      </div>
     </Side>
   )
 }
 
-/* ── quality ───────────────────────────────────────────────────────────────────────────────────── */
-
-function Quality({ row, canEdit, onRequest }: {
+/** Status and who supplies it, in the draft; and what the supplier says about delivery and stock. */
+function Delivery({ row, canEdit, draft, set }: {
   readonly row: ProductRow
   readonly canEdit: boolean
-  readonly onRequest: () => void
+  readonly draft: Draft
+  readonly set: (patch: Partial<Draft>) => void
 }) {
-  const s = useProductState()
-  const q = qualityOf(row, s)
-  const watched = q.phase === "toezicht"
-
+  const view = useView()
+  const sup = supplier(draft.supplierId)
+  const terms = findSupplier(draft.supplierId, view)
+  const media = SUPPLIER_MEDIA[row.id] ?? []
   return (
-    <div className="flex flex-col gap-10">
-      {q.over && (
-        <Notice tone="bad" title={`${percent(q.rate, 1)} klachten, boven de grens van ${percent(COMPLAINT_THRESHOLD)}`}>
-          {q.complaints.length} klachten op {q.sold90} verkocht in 90 dagen.{" "}
-          {watched ? "Het product staat onder toezicht." : "Overweeg het onder toezicht te zetten."}
-        </Notice>
-      )}
-
-      <div className="flex flex-wrap items-end justify-between gap-6">
-        <Figures
-          label="Kwaliteit, laatste 90 dagen"
+    <Side id="levering" title="Status en levering">
+      <div className="flex flex-col gap-3">
+        {canEdit && (
+          <>
+            <Field label="Status">
+              {(control) => (
+                <Select
+                  {...control}
+                  value={draft.status}
+                  onChange={(e) => set({ status: e.target.value as ProductStatus })}
+                >
+                  {(Object.keys(STATUS) as ReadonlyArray<ProductStatus>).map((k) => (
+                    <option key={k} value={k}>{STATUS[k].label}</option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Leverancier">
+              {(control) => (
+                <Select
+                  {...control}
+                  value={draft.supplierId}
+                  onChange={(e) => set({ supplierId: e.target.value })}
+                >
+                  {SUPPLIERS.filter((x) => x.status !== "uitgenodigd" || x.id === draft.supplierId).map((x) => (
+                    <option key={x.id} value={x.id}>{x.name}</option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </>
+        )}
+        <KeyValue
           items={[
-            { label: "Fase", value: <Status tone={PHASE[q.phase].tone}>{PHASE[q.phase].label}</Status> },
-            { label: "Klachten", value: q.complaints.length },
+            ...(canEdit
+              ? []
+              : [{
+                label: "Leverancier",
+                value: <Link to={paths.supplier(row.supplierId)} className="hover:underline">{row.supplierName}</Link>
+              }]),
             {
-              label: "Klachtpercentage",
-              note: `grens ${percent(COMPLAINT_THRESHOLD)}`,
-              value: <span className={q.over ? "text-bad-ink" : undefined}>{percent(q.rate, 1)}</span>
+              label: "Voorraad",
+              value: (
+                <span
+                  className={row.level === "op" ? "text-bad-ink" : row.level === "laag" ? "text-warn-ink" : undefined}
+                >
+                  {STOCK[row.level].label}
+                </span>
+              )
             },
-            { label: "Verkocht", note: "90 dagen", value: q.sold90.toLocaleString("nl-NL") }
+            ...(sup === undefined || sup.leadDays === 0
+              ? []
+              : [{
+                label: "Levertijd",
+                value: (
+                  <span className={sup.leadDays > sup.promiseDays ? "text-warn-ink" : undefined}>
+                    {decimal(sup.leadDays)} van {sup.promiseDays} dagen
+                  </span>
+                ),
+                figure: true
+              }]),
+            ...(terms === undefined ? [] : [{ label: "Voorraadfeed", value: FEED[terms.feed] }])
           ]}
         />
-        {canEdit && (
-          <label className="flex items-center gap-3 text-sm text-ink">
-            Onder toezicht
-            <Toggle
-              label="Onder toezicht"
-              on={watched}
-              onChange={(on) =>
-                withUndo(
-                  on ? `${row.name} staat onder toezicht` : `${row.name} niet meer onder toezicht`,
-                  on ? "Elke nieuwe klacht komt bij jou binnen, en nieuwe batches vragen een controle." : undefined,
-                  (st) => ({ ...st, edits: { ...st.edits, [row.id]: { ...st.edits[row.id], watch: on } } })
-                )}
-            />
-          </label>
+        {media.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-ink-3">
+              Van {row.supplierName} · {media.length === 1 ? "1 bestand" : `${media.length} bestanden`}
+            </span>
+            <ul className="flex flex-col gap-1">
+              {media.map((m) => (
+                <li key={m.name} className="flex min-w-0 items-center gap-2 text-sm">
+                  <Paperclip size={14} className="shrink-0 text-ink-3" />
+                  <span className="min-w-0 flex-1 truncate text-ink">{m.name}</span>
+                  <span className="figure shrink-0 text-xs text-ink-3">{m.size} · {m.at}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
+    </Side>
+  )
+}
 
-      <PageSection
-        id="controles"
-        title="Controles"
-        meta={q.checks.length === 0 ? undefined : String(q.checks.length)}
-        actions={canEdit
-          ? <Button size="sm" icon={<ClipboardCheck />} onClick={onRequest}>Controle aanvragen</Button>
-          : undefined}
-      >
-        {q.checks.length === 0
-          ? (
-            <p className="text-sm text-ink-3">
-              Nog geen controles. Vraag {row.supplierName} om foto's van een batch, een monster of een testbestelling.
-            </p>
-          )
-          : (
-            <Table label="Controles bij de leverancier" minWidth={620}>
-              <THead>
-                <Th>Controle</Th>
-                <Th>Maten</Th>
-                <Th>Status</Th>
-                <Th>Aangevraagd</Th>
-                <Th align="right">Uiterlijk</Th>
-              </THead>
-              <TBody>
-                {q.checks.map((c) => (
-                  <Tr key={c.id} onOpen={() => navigate(paths.qualityCheck(c.id))}>
-                    <Td header className="py-1.5">
-                      <span className="flex min-w-0 flex-col">
-                        <Link to={paths.qualityCheck(c.id)} className="font-medium hover:underline">
-                          {CHECK_KIND[c.kind]}
-                        </Link>
-                        <span className="max-w-[20rem] truncate text-2xs text-ink-3">{c.verdict ?? c.note}</span>
-                      </span>
-                    </Td>
-                    <Td muted>{c.sizes.length === 0 ? "alle" : c.sizes.join(", ")}</Td>
-                    <Td>
-                      <Status tone={c.late === true ? "bad" : CHECK_STATUS[c.status].tone}>
-                        {c.late === true ? "Te laat" : CHECK_STATUS[c.status].label}
-                      </Status>
-                    </Td>
-                    <Td muted>{c.requestedAt} · {c.requestedBy.split(" ")[0]}</Td>
-                    <Td align="right" muted className="figure whitespace-nowrap">{c.due}</Td>
-                  </Tr>
-                ))}
-              </TBody>
-            </Table>
-          )}
-      </PageSection>
-
-      <PageSection
-        id="klachten"
-        title="Klachten"
-        meta={q.complaints.length === 0 ? undefined : String(q.complaints.length)}
-      >
-        {q.complaints.length === 0
-          ? <p className="text-sm text-ink-3">Geen klachten over de kwaliteit in de laatste 90 dagen.</p>
-          : (
-            <List label="Klachten over dit product">
-              {q.complaints.map((k) => (
-                <ListRow
-                  key={k.id}
-                  padded={false}
-                  href={paths.customer(k.customerId)}
-                  lead={<GlyphTile size={30}>{k.from === "retour" ? <Returns /> : <MessageSquare />}</GlyphTile>}
-                  title={k.text}
-                  meta={`${k.customer} · maat ${k.size} · ${k.from === "retour" ? "bij een retour" : "in een bericht"}`}
-                  trail={<span className="figure text-xs text-ink-3">{k.at}</span>}
-                />
-              ))}
-            </List>
-          )}
-      </PageSection>
-    </div>
+/** The product's labels, as Shopify tags: removed with their cross, added by typing one and Enter. */
+function Labels({ canEdit, tags, onChange }: {
+  readonly canEdit: boolean
+  readonly tags: ReadonlyArray<string>
+  readonly onChange: (next: ReadonlyArray<string>) => void
+}) {
+  const [text, setText] = useState("")
+  const add = () => {
+    const t = text.trim().toLowerCase()
+    if (t !== "" && !tags.includes(t)) onChange([...tags, t])
+    setText("")
+  }
+  if (!canEdit && tags.length === 0) return null
+  return (
+    <Side id="labels" title="Labels">
+      <div className="flex flex-col gap-2">
+        {tags.length > 0 && (
+          <span className="flex flex-wrap gap-1.5">
+            {tags.map((t) =>
+              canEdit
+                ? <RecordLabel key={t} onRemove={() => onChange(tags.filter((x) => x !== t))}>{t}</RecordLabel>
+                : <Tag key={t}>{t}</Tag>
+            )}
+          </span>
+        )}
+        {canEdit && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              add()
+            }}
+          >
+            <Input
+              aria-label="Label toevoegen"
+              placeholder="Label toevoegen"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </form>
+        )}
+        {canEdit && <p className="text-xs text-ink-3">Labels gaan als tags naar Shopify.</p>}
+      </div>
+    </Side>
   )
 }
 

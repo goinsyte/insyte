@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react"
-import { BUSY, SEED, SEED_RUNS, template } from "../../fixtures/automations.ts"
+import { BUSY, SEED, SEED_RUNS, stepType, template } from "../../fixtures/automations.ts"
 import type { Automation, FlowStatus, Run, Step } from "../../fixtures/automations.ts"
 import { ME } from "../../fixtures/workspace.ts"
 import { useView } from "../../view.ts"
@@ -57,8 +57,45 @@ export function setStatus(id: string, status: FlowStatus) {
   patch(id, { status })
 }
 
+/* ── the test a person starts: the step it is on, and where it stopped ──────────────────────────── */
+
+type TestState = {
+  readonly flowId: string
+  /** The step being walked now; null once it has finished. */
+  readonly at: string | null
+  /** The steps it went through. */
+  readonly done: ReadonlyArray<string>
+  readonly failed?: { readonly id: string; readonly reason: string }
+  readonly sample: string
+}
+
+let test: TestState | null = null
+const testListeners = new Set<() => void>()
+
+export function setTest(next: TestState | null) {
+  test = next
+  for (const listener of testListeners) listener()
+}
+
+const subscribeTest = (listener: () => void) => {
+  testListeners.add(listener)
+  return () => testListeners.delete(listener)
+}
+
+export function useTest(flowId: string): TestState | null {
+  const t = useSyncExternalStore(subscribeTest, () => test)
+  return t?.flowId === flowId ? t : null
+}
+
 export function setSteps(id: string, steps: ReadonlyArray<Step>) {
   patch(id, { steps, unpublished: true, editedBy: "elena", editedAt: "zojuist" })
+  /* An edit clears the red a failed test left on a step. */
+  if (test?.flowId === id && test.at === null) setTest(null)
+}
+
+/** A change to the flow's settings, written into its logboek under the person who made it. */
+export function logSetting(a: Automation, what: string, next: Partial<Automation>) {
+  patch(a.id, { ...next, log: [{ by: ME.name, at: "zojuist", what }, ...(a.log ?? [])] })
 }
 
 export function publish(a: Automation, note: string) {
@@ -85,6 +122,21 @@ export function addRun(run: Run) {
   set({ ...state, runs: [run, ...state.runs] })
 }
 
+/* A template's step gets the fields it needs, so the draft can be tested as it stands. */
+const ready = (st: Step): Step => {
+  const t = stepType(st.type)
+  const values: Record<string, string> = { ...st.values }
+  for (const field of t?.fields ?? []) {
+    if (field.required !== true || (values[field.key] ?? "").trim() !== "") continue
+    values[field.key] = field.key === "supplier"
+      ? "De leverancier van de bestelling"
+      : field.key === "to"
+      ? "{{klant.e-mail}}"
+      : field.placeholder ?? st.summary
+  }
+  return { ...st, values }
+}
+
 let made = 0
 
 /** A new draft, empty or from a template; nothing runs until it is published. Returns its id. */
@@ -97,7 +149,7 @@ export function createDraft(templateId?: string, name?: string): string {
     name: name ?? from?.name ?? "Nieuwe automatisering",
     description: from?.description ?? "",
     status: "concept",
-    steps: from?.steps ?? [],
+    steps: (from?.steps ?? []).map(ready),
     runs: 0,
     runs30: 0,
     lastRun: null,

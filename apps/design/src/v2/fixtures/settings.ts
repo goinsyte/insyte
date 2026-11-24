@@ -1935,6 +1935,114 @@ export const API_AREAS: ReadonlyArray<PermArea> = [
   "data"
 ]
 
+/** The API's names for the areas, as a scope reads: `orders.read`, `orders.write`. */
+const API_NAME: Readonly<Partial<Record<PermArea, string>>> = {
+  orders: "orders",
+  returns: "returns",
+  customers: "customers",
+  products: "products",
+  support: "tickets",
+  chargebacks: "disputes",
+  suppliers: "suppliers",
+  automations: "automations",
+  analytics: "analytics",
+  data: "exports"
+}
+
+/** What a key may reach, as scopes: from its own rights, or from the role it follows. */
+export function keyScopes(k: ApiKey): ReadonlyArray<string> {
+  const reach: Partial<Record<PermArea, ApiAccess>> = k.access.kind === "custom"
+    ? k.access.scopes
+    : (() => {
+      const role = ROLES.find((r) => r.id === (k.access as { roleId: string }).roleId)
+      return Object.fromEntries(
+        API_AREAS.map((a) => [a, Math.min(2, role?.levels[a] ?? 0) as ApiAccess])
+      ) as Partial<Record<PermArea, ApiAccess>>
+    })()
+  return API_AREAS.flatMap((a) => {
+    const l = reach[a] ?? 0
+    const name = API_NAME[a] ?? a
+    return l === 0 ? [] : l === 1 ? [`${name}.read`] : [`${name}.read`, `${name}.write`]
+  })
+}
+
+type ApiRequest = {
+  readonly id: string
+  readonly method: "GET" | "POST" | "PATCH" | "DELETE"
+  readonly path: string
+  readonly status: number
+  readonly ms: number
+  readonly ip: string
+  readonly at: Date
+}
+
+/** A small deterministic generator, so a key reads the same each time it is opened. */
+function seeded(text: string) {
+  let h = 2166136261
+  for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0
+  return () => {
+    h = (Math.imul(h, 1103515245) + 12345) >>> 0
+    return (h % 10_000) / 10_000
+  }
+}
+
+const KEY_PATHS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  orders: ["/v1/orders", "/v1/orders/1043", "/v1/orders/1043/fulfillments"],
+  products: ["/v1/products", "/v1/products/aurora-fleece/inventory"],
+  customers: ["/v1/customers", "/v1/customers/cus_4821"],
+  suppliers: ["/v1/suppliers/allure/prices"],
+  analytics: ["/v1/analytics/revenue?period=week"],
+  tickets: ["/v1/tickets?status=open"],
+  returns: ["/v1/returns"],
+  disputes: ["/v1/disputes"],
+  exports: ["/v1/exports"],
+  automations: ["/v1/automations"]
+}
+
+/**
+ * A key's use: requests per day over the last 14 days (with how many failed), and its latest
+ * requests, newest first. A revoked key stops on the day it was revoked; one never used has none.
+ */
+export function keyActivity(k: ApiKey): {
+  readonly days: ReadonlyArray<{ readonly label: string; readonly requests: number; readonly errors: number }>
+  readonly requests: ReadonlyArray<ApiRequest>
+} {
+  const rnd = seeded(k.id)
+  const scopes = keyScopes(k)
+  const base = k.id === "key_live" ? 1800 : k.id === "key_bi" ? 96 : k.id === "key_zap" ? 340 : 120
+  const ips = k.ips.length > 0 ? ["185.43.12.7", "185.43.12.19"] : ["52.14.88.201", "34.201.17.4", "3.120.44.92"]
+  const last = k.lastUsed?.getTime() ?? 0
+  const days = Array.from({ length: 14 }, (_, i) => {
+    const at = new Date(NOW - (13 - i) * D)
+    const live = k.lastUsed !== null && at.getTime() <= last + D
+    const weekend = at.getDay() === 0 || at.getDay() === 6
+    const requests = live ? Math.round(base * (weekend ? 0.55 : 1) * (0.8 + rnd() * 0.4)) : 0
+    return {
+      label: `${at.getDate()} ${MONTHS[at.getMonth()] ?? ""}`,
+      requests,
+      errors: Math.round(requests * (k.id === "key_live" && i === 11 ? 0.06 : rnd() * 0.012))
+    }
+  })
+  const writes = scopes.filter((x) => x.endsWith(".write")).map((x) => x.split(".")[0] ?? "")
+  const reads = scopes.filter((x) => x.endsWith(".read")).map((x) => x.split(".")[0] ?? "")
+  const requests = k.lastUsed === null ? [] : Array.from({ length: 40 }, (_, i): ApiRequest => {
+    const write = writes.length > 0 && rnd() < 0.3
+    const area = (write ? writes : reads)[Math.floor(rnd() * (write ? writes : reads).length)] ?? "orders"
+    const list = KEY_PATHS[area] ?? ["/v1/orders"]
+    const r = rnd()
+    return {
+      id: `req_${k.id}_${i}`,
+      method: write ? (rnd() < 0.7 ? "POST" : "PATCH") : "GET",
+      path: list[Math.floor(rnd() * list.length)] ?? "/v1/orders",
+      status: r < 0.03 ? 429 : r < 0.05 ? 401 : write ? 201 : 200,
+      ms: Math.round(40 + rnd() * (write ? 380 : 180)),
+      ip: ips[Math.floor(rnd() * ips.length)] ?? ips[0] ?? "",
+      at: new Date(last - i * (k.id === "key_live" ? 47_000 : 9 * MIN) - Math.round(rnd() * 20_000))
+    }
+  })
+  return { days, requests }
+}
+
 export type Delivery = {
   readonly id: string
   readonly event: string
@@ -1942,12 +2050,38 @@ export type Delivery = {
   readonly status: number | null
   readonly ms: number
   readonly attempts: number
+  /** Of how many the endpoint's retry setting allows. */
+  readonly max: number
+  readonly test?: boolean
+  readonly nextRetry?: Date
+  /** What Insyte sent, and what came back (`null` when nothing came back). */
+  readonly body: Readonly<Record<string, unknown>>
+  readonly response: string | null
 }
+
+/** The payload of one event, as Insyte signs and sends it. */
+export function payloadFor(event: string, id: string, at: Date): Readonly<Record<string, unknown>> {
+  const [kind] = event.split(".")
+  const object: Record<string, unknown> = kind === "order"
+    ? { id: "ord_1043", name: "#1043", total: 89.95, currency: "EUR", customer: "cus_4821", store: "store_eu" }
+    : kind === "chargeback"
+    ? { id: "dp_2291", order: "ord_0988", amount: 129, currency: "EUR", reason: "product_not_received" }
+    : kind === "customer"
+    ? { id: "cus_4821", email: "lotte.devries@example.nl", orders: 4, country: "NL" }
+    : kind === "ticket"
+    ? { id: "tk_5142", subject: "Waar blijft mijn pakket?", assignee: "sofia-kim", status: "open" }
+    : { id: "rt_311", order: "ord_1021", amount: 59, currency: "EUR", status: "requested" }
+  return { id: `evt_${id.replace(/^dl_/, "")}`, type: event, created: at.toISOString(), data: { object } }
+}
+
+export type Header = { readonly key: string; readonly value: string }
 
 export type Endpoint = {
   readonly id: string
   readonly url: string
   readonly description: string
+  /** Sent along with every delivery; the value never comes back from the server. */
+  readonly headers: ReadonlyArray<Header>
   readonly events: ReadonlyArray<string>
   readonly stores: "all" | ReadonlyArray<string>
   readonly apiVersion: string
@@ -1959,15 +2093,25 @@ export type Endpoint = {
   readonly deliveries: ReadonlyArray<Delivery>
 }
 
-const deliveries = (events: ReadonlyArray<string>, failing: number): ReadonlyArray<Delivery> =>
-  Array.from({ length: 8 }, (_, i) => ({
-    id: `dl_${events[0]?.split(".")[0] ?? "x"}_${i}`,
-    event: events[i % events.length] ?? "order.created",
-    at: ago((i * 47 + 9) * MIN),
-    status: i < failing ? (i === 0 ? null : 502) : 200,
-    ms: i < failing ? 10_000 : 120 + ((i * 53) % 260),
-    attempts: i < failing ? 3 : 1
-  }))
+const deliveries = (events: ReadonlyArray<string>, failing: number, retry: number): ReadonlyArray<Delivery> =>
+  Array.from({ length: 8 }, (_, i) => {
+    const id = `dl_${events[0]?.split(".")[0] ?? "x"}_${i}`
+    const event = events[i % events.length] ?? "order.created"
+    const at = ago((i * 47 + 9) * MIN)
+    const failed = i < failing
+    return {
+      id,
+      event,
+      at,
+      status: failed ? (i === 0 ? null : 502) : 200,
+      ms: failed ? 10_000 : 120 + ((i * 53) % 260),
+      attempts: failed ? (i === 0 ? 2 : retry) : 1,
+      max: Math.max(retry, 1),
+      ...(failed && i === 0 ? { nextRetry: ahead(52 * MIN) } : {}),
+      body: payloadFor(event, id, at),
+      response: failed ? (i === 0 ? null : "<html><body><h1>502 Bad Gateway</h1></body></html>") : "{\"ok\":true}"
+    }
+  })
 
 const SEED_HOOKS: ReadonlyArray<Endpoint> = [
   {
@@ -1982,7 +2126,8 @@ const SEED_HOOKS: ReadonlyArray<Endpoint> = [
     failures: 0,
     createdBy: "Ethan Jeppesen",
     secret: "whsec_9Rk2mQ7xLp4Vt8nZ3bWc6Yh1",
-    deliveries: deliveries(["order.created", "order.paid", "order.fulfilled"], 0)
+    headers: [{ key: "X-Northwind-Env", value: "productie" }],
+    deliveries: deliveries(["order.created", "order.paid", "order.fulfilled"], 0, 5)
   },
   {
     id: "we_disputes",
@@ -1996,7 +2141,8 @@ const SEED_HOOKS: ReadonlyArray<Endpoint> = [
     failures: 3,
     createdBy: "Elena Hart",
     secret: "whsec_4Hq8sDn2Kv6Tm1Xr7Lp3Jw9",
-    deliveries: deliveries(["chargeback.opened", "chargeback.evidence_due"], 3)
+    headers: [{ key: "Authorization", value: "" }],
+    deliveries: deliveries(["chargeback.opened", "chargeback.evidence_due"], 3, 3)
   },
   {
     id: "we_klaviyo",
@@ -2010,7 +2156,8 @@ const SEED_HOOKS: ReadonlyArray<Endpoint> = [
     failures: 0,
     createdBy: "Maya Roy",
     secret: "whsec_7Bt3nVc8Qx1Mz5Rk2Wp6Hd4",
-    deliveries: deliveries(["customer.updated", "order.created"], 0)
+    headers: [],
+    deliveries: deliveries(["customer.updated", "order.created"], 0, 5)
   }
 ]
 

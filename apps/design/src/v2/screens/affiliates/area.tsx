@@ -10,7 +10,7 @@ import { euro } from "../../fixtures/records.ts"
 import { paths, useQuery } from "../../router.tsx"
 import { MenuItem, MenuList } from "../../shell/nav.tsx"
 import type { ThreadItem } from "../../shell/threads.ts"
-import { Banknote, Send, UserPlus, Users } from "../../ui/icons.tsx"
+import { Banknote, FileText, Send, UserPlus, Users } from "../../ui/icons.tsx"
 import { getView, useView } from "../../view.ts"
 import { AffiliatesPage, weergaveOf } from "./page.tsx"
 
@@ -18,7 +18,8 @@ const LABEL = {
   actief: "Actief",
   aanmeldingen: "Aanmeldingen",
   uitbetalingen: "Uitbetalingen",
-  uitnodigingen: "Uitnodigingen"
+  uitnodigingen: "Uitnodigingen",
+  materiaal: "Materiaal"
 }
 
 const viewHref = (w: string) => (w === "actief" ? paths.affiliates : `${paths.affiliates}?weergave=${w}`)
@@ -75,6 +76,13 @@ export const area: AreaDef = {
           label="Uitnodigingen"
           count={counts.uitnodigingen}
           active={here("uitnodigingen")}
+        />
+        <MenuItem
+          to={viewHref("materiaal")}
+          glyph={FileText}
+          label="Materiaal"
+          count={counts.materiaal}
+          active={here("materiaal")}
         />
       </MenuList>
     )

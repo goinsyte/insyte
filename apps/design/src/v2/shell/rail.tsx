@@ -1,14 +1,16 @@
-import { paths } from "../router.tsx"
+import { paths, useRoute } from "../router.tsx"
 import { ChevronsRight, MoreHorizontal, Settings } from "../ui/icons.tsx"
 import { useView } from "../view.ts"
 import { RailItem } from "./nav.tsx"
-import { visibleGroups } from "./sections.ts"
+import { railGroups, TOOLS } from "./sections.ts"
+import { useShellState } from "./shell-state.ts"
 import { VariantMark } from "./variants.tsx"
 
 /**
  * The icon rail: graphite, one tile per area, the current one a white tile (the owner's design). Groups
  * are separated by space, not rules. Names show beside the tile on hover and focus. When the menu is
- * folded away, the rail's first tile unfolds it again.
+ * folded away, the rail's first tile unfolds it again. The order, what is hidden and which tools are
+ * pinned are the person's own (`customise.tsx`); a pinned tool is lit while you are in it.
  */
 export function Rail({ current, panelOpen, onOpenPanel }: {
   readonly current: string
@@ -16,6 +18,10 @@ export function Rail({ current, panelOpen, onOpenPanel }: {
   readonly onOpenPanel?: () => void
 }) {
   const view = useView()
+  const { rail } = useShellState()
+  const { pathname } = useRoute()
+  const lit = (id: string, href: string) =>
+    id === current || (TOOLS.some((tool) => tool.id === id) && pathname.startsWith(href))
   return (
     <nav
       aria-label="Gebieden"
@@ -33,12 +39,12 @@ export function Rail({ current, panelOpen, onOpenPanel }: {
         </button>
       )}
       <ul className="flex flex-col items-center gap-4">
-        {visibleGroups(view).map((group) => (
+        {railGroups(view, rail).map((group) => (
           <li key={group[0]?.id}>
             <ul className="flex flex-col items-center gap-1">
               {group.map((section) => (
                 <li key={section.id}>
-                  <RailItem section={section} active={section.id === current} />
+                  <RailItem section={section} active={lit(section.id, section.href)} />
                 </li>
               ))}
             </ul>

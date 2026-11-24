@@ -1,5 +1,6 @@
 import { useState } from "react"
 import type { PointerEvent } from "react"
+import { cx as classes } from "../ui/cx.ts"
 import { formatAxis, formatChange, formatValue } from "./format.ts"
 import { NotePin } from "./parts.tsx"
 import { axis, useWidth } from "./scale.ts"
@@ -18,11 +19,13 @@ const REFERENCE_ROOM = 68
  * grey; without one, every bar is a darker grey. A `reference` (a promise, a target) is a dashed rule
  * with its label in its own room at the right end, clear of the bars.
  */
-export function BarChart({ data, note, height = 200, axisLabels = true }: {
+export function BarChart({ data, note, height = 200, axisLabels = true, onPick }: {
   readonly data: BarData
   readonly note?: Note
   readonly height?: number
   readonly axisLabels?: boolean
+  /** A bar opens what is behind it: a click, or Enter on the bar the arrows reached. */
+  readonly onPick?: (index: number) => void
 }) {
   const [ref, width] = useWidth<HTMLDivElement>()
   const [active, setActive] = useState<number | null>(null)
@@ -62,12 +65,17 @@ export function BarChart({ data, note, height = 200, axisLabels = true }: {
           role="img"
           aria-label={summary}
           tabIndex={0}
-          className="block touch-none outline-none focus-visible:outline-2 focus-visible:outline-accent"
+          className={classes(
+            "block touch-none outline-none focus-visible:outline-2 focus-visible:outline-accent",
+            onPick !== undefined && active !== null && "cursor-pointer"
+          )}
           onPointerMove={onMove}
           onPointerLeave={() => setActive(null)}
+          onClick={onPick === undefined ? undefined : () => active !== null && onPick(active)}
           onKeyDown={(event) => {
             if (event.key === "ArrowRight") setActive(Math.min(n - 1, (active ?? -1) + 1))
             if (event.key === "ArrowLeft") setActive(Math.max(0, (active ?? n) - 1))
+            if (event.key === "Enter" && onPick !== undefined && active !== null) onPick(active)
           }}
           onBlur={() => setActive(null)}
         >

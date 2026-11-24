@@ -3,10 +3,10 @@ import {
   API_AREAS,
   API_EXPIRY,
   API_LEVEL_LABEL,
-  APPS,
   hooksFor,
   INTEGRATIONS,
   keysFor,
+  payloadFor,
   relative,
   RETRY_OPTIONS,
   roleLabel,
@@ -15,7 +15,7 @@ import {
   storesLabel,
   WEBHOOK_EVENTS
 } from "../../fixtures/settings.ts"
-import type { ApiAccess, ApiKey, Endpoint, Integration } from "../../fixtures/settings.ts"
+import type { ApiAccess, ApiKey, Delivery, Endpoint, Header, Integration } from "../../fixtures/settings.ts"
 import { STORES } from "../../fixtures/workspace.ts"
 import { navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { useAccess } from "../../ui/access.tsx"
@@ -29,6 +29,7 @@ import { Eye, EyeOff, Key, LayoutGrid, MoreHorizontal, Plug, Plus, Send, Webhook
 import { Field, Input, SearchField, Select } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
+import { Notice } from "../../ui/notice.tsx"
 import { PageSection } from "../../ui/page.tsx"
 import { hasLogo, ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
@@ -37,6 +38,9 @@ import { Tabs } from "../../ui/tabs.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented, Toggle } from "../../ui/toggle.tsx"
 import { AREA_LABEL, useView } from "../../view.ts"
+import { markOpened, OpenAppDialog, ScopesDialog, uninstall, useInstalled } from "../marketplace/installed.tsx"
+import type { Installed } from "../marketplace/installed.tsx"
+import { DeliverySheet, HeadersEditor, KeyDetail, redeliver } from "./developer.tsx"
 import { CopyValue, SettingsPage, useSaved } from "./parts.tsx"
 
 const NOW = new Date(2026, 10, 23, 14, 30)
@@ -164,14 +168,16 @@ export function IntegrationsScreen() {
 
 /* ── Apps ──────────────────────────────────────────────────────────────────────────────────────── */
 
-type App = (typeof APPS)[number]
-
-/** Apps: what is installed from the marketplace, when it was last opened, and the way out. `settings/apps`. */
+/**
+ * Apps: what is installed from the marketplace, when it was last opened, the rights each still holds
+ * (taken back one by one), and the way out. Openen opens the app inside Insyte. `settings/apps`.
+ */
 export function AppsScreen() {
-  const view = useView()
   const { edit } = useAccess("integrations")
-  const [apps, setApps] = useSaved<ReadonlyArray<App>>("apps", view.staat === "leeg" ? [] : APPS)
-  const [removing, setRemoving] = useState<App | null>(null)
+  const apps = useInstalled()
+  const [removing, setRemoving] = useState<Installed | null>(null)
+  const [opening, setOpening] = useState<Installed | null>(null)
+  const [scopes, setScopes] = useState<Installed | null>(null)
   return (
     <SettingsPage
       title="Apps"
@@ -193,56 +199,68 @@ export function AppsScreen() {
         )
         : (
           <List divided label="Geïnstalleerde apps">
-            {apps.map((a) => (
-              <ListRow
-                key={a.id}
-                padded={false}
-                lead={<ServiceLogo service={a.id} name={a.name} size={32} />}
-                title={
-                  <span className="inline-flex items-center gap-2">
-                    {a.name}
-                    <Tag>{a.kind}</Tag>
-                  </span>
-                }
-                meta={`${a.tagline} · geïnstalleerd ${relative(a.installed)} · ${
-                  a.opened === null ? "nooit geopend" : `laatst geopend ${relative(a.opened)}`
-                }`}
-                trail={
-                  <>
-                    <ButtonLink size="sm" to={paths.marketplace}>Openen</ButtonLink>
-                    {edit && (
-                      <DropdownMenu
-                        label={`Acties voor ${a.name}`}
-                        placement="bottom-end"
-                        trigger={moreButton(`Acties voor ${a.name}`)}
+            {apps.map((i) => {
+              const a = i.app
+              const held = a.scopes.length - i.revoked.length
+              return (
+                <ListRow
+                  key={a.id}
+                  padded={false}
+                  lead={<ServiceLogo service={a.id} name={a.name} size={32} />}
+                  title={
+                    <span className="inline-flex items-center gap-2">
+                      {a.name}
+                      <Tag>{a.kind}</Tag>
+                    </span>
+                  }
+                  meta={`${held} van ${a.scopes.length} rechten · geïnstalleerd ${relative(i.installed)} · ${
+                    i.opened === null ? "nooit geopend" : `laatst geopend ${relative(i.opened)}`
+                  }`}
+                  trail={
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          markOpened(a.id)
+                          setOpening(i)
+                        }}
                       >
-                        <DropdownItem onSelect={() => navigate(paths.marketplace)}>
-                          Details in de marketplace
-                        </DropdownItem>
-                        <DropdownSeparator />
-                        <DropdownItem tone="danger" onSelect={() => setRemoving(a)}>Verwijderen</DropdownItem>
-                      </DropdownMenu>
-                    )}
-                  </>
-                }
-              />
-            ))}
+                        Openen
+                      </Button>
+                      {edit && (
+                        <DropdownMenu
+                          label={`Acties voor ${a.name}`}
+                          placement="bottom-end"
+                          trigger={moreButton(`Acties voor ${a.name}`)}
+                        >
+                          <DropdownItem onSelect={() => setScopes(i)}>Rechten</DropdownItem>
+                          <DropdownItem onSelect={() => navigate(`${paths.marketplace}?app=${a.id}`)}>
+                            Details in de marketplace
+                          </DropdownItem>
+                          <DropdownSeparator />
+                          <DropdownItem tone="danger" onSelect={() => setRemoving(i)}>Verwijderen</DropdownItem>
+                        </DropdownMenu>
+                      )}
+                    </>
+                  }
+                />
+              )
+            })}
           </List>
         )}
+      <OpenAppDialog item={opening} onClose={() => setOpening(null)} onScopes={(i) => edit && setScopes(i)} />
+      <ScopesDialog item={scopes} onClose={() => setScopes(null)} />
       <AlertDialog
         open={removing !== null}
         onCancel={() => setRemoving(null)}
         onConfirm={() => {
           const a = removing
           if (a === null) return
-          setApps((all) => all.filter((x) => x.id !== a.id))
+          const undo = uninstall(a.app.id)
           setRemoving(null)
-          toast({
-            title: `${a.name} verwijderd`,
-            action: { label: "Ongedaan maken", onClick: () => setApps((all) => [...all, a]) }
-          })
+          toast({ title: `${a.app.name} verwijderd`, action: { label: "Ongedaan maken", onClick: undo } })
         }}
-        title={`${removing?.name ?? ""} verwijderen?`}
+        title={`${removing?.app.name ?? ""} verwijderen?`}
         body="De app verliest zijn toegang tot je werkruimte. Wat hij al schreef, blijft staan."
         confirmLabel="Verwijderen"
       />
@@ -402,59 +420,112 @@ export function ApiKeysScreen() {
                 { label: "Status", value: <Tag tone={keyStatus(open).tone}>{keyStatus(open).word}</Tag> },
                 { label: "Toegang", value: accessLabel(open) },
                 { label: "Winkels", value: storesLabel(open.stores) },
-                { label: "IP-adressen", value: open.ips.length === 0 ? "Overal" : open.ips.join(", ") },
                 { label: "Laatst gebruikt", value: open.lastUsed === null ? "Nooit" : relative(open.lastUsed) },
                 { label: "Verloopt", value: open.status === "revoked" ? "—" : expiresLabel(open) }
               ]}
             />
-            {open.rotatedUntil !== undefined && (
-              <p className="text-sm text-ink-2">
-                De vorige sleutel blijft nog {Math.round((open.rotatedUntil.getTime() - NOW.getTime()) / 3_600_000)}
-                {" "}
-                uur geldig, zodat wat hem gebruikt kan overstappen.
-              </p>
+            {open.rotatedUntil !== undefined && open.status === "active" && (
+              <Notice
+                tone="warn"
+                title={`De vorige sleutel werkt nog ${
+                  Math.round((open.rotatedUntil.getTime() - NOW.getTime()) / 3_600_000)
+                } uur`}
+                action={edit
+                  ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const until = open.rotatedUntil
+                        setKeys((all) => all.map((k) => (k.id === open.id ? { ...k, rotatedUntil: undefined } : k)))
+                        toast({
+                          title: "Oude sleutel gestopt",
+                          body: "Wat hem nog gebruikt, krijgt vanaf nu een 401.",
+                          action: {
+                            label: "Ongedaan maken",
+                            onClick: () =>
+                              setKeys((all) => all.map((k) => (k.id === open.id ? { ...k, rotatedUntil: until } : k)))
+                          }
+                        })
+                      }}
+                    >
+                      Oude nu stoppen
+                    </Button>
+                  )
+                  : undefined}
+              >
+                Zo kan wat hem gebruikt overstappen.
+              </Notice>
             )}
-            {open.status === "active" && edit && (
-              <div className="flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-ink">Roteren</h3>
-                <p className="text-sm text-ink-2">
-                  Je krijgt een nieuwe sleutel. De oude blijft geldig tijdens de overgangstijd, daarna niet meer.
-                </p>
-                <div className="flex flex-wrap items-end gap-2">
-                  <Field label="Overgangstijd">
-                    {(c) => (
-                      <Select
-                        {...c}
-                        className="w-36"
-                        value={overlap}
-                        onChange={(e) => setOverlap(e.target.value)}
-                      >
-                        <option value="1">1 uur</option>
-                        <option value="24">24 uur</option>
-                        <option value="168">7 dagen</option>
-                      </Select>
-                    )}
-                  </Field>
-                  <Button
-                    onClick={() => {
-                      setKeys((all) =>
-                        all.map((k) => (k.id === open.id
-                          ? { ...k, rotatedUntil: new Date(NOW.getTime() + Number(overlap) * 3_600_000) }
-                          : k)
+            {open.status === "active" && open.expires !== null &&
+              open.expires.getTime() - NOW.getTime() < 14 * DAY && (
+              <Notice
+                tone={open.expires.getTime() < NOW.getTime() ? "bad" : "warn"}
+                title={open.expires.getTime() < NOW.getTime() ? "Deze sleutel is verlopen" : expiresLabel(open)}
+              >
+                {open.expires.getTime() < NOW.getTime()
+                  ? "Verzoeken krijgen een 401. Roteer hem of maak een nieuwe."
+                  : "Roteer hem op tijd, dan loopt niets vast."}
+              </Notice>
+            )}
+            <KeyDetail
+              key={open.id}
+              k={open}
+              edit={edit}
+              onSave={(next) => {
+                const before = open
+                setKeys((all) => all.map((k) => (k.id === open.id ? { ...k, ...next } : k)))
+                toast({
+                  title: `${next.label} bijgewerkt`,
+                  tone: "good",
+                  action: {
+                    label: "Ongedaan maken",
+                    onClick: () => setKeys((all) => all.map((k) => (k.id === before.id ? before : k)))
+                  }
+                })
+              }}
+              rotate={edit && (
+                <div className="flex flex-col gap-3 pt-2">
+                  <h3 className="text-sm font-semibold text-ink">Roteren</h3>
+                  <p className="text-sm text-ink-2">
+                    Je krijgt een nieuwe sleutel. De oude blijft geldig tijdens de overgangstijd, daarna niet meer.
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Field label="Overgangstijd">
+                      {(c) => (
+                        <Select
+                          {...c}
+                          className="w-36"
+                          value={overlap}
+                          onChange={(e) => setOverlap(e.target.value)}
+                        >
+                          <option value="1">1 uur</option>
+                          <option value="24">24 uur</option>
+                          <option value="168">7 dagen</option>
+                        </Select>
+                      )}
+                    </Field>
+                    <Button
+                      onClick={() => {
+                        setKeys((all) =>
+                          all.map((k) => (k.id === open.id
+                            ? { ...k, rotatedUntil: new Date(NOW.getTime() + Number(overlap) * 3_600_000) }
+                            : k)
+                          )
                         )
-                      )
-                      setRotated(
-                        `${open.prefix}${Math.random().toString(36).slice(2, 14)}${
-                          Math.random().toString(36).slice(2, 14)
-                        }`
-                      )
-                    }}
-                  >
-                    Roteren
-                  </Button>
+                        setRotated(
+                          `${open.prefix}${Math.random().toString(36).slice(2, 14)}${
+                            Math.random().toString(36).slice(2, 14)
+                          }`
+                        )
+                      }}
+                    >
+                      Roteren
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            />
           </div>
         )}
       </Sheet>
@@ -690,14 +761,21 @@ export function WebhooksScreen() {
   const view = useView()
   const { edit } = useAccess("integrations")
   const openId = useQuery("endpoint")
+  const deliveryId = useQuery("levering")
   const [hooks, setHooks] = useSaved<ReadonlyArray<Endpoint>>("webhooks", hooksFor(view.staat))
   const [editing, setEditing] = useState<Endpoint | "new" | null>(null)
   const [removing, setRemoving] = useState<Endpoint | null>(null)
   const [reveal, setReveal] = useState(false)
   const [tab, setTab] = useState<"alle" | "mislukt">("alle")
   const open = hooks.find((h) => h.id === openId)
+  const delivery = open?.deliveries.find((d) => d.id === deliveryId)
   const update = (id: string, next: Partial<Endpoint>) =>
     setHooks((all) => all.map((h) => (h.id === id ? { ...h, ...next } : h)))
+  const resend = (e: Endpoint, d: Delivery) => {
+    const next = redeliver(d, e)
+    setHooks((all) => all.map((h) => (h.id === e.id ? { ...h, deliveries: [next, ...h.deliveries] } : h)))
+    setQuery({ levering: next.id })
+  }
 
   return (
     <SettingsPage
@@ -764,7 +842,7 @@ export function WebhooksScreen() {
       <Sheet
         open={open !== undefined}
         onClose={() => {
-          setQuery({ endpoint: null })
+          setQuery({ endpoint: null, levering: null })
           setReveal(false)
         }}
         title={open?.url.replace(/^https:\/\//, "") ?? ""}
@@ -784,13 +862,30 @@ export function WebhooksScreen() {
               icon={<Send />}
               onClick={() => {
                 const ok = open.failures === 0
+                const event = open.events[0] ?? "order.created"
+                const id = `dl_test_${Math.random().toString(36).slice(2, 7)}`
+                const at = new Date(NOW.getTime() + 60_000)
+                const test: Delivery = {
+                  id,
+                  event,
+                  at,
+                  status: ok ? 200 : 502,
+                  ms: ok ? 184 : 10_000,
+                  attempts: 1,
+                  max: 1,
+                  test: true,
+                  body: payloadFor(event, id, at),
+                  response: ok ? "{\"ok\":true}" : "<html><body><h1>502 Bad Gateway</h1></body></html>"
+                }
+                update(open.id, { deliveries: [test, ...open.deliveries] })
                 toast(
                   ok
                     ? { title: "Testevent aangekomen · 200 in 184 ms", tone: "good" }
                     : {
                       title: "Testevent mislukt",
-                      body: "502 van je server na 10 s. Kijk bij de leveringen wat er terugkwam.",
-                      tone: "bad"
+                      body: "502 van je server na 10 s. Open de levering om te zien wat er terugkwam.",
+                      tone: "bad",
+                      action: { label: "Levering openen", onClick: () => setQuery({ levering: id }) }
                     }
                 )
               }}
@@ -897,36 +992,48 @@ export function WebhooksScreen() {
                   return (
                     <ListRow
                       key={d.id}
-                      padded={false}
-                      title={d.event}
+                      onClick={() => setQuery({ levering: d.id })}
+                      title={
+                        <>
+                          {d.event}
+                          {d.test === true && <span className="text-ink-3">· test</span>}
+                        </>
+                      }
                       meta={`${stamp(d.at)} · ${
                         d.status === null ? "geen antwoord" : d.status
                       } · ${d.ms} ms · ${d.attempts} ${d.attempts === 1 ? "poging" : "pogingen"}`}
-                      trail={
-                        <>
-                          <Status tone={ok ? "good" : "bad"}>{ok ? "Geslaagd" : "Mislukt"}</Status>
-                          {edit && !ok && (
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                toast({
-                                  title: "Opnieuw verstuurd",
-                                  body: `${d.event} staat in de wachtrij; je ziet hier zo hoe het ging.`
-                                })}
-                            >
-                              Opnieuw versturen
-                            </Button>
-                          )}
-                        </>
-                      }
+                      trail={<Status tone={ok ? "good" : "bad"}>{ok ? "Geslaagd" : "Mislukt"}</Status>}
                     />
                   )
                 })}
               </List>
             </div>
+            {open.headers.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold text-ink">Extra headers · {open.headers.length}</h3>
+                <dl className="flex flex-col gap-1">
+                  {open.headers.map((h) => (
+                    <div key={h.key} className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3 text-sm">
+                      <dt className="truncate text-ink-2">{h.key}</dt>
+                      <dd className="text-ink-3">••••••••</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
           </div>
         )}
       </Sheet>
+
+      <DeliverySheet
+        delivery={delivery}
+        endpoint={open}
+        edit={edit}
+        onClose={() => setQuery({ levering: null })}
+        onRedeliver={(d) => {
+          if (open !== undefined) resend(open, d)
+        }}
+      />
 
       <EndpointDialog
         endpoint={editing}
@@ -978,6 +1085,7 @@ function EndpointDialog({ endpoint, onClose, onSave }: {
   const [retry, setRetry] = useState(String(base?.retry ?? 5))
   const [active, setActive] = useState(base?.active ?? true)
   const [events, setEvents] = useState<ReadonlyArray<string>>(base?.events ?? [])
+  const [headers, setHeaders] = useState<ReadonlyArray<Header>>(base?.headers ?? [])
   const [query, setSearch] = useState("")
   const [tried, setTried] = useState(false)
   const total = WEBHOOK_EVENTS.flatMap((g) => g.events).length
@@ -1010,6 +1118,10 @@ function EndpointDialog({ endpoint, onClose, onSave }: {
                 failures: base?.failures ?? 0,
                 createdBy: base?.createdBy ?? "Elena Hart",
                 secret: base?.secret ?? `whsec_${Math.random().toString(36).slice(2, 14)}`,
+                headers: headers.filter((h) => h.key.trim() !== "").map((h) => {
+                  const kept = base?.headers.find((x) => x.key === h.key.trim())
+                  return { key: h.key.trim(), value: h.value === "" ? (kept?.value ?? "") : h.value }
+                }),
                 deliveries: base?.deliveries ?? []
               }, isNew)
             }}
@@ -1047,6 +1159,7 @@ function EndpointDialog({ endpoint, onClose, onSave }: {
             <Toggle label="Actief" on={active} onChange={setActive} />
           </div>
         </div>
+        <HeadersEditor value={headers} onChange={setHeaders} />
         <RadioGroup
           label="Opnieuw proberen"
           value={retry}

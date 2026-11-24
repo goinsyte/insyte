@@ -15,15 +15,35 @@ export type Run = {
   readonly finished?: { readonly score: number; readonly passed: boolean }
 }
 
+type Module = Chapter["modules"][number]
+
 type State = {
   readonly created: ReadonlyArray<Course>
+  readonly removed: ReadonlyArray<string>
   readonly patches: Readonly<Record<string, Partial<Course>>>
   readonly questions: ReadonlyArray<Question>
   readonly answers: Readonly<Record<string, { readonly answer: string; readonly answeredBy: string }>>
   readonly runs: Readonly<Record<string, Run>>
+  /** Chapters and modules added or renamed. */
+  readonly chapters: ReadonlyArray<Chapter>
+  readonly titles: Readonly<Record<string, string>>
+  readonly modules: Readonly<Record<string, ReadonlyArray<Module>>>
+  /** Reminders sent, as `course:person`. */
+  readonly reminded: ReadonlyArray<string>
 }
 
-let state: State = { created: [], patches: {}, questions: [], answers: {}, runs: {} }
+let state: State = {
+  created: [],
+  removed: [],
+  patches: {},
+  questions: [],
+  answers: {},
+  runs: {},
+  chapters: [],
+  titles: {},
+  modules: {},
+  reminded: []
+}
 const listeners = new Set<() => void>()
 const set = (next: State) => {
   state = next
@@ -39,12 +59,22 @@ export function useCourses(): ReadonlyArray<Course> {
   const s = useStore()
   const view = useView()
   const base = view.staat === "leeg" ? [] : view.staat === "druk" ? [...COURSES, ...BUSY_COURSES] : COURSES
-  return [...s.created, ...base].map((c) => ({ ...c, ...s.patches[c.id] }))
+  return [...s.created, ...base].filter((c) => !s.removed.includes(c.id)).map((c) => ({ ...c, ...s.patches[c.id] }))
 }
 
 export function useChapters(): ReadonlyArray<Chapter> {
+  const s = useStore()
   const view = useView()
-  return view.staat === "leeg" ? [] : view.staat === "druk" ? [...CHAPTERS, BUSY_CHAPTER] : CHAPTERS
+  const base = view.staat === "leeg" ? [] : view.staat === "druk" ? [...CHAPTERS, BUSY_CHAPTER] : CHAPTERS
+  return [...base, ...s.chapters].map((ch) => ({
+    ...ch,
+    title: s.titles[ch.id] ?? ch.title,
+    modules: [...ch.modules, ...(s.modules[ch.id] ?? [])].map((m) => ({ ...m, title: s.titles[m.id] ?? m.title }))
+  }))
+}
+
+export function useReminded(): ReadonlyArray<string> {
+  return useStore().reminded
 }
 
 export function useQuestions(): ReadonlyArray<Question> {
@@ -79,6 +109,71 @@ export function setBlocks(id: string, blocks: ReadonlyArray<Block>) {
 }
 
 let made = 0
+
+const restore = (before: State) => () => set({ ...state, ...pick(before) })
+const pick = (s: State) => ({
+  created: s.created,
+  removed: s.removed,
+  patches: s.patches,
+  chapters: s.chapters,
+  titles: s.titles,
+  modules: s.modules,
+  reminded: s.reminded
+})
+
+/** A new chapter, with a first module so a course has somewhere to go. Returns the undo. */
+export function addChapter(title: string): () => void {
+  made += 1
+  const before = state
+  const chapter: Chapter = { id: `hoofdstuk-${made}`, title, modules: [{ id: `module-${made}`, title: "Algemeen" }] }
+  set({ ...state, chapters: [...state.chapters, chapter] })
+  return restore(before)
+}
+
+/** A module at the end of a chapter. Returns the undo. */
+export function addModule(chapterId: string, title: string): () => void {
+  made += 1
+  const before = state
+  const list = state.modules[chapterId] ?? []
+  set({ ...state, modules: { ...state.modules, [chapterId]: [...list, { id: `module-${made}`, title }] } })
+  return restore(before)
+}
+
+/** Renames a chapter or a module. Returns the undo. */
+export function rename(id: string, title: string): () => void {
+  const before = state
+  set({ ...state, titles: { ...state.titles, [id]: title } })
+  return restore(before)
+}
+
+/** A copy as a draft, with the same blocks and settings. */
+export function duplicateCourse(c: Course): string {
+  made += 1
+  const id = `${c.id}-kopie-${made}`
+  const copy: Course = {
+    ...c,
+    id,
+    title: `${c.title} (kopie)`,
+    status: "concept",
+    author: "elena",
+    updated: "zojuist",
+    overdue: false,
+    blocks: c.blocks.map((b, i) => ({ ...b, id: `${id}-${i + 1}` }))
+  }
+  set({ ...state, created: [copy, ...state.created] })
+  return id
+}
+
+/** Removes a course and returns the undo. */
+export function removeCourse(id: string): () => void {
+  const before = state
+  set({ ...state, removed: [...state.removed, id] })
+  return restore(before)
+}
+
+export function remind(courseId: string, person: string) {
+  set({ ...state, reminded: [...state.reminded, `${courseId}:${person}`] })
+}
 
 export function createCourse(title: string, chapterId: string, moduleId: string): string {
   made += 1

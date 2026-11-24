@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AGENTS } from "../../fixtures/agents.ts"
 import {
   CASE_STATUS,
@@ -8,31 +8,153 @@ import {
   findCase,
   restoreCases,
   timeLeft,
-  useCases
+  useCases,
+  winRecord
 } from "../../fixtures/chargebacks.ts"
+import type { Chargeback } from "../../fixtures/chargebacks.ts"
 import { longDate, money, stamp } from "../../fixtures/order-desk.ts"
 import { customer, order, product } from "../../fixtures/records.ts"
 import { ME } from "../../fixtures/workspace.ts"
 import { Link, paths } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { undoable } from "../../ui/acts.ts"
-import { AgentAvatar } from "../../ui/avatar.tsx"
+import { AgentAvatar, Avatar } from "../../ui/avatar.tsx"
 import { Status } from "../../ui/badge.tsx"
 import { Button, ButtonLink } from "../../ui/button.tsx"
 import { LoadError, RecordSkeleton } from "../../ui/data.tsx"
 import { AlertDialog } from "../../ui/dialog.tsx"
 import { FileDrop, FileRow } from "../../ui/file-drop.tsx"
-import { CreditCard } from "../../ui/icons.tsx"
+import { CreditCard, Trash } from "../../ui/icons.tsx"
 import { Field, Textarea } from "../../ui/input.tsx"
 import { Fact } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ProgressBar } from "../../ui/progress.tsx"
 import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dataState, useView } from "../../view.ts"
+import { buildPack, packSize } from "./evidence.ts"
 import { dueText } from "./list.tsx"
+
+/**
+ * The offer on a case without evidence: the assistant gathers the pack from the order, the carrier
+ * and the mails, with how the team has fared so far, so a person knows what the pack is worth.
+ */
+function BuildOffer({ c, onBuild, onLater }: {
+  readonly c: Chargeback
+  readonly onBuild: () => void
+  readonly onLater: () => void
+}) {
+  const agent = AGENTS.find((a) => a.id === "chargebacks")
+  const { won, decided } = winRecord()
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-well p-4">
+      <p className="flex items-start gap-2.5 text-sm text-pretty text-ink">
+        {agent !== undefined && <AgentAvatar glyph={agent.glyph} size={24} />}
+        <span>
+          De Chargeback-assistent kan het pakket voor {c.id}{" "}
+          samenstellen uit bestelling #{c.orderNumber}, de vervoerder en de mails, en het verweer schrijven. Er gaat
+          niets naar {CHANNEL_LABEL[c.channel]} tot jij het indient.
+        </span>
+      </p>
+      <p className="text-xs text-ink-3">
+        <span className="figure">{won}</span> van <span className="figure">{decided}</span> beslechte zaken gewonnen.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="primary" onClick={onBuild}>Bewijspakket samenstellen</Button>
+        <Button size="sm" variant="ghost" onClick={onLater}>Niet nu</Button>
+      </div>
+    </div>
+  )
+}
+
+/** The team's own notes on a case: never sent to the provider or the customer. */
+function Notes({ c, edit }: { readonly c: Chargeback; readonly edit: boolean }) {
+  const [text, setText] = useState("")
+  const [writing, setWriting] = useState(false)
+  const notes = c.notes ?? []
+  const save = () => {
+    const body = text.trim()
+    if (body === "") return
+    const before = changeCase(c.id, (cur) => ({
+      notes: [{ id: `n${casesNow()}`, at: casesNow(), by: ME.name, text: body }, ...(cur.notes ?? [])]
+    }))
+    setText("")
+    setWriting(false)
+    undoable("Notitie opgeslagen", () => restoreCases(before), "Alleen je team ziet hem.")
+  }
+  const remove = (id: string) => {
+    const before = changeCase(c.id, (cur) => ({ notes: (cur.notes ?? []).filter((n) => n.id !== id) }))
+    undoable("Notitie weggehaald", () => restoreCases(before))
+  }
+  return (
+    <PageSection
+      title="Notities"
+      id="notities"
+      meta="Alleen zichtbaar voor je team"
+    >
+      {notes.length === 0 && !writing && <p className="text-sm text-ink-3">Nog geen notities.</p>}
+      {notes.length > 0 && (
+        <ul className="flex flex-col gap-4">
+          {notes.map((n) => (
+            <li key={n.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto] gap-x-3">
+              <Avatar name={n.by} size={24} />
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <p className="text-xs text-ink-3">
+                  <span className="font-medium text-ink-2">{n.by}</span> · {stamp(new Date(n.at))}
+                </p>
+                <p className="max-w-[62ch] text-sm text-pretty whitespace-pre-line text-ink">{n.text}</p>
+              </div>
+              {edit && n.by === ME.name && (
+                <button
+                  type="button"
+                  aria-label="Notitie weghalen"
+                  onClick={() => remove(n.id)}
+                  className="self-start rounded-sm p-1 text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100"
+                >
+                  <Trash size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {edit && (writing
+        ? (
+          <div className="flex flex-col gap-2">
+            <Field label="Notitie">
+              {(f) => (
+                <Textarea
+                  {...f}
+                  autoFocus
+                  rows={3}
+                  value={text}
+                  placeholder="Wat het team moet weten over deze zaak"
+                  onChange={(e) => setText(e.target.value)}
+                />
+              )}
+            </Field>
+            <div className="flex gap-2">
+              <Button size="sm" variant="primary" disabled={text.trim() === ""} onClick={save}>Opslaan</Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setText("")
+                  setWriting(false)
+                }}
+              >
+                Annuleren
+              </Button>
+            </div>
+          </div>
+        )
+        : <Button size="sm" className="self-start" onClick={() => setWriting(true)}>Notitie toevoegen</Button>)}
+    </PageSection>
+  )
+}
 
 /*
  * One chargeback (`/app`'s `chargebacks/$id`, `chargeback-screen.tsx`): what the customer told the
@@ -48,6 +170,10 @@ export function ChargebackRecord({ id }: { readonly id: string }) {
   const s = useCases()
   const c = findCase(id, s)
   const [dialog, setDialog] = useState<"submit" | "accept" | null>(null)
+  const [building, setBuilding] = useState<{ readonly done: number; readonly total: number } | null>(null)
+  const [later, setLater] = useState(false)
+  const stop = useRef<(() => void) | null>(null)
+  useEffect(() => () => stop.current?.(), [])
 
   if (!access.view) {
     return (
@@ -96,6 +222,20 @@ export function ChargebackRecord({ id }: { readonly id: string }) {
   const agent = c.draftedBy === undefined ? undefined : AGENTS.find((a) => a.id === c.draftedBy?.agentId)
   const ready = c.files.length > 0 && c.statement.trim() !== ""
   const urgent = open && c.dueAt - casesNow() < 48 * 3_600_000
+
+  const build = () => {
+    const total = packSize(c.id)
+    setBuilding({ done: 0, total })
+    stop.current = buildPack(c.id, (done) => {
+      if (done > total) {
+        setBuilding(null)
+        stop.current = null
+        toast({ title: `Bewijspakket voor ${c.id} staat klaar`, body: "Kijk het na en dien het in.", tone: "good" })
+      } else {
+        setBuilding({ done, total })
+      }
+    })
+  }
 
   const submit = () => {
     changeCase(c.id, (cur) => ({
@@ -250,11 +390,28 @@ export function ChargebackRecord({ id }: { readonly id: string }) {
                 </span>
               </p>
             )}
+            {building !== null && (
+              <ProgressBar
+                value={building.done}
+                max={building.total}
+                label={building.done < building.total ? "Verzamelen" : "Verweer schrijven"}
+                detail={`${Math.min(building.done, building.total)} van ${building.total}`}
+              />
+            )}
+            {building === null && c.files.length === 0 && editable && !later && (
+              <BuildOffer
+                c={c}
+                onBuild={build}
+                onLater={() => setLater(true)}
+              />
+            )}
             {c.files.length === 0
               ? (
-                <p className="text-sm text-ink-3">
-                  Nog geen documenten. Een bezorgbewijs en de bestelbevestiging wegen het zwaarst.
-                </p>
+                building === null && (
+                  <p className="text-sm text-ink-3">
+                    Nog geen documenten. Een bezorgbewijs en de bestelbevestiging wegen het zwaarst.
+                  </p>
+                )
               )
               : (
                 <ul className="flex flex-col gap-2">
@@ -273,7 +430,7 @@ export function ChargebackRecord({ id }: { readonly id: string }) {
                   ))}
                 </ul>
               )}
-            {editable && (
+            {editable && building === null && (
               <FileDrop
                 onFiles={addFiles}
                 accept=".pdf,.png,.jpg,.jpeg"
@@ -308,6 +465,8 @@ export function ChargebackRecord({ id }: { readonly id: string }) {
                 </p>
               )}
           </PageSection>
+
+          <Notes c={c} edit={access.edit} />
 
           <PageSection title="Geschiedenis" id="geschiedenis">
             <Timeline

@@ -42,7 +42,9 @@ export type StepType = {
   /** What it does, in one line, for the palette. */
   readonly detail: string
   readonly scope?: Scope
-  readonly fields: ReadonlyArray<{ readonly key: string; readonly label: string; readonly placeholder?: string }>
+  readonly fields: ReadonlyArray<
+    { readonly key: string; readonly label: string; readonly placeholder?: string; readonly required?: boolean }
+  >
   /** The service it runs through, when that is not Insyte itself. */
   readonly via?: string
 }
@@ -81,6 +83,8 @@ export const SCOPES: ReadonlyArray<{ readonly id: Scope; readonly label: string 
 
 const f = (key: string, label: string, placeholder?: string) =>
   placeholder === undefined ? { key, label } : { key, label, placeholder }
+/** A field the step cannot run without: a test stops on it while it is empty. */
+const need = (key: string, label: string, placeholder?: string) => ({ ...f(key, label, placeholder), required: true })
 
 export const STEP_TYPES: ReadonlyArray<StepType> = [
   /* triggers */
@@ -177,28 +181,28 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     kind: "voorwaarde",
     label: "Ja/nee-splitsing",
     detail: "Twee wegen, op één voorwaarde",
-    fields: [f("rule", "Voorwaarde", "Land is Duitsland")]
+    fields: [need("rule", "Voorwaarde", "{{bestelling.totaal}} > 100")]
   },
   {
     id: "filter",
     kind: "voorwaarde",
     label: "Filter",
     detail: "Alleen verder als het klopt",
-    fields: [f("rule", "Voorwaarde", "Totaal boven € 100")]
+    fields: [need("rule", "Voorwaarde", "Totaal boven € 100")]
   },
   {
     id: "country",
     kind: "voorwaarde",
     label: "Land is gelijk aan",
     detail: "Op het land van de klant",
-    fields: [f("country", "Land", "Duitsland")]
+    fields: [need("country", "Land", "Duitsland")]
   },
   {
     id: "tag_match",
     kind: "voorwaarde",
     label: "Label komt overeen",
     detail: "Op een label van de klant of bestelling",
-    fields: [f("tag", "Label", "vip")]
+    fields: [need("tag", "Label", "vip")]
   },
   /* waiting */
   {
@@ -206,7 +210,7 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     kind: "wachten",
     label: "Wachten",
     detail: "Een vaste tijd",
-    fields: [f("time", "Hoe lang", "24 uur")]
+    fields: [need("time", "Hoe lang", "24 uur")]
   },
   {
     id: "wait_reply",
@@ -256,7 +260,7 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     detail: "Naar de klant, via Resend",
     scope: "customers.email",
     via: "Resend",
-    fields: [f("to", "Aan", "{{klant.e-mail}}"), f("subject", "Onderwerp"), f("body", "Bericht")]
+    fields: [need("to", "Aan", "{{klant.e-mail}}"), need("subject", "Onderwerp"), f("body", "Bericht")]
   },
   {
     id: "klaviyo_send",
@@ -265,7 +269,7 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     detail: "Een flow of campagne in Klaviyo",
     scope: "marketing.write",
     via: "Klaviyo",
-    fields: [f("template", "Sjabloon", "Vertraging")]
+    fields: [need("template", "Sjabloon", "Vertraging")]
   },
   {
     id: "create_ticket",
@@ -273,7 +277,7 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     label: "Ticket aanmaken",
     detail: "Een ticket in de inbox",
     scope: "tickets.write",
-    fields: [f("title", "Titel"), f("queue", "Wachtrij", "Nieuw"), f("assignee", "Toewijzen aan")]
+    fields: [need("title", "Titel"), f("queue", "Wachtrij", "Nieuw"), f("assignee", "Toewijzen aan")]
   },
   {
     id: "tag_customer",
@@ -281,7 +285,7 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     label: "Klant labelen",
     detail: "Een label op het klantprofiel",
     scope: "customers.write",
-    fields: [f("tag", "Label", "vip")]
+    fields: [need("tag", "Label", "vip")]
   },
   {
     id: "notify_supplier",
@@ -289,7 +293,7 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     label: "Leverancier berichten",
     detail: "Een bericht in het leveranciersportaal",
     scope: "suppliers.message",
-    fields: [f("supplier", "Leverancier"), f("message", "Bericht")]
+    fields: [need("supplier", "Leverancier"), need("message", "Bericht")]
   },
   {
     id: "alert_team",
@@ -297,14 +301,14 @@ export const STEP_TYPES: ReadonlyArray<StepType> = [
     label: "Collega waarschuwen",
     detail: "Een melding in Insyte of in Slack",
     scope: "team.notify",
-    fields: [f("who", "Wie", "Sofía Kim"), f("channel", "Kanaal", "#cx")]
+    fields: [need("who", "Wie", "Sofía Kim"), f("channel", "Kanaal", "#cx")]
   },
   {
     id: "require_approval",
     kind: "actie",
     label: "Goedkeuring vragen",
     detail: "De flow wacht tot iemand ja zegt",
-    fields: [f("approver", "Goedkeuring door", "Elena Hart")]
+    fields: [need("approver", "Goedkeuring door", "Elena Hart")]
   },
   {
     id: "stripe_refund",
@@ -333,7 +337,13 @@ export type Step = {
   /** What the step does in this flow, in the flow's own words. */
   readonly summary: string
   readonly values?: Readonly<Record<string, string>>
+  /** A Ja/nee-splitsing's two lanes; they meet again under it. */
+  readonly branches?: { readonly yes: ReadonlyArray<Step>; readonly no: ReadonlyArray<Step> }
 }
+
+/** Every step of a flow, the lanes of a splitsing included, in the order they are drawn. */
+export const flatSteps = (steps: ReadonlyArray<Step>): ReadonlyArray<Step> =>
+  steps.flatMap((st) => (st.branches === undefined ? [st] : [st, ...st.branches.yes, ...st.branches.no]))
 
 export type RunStatus = "geslaagd" | "mislukt" | "wacht" | "dubbel" | "bezig"
 
@@ -361,7 +371,14 @@ export type Run = {
   /** For a failed run: the step it stopped at, why, and how to fix it. */
   readonly failed?: { readonly step: string; readonly why: string; readonly fix: string }
   readonly waiting?: string
+  /** What the run started from, as the trigger handed it over. */
+  readonly input?: Readonly<Record<string, string>>
+  /** The lane it took at a Ja/nee-splitsing. */
+  readonly lane?: "yes" | "no"
 }
+
+/** A change to a flow's settings, for its logboek: who, when, what. */
+type LogEntry = { readonly by: string; readonly at: string; readonly what: string }
 
 /** A record the flow reads or changes, for the werkdraad and the overview. */
 export type Touch = {
@@ -395,6 +412,14 @@ export type Automation = {
   readonly createdAt: string
   /** A sentence on why it is paused, when it is. */
   readonly pausedWhy?: string
+  /** Rights the flow needs but that were switched off; the step that uses one fails. */
+  readonly scopesOff?: ReadonlyArray<Scope>
+  /** How many runs it may start: "0" is no limit, "100u" a hundred an hour. */
+  readonly limit?: string
+  /** Who hears about a failed run. */
+  readonly notify?: keyof typeof PEOPLE
+  /** Changes to its settings, newest first. */
+  readonly log?: ReadonlyArray<LogEntry>
 }
 
 /* ── the runs, on real orders ─────────────────────────────────────────────────────────────────── */
@@ -408,6 +433,34 @@ const orderRecord = (o: Order) => ({
   href: `/v2/bestellingen/${o.number}`,
   who: customer(o.customerId)?.name
 })
+
+const COUNTRY: Readonly<Record<string, string>> = {
+  NL: "Nederland",
+  BE: "België",
+  DE: "Duitsland",
+  FR: "Frankrijk",
+  NO: "Noorwegen",
+  SE: "Zweden",
+  IT: "Italië",
+  ES: "Spanje",
+  GB: "Verenigd Koninkrijk",
+  IE: "Ierland",
+  PL: "Polen",
+  PT: "Portugal"
+}
+
+/** What an order hands a flow when it sets one off: the fields a step can write as `{{veld}}`. */
+function orderInput(o: Order): Readonly<Record<string, string>> {
+  const c = customer(o.customerId)
+  return {
+    Bestelling: `#${o.number}`,
+    Klant: c?.name ?? "Onbekend",
+    "E-mail": c?.email ?? "Onbekend",
+    Totaal: `€ ${o.total.toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    Land: COUNTRY[c?.country ?? ""] ?? c?.country ?? "Onbekend",
+    Vervoerder: o.carrier
+  }
+}
 
 const late = ORDERS.filter((o) => o.status === "vertraagd")
 const refunded = ORDERS.filter((o) => o.status === "terugbetaald")
@@ -426,6 +479,7 @@ function runOn(automationId: string, o: Order, i: number, status: RunStatus, aft
     seconds: 1.2 + ((Number(o.number) * 7) % 30) / 10,
     status,
     version: 3,
+    input: orderInput(o),
     ...extra
   } satisfies Run
 }
@@ -436,19 +490,20 @@ function delayRuns(): ReadonlyArray<Run> {
   const list: Array<Run> = []
   if (luca !== undefined) {
     list.push({
-      ...runOn("vertraagde-bestelling", luca, 0, "geslaagd", 0),
+      ...runOn("vertraagde-bestelling", luca, 0, "geslaagd", 0, { lane: luca.total > 100 ? "yes" : "no" }),
       at: "vandaag 07:00",
       ago: 450
     })
   }
   late.filter((o) => o.number !== "5309").slice(0, 7).forEach((o, i) => {
     const status: RunStatus = i === 1 ? "mislukt" : i === 4 ? "dubbel" : "geslaagd"
+    const lane = o.total > 100 ? "yes" : "no"
     list.push({
-      ...runOn("vertraagde-bestelling", o, i + 1, status, 2 * 24 * 60),
+      ...runOn("vertraagde-bestelling", o, i + 1, status, 2 * 24 * 60, { lane }),
       ...(status === "mislukt"
         ? {
           failed: {
-            step: "Vertragingsmail naar klant sturen",
+            step: lane === "yes" ? "Excuses + 10% korting" : "Vertragingsmail naar klant sturen",
             why: "Klaviyo weigerde de mail: het adres van de klant is twee keer teruggekomen (bounce).",
             fix:
               "Vraag de klant via de winkelchat om een ander adres, of zet het adres in het klantprofiel goed en voer de run opnieuw uit."
@@ -518,7 +573,19 @@ export const SEED: ReadonlyArray<Automation> = [
     steps: [
       s("t", "shipping_delay", "Verzending van bestelling 48 u niet bijgewerkt", { hours: "48" }),
       s("c", "filter", "Alleen bestellingen die nog niet bezorgd zijn", { rule: "Status is niet Bezorgd" }),
-      s("a1", "klaviyo_send", "Vertragingsmail naar klant sturen", { template: "Vertraging" }),
+      {
+        ...s("b", "branch", "Bestelling boven € 100?", { rule: "{{bestelling.totaal}} > 100" }),
+        branches: {
+          yes: [
+            s("ai", "ai_compose", "Excuses met de nieuwe leverdatum opstellen", {
+              tone: "Warm",
+              instructions: "Kort, met de voornaam, de nieuwe leverdatum en de code SORRY10"
+            }),
+            s("a1y", "klaviyo_send", "Excuses + 10% korting", { template: "Excuses met korting" })
+          ],
+          no: [s("a1", "klaviyo_send", "Vertragingsmail naar klant sturen", { template: "Vertraging" })]
+        }
+      },
       s("a2", "create_ticket", "Ticket aanmaken in Nieuw", {
         title: "Bestelling {{bestelling.nummer}} is vertraagd",
         queue: "Nieuw",
@@ -533,7 +600,7 @@ export const SEED: ReadonlyArray<Automation> = [
     editedAt: "20 nov",
     version: 3,
     versions: [
-      v(3, "sofia", "20 nov", "Ticket gaat nu naar de agent Waar is mijn bestelling"),
+      v(3, "sofia", "20 nov", "Splitsing op bestelwaarde; het ticket gaat naar de agent Waar is mijn bestelling"),
       v(2, "elena", "4 nov", "Van 72 naar 48 uur zonder scan"),
       v(1, "elena", "12 jan", "Eerste publicatie")
     ],
@@ -548,7 +615,14 @@ export const SEED: ReadonlyArray<Automation> = [
         meta: "pakt het ticket op"
       }
     ],
-    createdAt: "12 jan"
+    createdAt: "12 jan",
+    limit: "100u",
+    notify: "sofia",
+    log: [
+      { by: "Sofía Kim", at: "20 nov 16:02", what: "zette de limiet op 100 per uur" },
+      { by: "Sofía Kim", at: "20 nov 16:01", what: "liet meldingen bij een fout naar zichzelf gaan" },
+      { by: "Elena Hart", at: "4 nov 10:15", what: "zette ‘Klanten mailen’ aan" }
+    ]
   },
   {
     id: "orderbevestiging",
@@ -582,7 +656,10 @@ export const SEED: ReadonlyArray<Automation> = [
     steps: [
       s("t", "refund_done", "Terugbetaling uitgevoerd"),
       s("ai", "ai_compose", "Excuses in de stem van het merk", { tone: "Warm", instructions: "Kort, met de voornaam" }),
-      s("a1", "send_email", "Excuusmail sturen", { to: "{{klant.e-mail}}" }),
+      s("a1", "send_email", "Excuusmail sturen", {
+        to: "{{klant.e-mail}}",
+        subject: "Het spijt ons, {{klant.voornaam}}"
+      }),
       s("a2", "alert_team", "CX-kanaal melden", { who: "Sofía Kim", channel: "#cx" })
     ],
     runs: 164,
@@ -652,9 +729,12 @@ export const SEED: ReadonlyArray<Automation> = [
     status: "actief",
     steps: [
       s("t", "schedule", "Account 30 dagen inactief", { when: "Elke dag om 9:00" }),
-      s("a1", "send_email", "Heractivatie-e-mail sturen"),
+      s("a1", "send_email", "Heractivatie-e-mail sturen", {
+        to: "{{klant.e-mail}}",
+        subject: "We missen je bij Northwind"
+      }),
       s("w", "wait", "Een week later", { time: "7 dagen" }),
-      s("a2", "send_email", "Herinnering sturen")
+      s("a2", "send_email", "Herinnering sturen", { to: "{{klant.e-mail}}", subject: "Je account staat nog klaar" })
     ],
     runs: 34,
     runs30: 12,
@@ -672,7 +752,10 @@ export const SEED: ReadonlyArray<Automation> = [
     name: "Accountverificatie",
     description: "Vraagt de gebruiker het e-mailadres te bevestigen om het account te activeren.",
     status: "actief",
-    steps: [s("t", "customer_reply", "Account aangemaakt"), s("a1", "send_email", "E-mail sturen")],
+    steps: [
+      s("t", "customer_reply", "Account aangemaakt"),
+      s("a1", "send_email", "E-mail sturen", { to: "{{klant.e-mail}}", subject: "Bevestig je e-mailadres" })
+    ],
     runs: 150,
     runs30: 30,
     lastRun: "vandaag 08:00",
@@ -689,7 +772,10 @@ export const SEED: ReadonlyArray<Automation> = [
     name: "Wachtwoord opnieuw instellen",
     description: "Stuurt op verzoek van de gebruiker een link om het wachtwoord opnieuw in te stellen.",
     status: "actief",
-    steps: [s("t", "email_keyword", "Nieuw wachtwoord aangevraagd"), s("a1", "send_email", "Link sturen")],
+    steps: [
+      s("t", "email_keyword", "Nieuw wachtwoord aangevraagd"),
+      s("a1", "send_email", "Link sturen", { to: "{{klant.e-mail}}", subject: "Je nieuwe wachtwoord instellen" })
+    ],
     runs: 92,
     runs30: 18,
     lastRun: "vandaag 13:00",
@@ -1080,12 +1166,13 @@ export const TEMPLATES: ReadonlyArray<Template> = [
 export const template = (id: string) => TEMPLATES.find((t) => t.id === id)
 
 /** Whether a flow lets Insyte write or read something (an AI step). */
-export const usesAi = (a: Pick<Automation, "steps">) => a.steps.some((st) => stepType(st.type)?.kind === "ai")
+export const usesAi = (a: Pick<Automation, "steps">) =>
+  flatSteps(a.steps).some((st) => stepType(st.type)?.kind === "ai")
 
 /** The rights a flow's steps need, with the steps that need each. */
 export function scopesOf(a: Pick<Automation, "steps">): ReadonlyMap<Scope, ReadonlyArray<string>> {
   const out = new Map<Scope, Array<string>>()
-  for (const st of a.steps) {
+  for (const st of flatSteps(a.steps)) {
     const scope = stepType(st.type)?.scope
     if (scope === undefined) continue
     out.set(scope, [...(out.get(scope) ?? []), st.summary])
@@ -1095,10 +1182,12 @@ export function scopesOf(a: Pick<Automation, "steps">): ReadonlyMap<Scope, Reado
 
 /** The services a flow runs through besides Insyte: "Klaviyo", "Resend, Stripe". */
 export const viaOf = (a: Pick<Automation, "steps">) => [
-  ...new Set(a.steps.flatMap((st) => {
-    const via = stepType(st.type)?.via
-    return via === undefined ? [] : [via]
-  }))
+  ...new Set(
+    flatSteps(a.steps).flatMap((st) => {
+      const via = stepType(st.type)?.via
+      return via === undefined ? [] : [via]
+    })
+  )
 ]
 
 /** The templates worth setting up: Northwind's records say they have work, and no active flow does it. */

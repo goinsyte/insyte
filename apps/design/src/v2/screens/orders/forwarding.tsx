@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react"
+import { ASSISTANT } from "../../assistant.ts"
 import {
   addEvent,
   busyName,
   changeDesk,
+  customerMail,
   deskLegs,
   deskOrder,
   legLate,
+  money,
   REASON_LABEL,
   restoreDesk,
   setStatus,
@@ -21,12 +24,13 @@ import { ME } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Status } from "../../ui/badge.tsx"
-import { Button } from "../../ui/button.tsx"
+import { Button, IconButton } from "../../ui/button.tsx"
 import { RadioGroup, RowCheckbox } from "../../ui/checkbox.tsx"
-import { Dialog } from "../../ui/dialog.tsx"
+import { AlertDialog, Dialog } from "../../ui/dialog.tsx"
+import { DropdownItem, DropdownMenu } from "../../ui/dropdown.tsx"
 import { SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import { Check, Download, Factory, Send } from "../../ui/icons.tsx"
-import { Field, Textarea } from "../../ui/input.tsx"
+import { Check, Download, Factory, Mail, MoreHorizontal, Send, XCircle } from "../../ui/icons.tsx"
+import { Field, Input, Textarea } from "../../ui/input.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
@@ -136,6 +140,8 @@ export function ForwardingQueue() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [forwarding, setForwarding] = useState<ReadonlyArray<Leg> | null>(null)
   const [rerouting, setRerouting] = useState<Leg | null>(null)
+  const [mailing, setMailing] = useState<Leg | null>(null)
+  const [cancelling, setCancelling] = useState<Order | null>(null)
 
   const counts = useMemo(() => ({
     "te-versturen": legs.filter((l) => inTab(l, "te-versturen")).length,
@@ -346,21 +352,41 @@ export function ForwardingQueue() {
                           {leg.state === "wacht" && (
                             <Button size="sm" variant="ghost" onClick={() => confirm([leg])}>Bevestigd</Button>
                           )}
-                          {leg.state === "fout" && (leg.reason === "adres"
-                            ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => navigate(`${paths.order(o.number)}?adres=1`)}
+                          {leg.state === "fout" && (
+                            <span className="inline-flex items-center justify-end gap-1">
+                              {leg.reason === "adres"
+                                ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => navigate(`${paths.order(o.number)}?adres=1`)}
+                                  >
+                                    Adres aanpassen
+                                  </Button>
+                                )
+                                : (
+                                  <Button size="sm" variant="ghost" onClick={() => setRerouting(leg)}>
+                                    Andere leverancier
+                                  </Button>
+                                )}
+                              <Button size="sm" variant="ghost" icon={<Mail />} onClick={() => setMailing(leg)}>
+                                Klant mailen
+                              </Button>
+                              <DropdownMenu
+                                label={`Meer voor #${o.number}`}
+                                placement="bottom-end"
+                                trigger={(props) => (
+                                  <IconButton {...props} label={`Meer voor #${o.number}`}>
+                                    <MoreHorizontal />
+                                  </IconButton>
+                                )}
                               >
-                                Adres aanpassen
-                              </Button>
-                            )
-                            : (
-                              <Button size="sm" variant="ghost" onClick={() => setRerouting(leg)}>
-                                Andere leverancier
-                              </Button>
-                            ))}
+                                <DropdownItem glyph={XCircle} tone="danger" onSelect={() => setCancelling(o)}>
+                                  Bestelling annuleren
+                                </DropdownItem>
+                              </DropdownMenu>
+                            </span>
+                          )}
                         </Td>
                       )}
                     </Tr>
@@ -378,6 +404,32 @@ export function ForwardingQueue() {
         }}
       />
       <RerouteDialog leg={rerouting} onClose={() => setRerouting(null)} />
+      <MailCustomerDialog leg={mailing} onClose={() => setMailing(null)} />
+      <AlertDialog
+        open={cancelling !== null}
+        onCancel={() => setCancelling(null)}
+        onConfirm={() => {
+          const o = cancelling
+          if (o === null) return
+          const before = changeDesk((d) =>
+            setStatus(d, [o.number], "geannuleerd", () => `Geannuleerd door ${ME.name}; Shopify mailt de klant`)
+          )
+          setCancelling(null)
+          undoable(
+            `#${o.number} geannuleerd`,
+            () => restoreDesk(before),
+            `${money(o.total)} gaat terug naar ${busyName(o, false)}. Ongedaan maken kan de komende 30 seconden.`
+          )
+        }}
+        title={cancelling === null ? "" : `#${cancelling.number} annuleren?`}
+        body={cancelling === null
+          ? ""
+          : `De bestelling van ${busyName(cancelling, false)} wordt in Shopify geannuleerd en ${
+            money(cancelling.total)
+          } gaat terug naar de klant. Na de verzendtijd van 30 seconden kun je dat niet meer terugdraaien.`}
+        confirmLabel="Bestelling annuleren"
+        cancelLabel="Bestelling houden"
+      />
     </Page>
   )
 }
@@ -546,6 +598,66 @@ function RerouteDialog({ leg, onClose }: { readonly leg: Leg | null; readonly on
             description: `Gemiddeld ${s.leadDays.toLocaleString("nl-NL")} dagen, belofte ${s.promiseDays}`
           }))}
         />
+      </div>
+    </Dialog>
+  )
+}
+
+/**
+ * Klant mailen, on a leg a supplier could not take: the shopper told what went wrong in Northwind's
+ * words, drafted from the reason. It goes after the send window and lands in the order's history.
+ */
+export function MailCustomerDialog({ leg, onClose }: { readonly leg: Leg | null; readonly onClose: () => void }) {
+  const order = leg === null ? undefined : deskOrder(leg.orderNumber)
+  const draft = order === undefined || leg === null ? undefined : customerMail(order, leg)
+  const [subject, setSubject] = useState<string | null>(null)
+  const [body, setBody] = useState<string | null>(null)
+  const subj = subject ?? draft?.subject ?? ""
+  const text = body ?? draft?.body ?? ""
+  const close = () => {
+    setSubject(null)
+    setBody(null)
+    onClose()
+  }
+  const send = () => {
+    if (order === undefined) return
+    const before = changeDesk((d) => addEvent(d, order.number, `Klant gemaild door ${ME.name}: ${subj.trim()}`))
+    undoable(
+      `Mail aan ${busyName(order, false)} wordt verstuurd`,
+      () => restoreDesk(before),
+      "Hij vertrekt na de verzendtijd van 30 seconden en staat daarna in de geschiedenis."
+    )
+    close()
+  }
+  return (
+    <Dialog
+      open={leg !== null}
+      onClose={close}
+      title={order === undefined ? "" : `${busyName(order, false)} mailen`}
+      description={draft === undefined || draft.to === ""
+        ? "Er is geen e-mailadres bekend voor deze klant."
+        : `Aan ${draft.to}. ${ASSISTANT} schreef het concept; jij verstuurt het.`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>Annuleren</Button>
+          <Button
+            variant="primary"
+            icon={<Send />}
+            disabled={draft === undefined || draft.to === "" || subj.trim() === "" || text.trim() === ""}
+            onClick={send}
+          >
+            Versturen
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4 pb-2">
+        <Field label="Onderwerp">
+          {(c) => <Input {...c} value={subj} onChange={(e) => setSubject(e.target.value)} />}
+        </Field>
+        <Field label="Bericht">
+          {(c) => <Textarea {...c} rows={9} value={text} onChange={(e) => setBody(e.target.value)} />}
+        </Field>
       </div>
     </Dialog>
   )

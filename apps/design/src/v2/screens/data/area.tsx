@@ -6,13 +6,14 @@ import {
   EXPORT_LABEL,
   EXPORT_STATUS,
   EXPORTS,
+  IMPORT_BATCHES,
   knownSku,
   parseCsv,
   SAMPLE_CSV,
   SAMPLE_NAME,
   SYNCS
 } from "../../fixtures/data.ts"
-import type { ExportJob, ExportKind, Parsed } from "../../fixtures/data.ts"
+import type { ExportJob, ExportKind, ImportBatch, Parsed } from "../../fixtures/data.ts"
 import { CUSTOMERS, ORDERS, PRODUCTS, SUPPLIERS } from "../../fixtures/records.ts"
 import { PEOPLE } from "../../fixtures/workspace.ts"
 import { paths, setQuery, useQuery } from "../../router.tsx"
@@ -20,8 +21,9 @@ import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Status } from "../../ui/badge.tsx"
 import { Button, ButtonLink } from "../../ui/button.tsx"
 import { Checkbox } from "../../ui/checkbox.tsx"
+import { Sheet } from "../../ui/dialog.tsx"
 import { FileDrop, FileRow } from "../../ui/file-drop.tsx"
-import { Download, FileText, RefreshCcw, Upload, Users } from "../../ui/icons.tsx"
+import { Download, FileText, RefreshCcw, Trash, Upload, Users } from "../../ui/icons.tsx"
 import { Field, Select } from "../../ui/input.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
@@ -43,16 +45,13 @@ const META = `${
 
 type Tab = "importeren" | "exporteren" | "opschonen" | "synchronisatie"
 
-/* What the demo keeps while it is looked at: finished imports and new exports. */
-type Imported = {
-  readonly id: string
-  readonly name: string
-  readonly rows: number
-  readonly into: string
-  readonly at: string
-}
-let imported: ReadonlyArray<Imported> = []
+/* What the demo keeps while it is looked at: finished imports, removed ones, and new exports. */
+let imported: ReadonlyArray<ImportBatch> = []
+let removedImports: ReadonlyArray<string> = []
 let exports: ReadonlyArray<ExportJob> = []
+
+const batchesFor = (empty: boolean) =>
+  [...imported, ...(empty ? [] : IMPORT_BATCHES)].filter((b) => !removedImports.includes(b.id))
 let made = 0
 
 /**
@@ -148,9 +147,28 @@ type Step =
   }
 
 function Import({ canEdit }: { readonly canEdit: boolean }) {
+  const empty = dataState(useView()) === "empty"
   const [step, setStep] = useState<Step>({ kind: "idle" })
   const [into, setInto] = useState("producten")
-  const [history, setHistory] = useState(imported)
+  const [history, setHistory] = useState(() => batchesFor(empty))
+  const openId = useQuery("bestand")
+  const file = history.find((b) => b.id === openId)
+  const remove = (b: ImportBatch) => {
+    removedImports = [...removedImports, b.id]
+    setHistory(batchesFor(empty))
+    setQuery({ bestand: null })
+    toast({
+      title: `${b.name} verwijderd`,
+      body: `De ${b.rows.length} rijen zijn uit ${b.into.split(" ")[0] ?? b.into} gehaald.`,
+      action: {
+        label: "Ongedaan maken",
+        onClick: () => {
+          removedImports = removedImports.filter((x) => x !== b.id)
+          setHistory(batchesFor(empty))
+        }
+      }
+    })
+  }
   const timer = useRef<number | null>(null)
 
   useEffect(() => () => {
@@ -200,8 +218,16 @@ function Import({ canEdit }: { readonly canEdit: boolean }) {
         : into === "klanten"
         ? "Klanten"
         : "Bestellingen"
-      imported = [{ id: `imp-${made}`, name: s.name, rows: total, into: label, at: "zojuist" }, ...imported]
-      setHistory(imported)
+      imported = [{
+        id: `imp-${made}`,
+        name: s.name,
+        into: label,
+        at: "zojuist",
+        by: "elena",
+        header: s.parsed.header,
+        rows: s.parsed.rows
+      }, ...imported]
+      setHistory(batchesFor(empty))
       setStep({ kind: "idle" })
       toast({ title: `${total} rijen geïmporteerd`, body: `${s.name} → ${label}.`, tone: "good" })
     }, 300)
@@ -331,11 +357,15 @@ function Import({ canEdit }: { readonly canEdit: boolean }) {
           )}
         </div>
       </PageSection>
-      <PageSection id="geimporteerd" title="Geïmporteerd">
+      <PageSection
+        id="geimporteerd"
+        title="Geïmporteerd"
+        meta={history.length > 0 ? String(history.length) : undefined}
+      >
         {history.length === 0
           ? (
             <p className="text-sm text-ink-2">
-              Nog niets geïmporteerd in deze sessie. Wat je importeert, blijft hier staan.
+              Nog niets geïmporteerd. Wat je importeert, blijft hier staan; je opent het bestand of haalt het weer weg.
             </p>
           )
           : (
@@ -349,14 +379,94 @@ function Import({ canEdit }: { readonly canEdit: boolean }) {
                     </GlyphTile>
                   }
                   title={h.name}
-                  meta={`${h.rows} rijen → ${h.into}`}
-                  trail={h.at}
+                  meta={`${h.rows.length} rijen · ${h.header.length} kolommen → ${h.into} · ${h.at} door ${
+                    PEOPLE[h.by].name.split(" ")[0] ?? ""
+                  }`}
+                  onClick={() => setQuery({ bestand: h.id })}
+                  trail={<span className="hidden font-medium text-ink sm:inline">Openen</span>}
                 />
               ))}
             </List>
           )}
       </PageSection>
+      <ImportSheet batch={file} canEdit={canEdit} onClose={() => setQuery({ bestand: null })} onRemove={remove} />
     </div>
+  )
+}
+
+/**
+ * An imported file, opened again: every row as it came in, the columns it had, and where they went.
+ * Downloaden gives the file back; Verwijderen takes its rows out again, with an undo.
+ */
+function ImportSheet({ batch, canEdit, onClose, onRemove }: {
+  readonly batch: ImportBatch | undefined
+  readonly canEdit: boolean
+  readonly onClose: () => void
+  readonly onRemove: (b: ImportBatch) => void
+}) {
+  const [shown, setShown] = useState(25)
+  return (
+    <Sheet
+      open={batch !== undefined}
+      onClose={() => {
+        setShown(25)
+        onClose()
+      }}
+      title={batch?.name ?? ""}
+      meta={batch === undefined
+        ? undefined
+        : `${batch.rows.length} rijen · ${batch.header.length} kolommen → ${batch.into} · ${batch.at}`}
+      footer={batch !== undefined && (
+        <div className="flex w-full flex-wrap justify-between gap-2">
+          {canEdit
+            ? <Button variant="danger" icon={<Trash />} onClick={() => onRemove(batch)}>Verwijderen</Button>
+            : <span />}
+          <Button
+            icon={<Download />}
+            onClick={() => {
+              const text = [batch.header, ...batch.rows].map((r) => r.map(csvCell).join(";")).join("\n")
+              const a = document.createElement("a")
+              a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }))
+              a.download = batch.name
+              a.click()
+              URL.revokeObjectURL(a.href)
+            }}
+          >
+            Downloaden
+          </Button>
+        </div>
+      )}
+    >
+      {batch !== undefined && (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-ink-3">
+            Geïmporteerd door {PEOPLE[batch.by].name}. Insyte bewaart het bestand zoals het binnenkwam.
+          </p>
+          <Table label={batch.name} minWidth={Math.max(420, batch.header.length * 120)}>
+            <THead>{batch.header.map((h) => <Th key={h}>{h}</Th>)}</THead>
+            <TBody>
+              {batch.rows.slice(0, shown).map((r, i) => (
+                <Tr key={i}>
+                  {batch.header.map((h, c) => (
+                    <Td key={h} figure={/^[\d.,]+$/.test(r[c] ?? "")} className="whitespace-nowrap">{r[c] ?? ""}</Td>
+                  ))}
+                </Tr>
+              ))}
+            </TBody>
+          </Table>
+          {shown < batch.rows.length && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="self-start"
+              onClick={() => setShown((n) => n + 25)}
+            >
+              Nog {Math.min(25, batch.rows.length - shown)} rijen tonen
+            </Button>
+          )}
+        </div>
+      )}
+    </Sheet>
   )
 }
 

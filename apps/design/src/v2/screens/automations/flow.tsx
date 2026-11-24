@@ -1,36 +1,20 @@
 import { useEffect, useRef, useState } from "react"
-import { ASSISTANT } from "../../assistant.ts"
-import { SCOPES, scopesOf, STEP_KIND, STEP_TYPES, stepType, usesAi, viaOf } from "../../fixtures/automations.ts"
-import type { Automation, Run, Scope, Step, StepKind } from "../../fixtures/automations.ts"
-import { customer, CUSTOMERS, ORDERS } from "../../fixtures/records.ts"
+import { flatSteps, SCOPES, scopesOf, stepType, usesAi, viaOf } from "../../fixtures/automations.ts"
+import type { Automation, Run, Scope } from "../../fixtures/automations.ts"
 import { PEOPLE } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Avatar } from "../../ui/avatar.tsx"
 import { Button, IconButton } from "../../ui/button.tsx"
-import { AlertDialog, Dialog, Sheet } from "../../ui/dialog.tsx"
+import { cx } from "../../ui/cx.ts"
+import { AlertDialog, Dialog } from "../../ui/dialog.tsx"
 import { DropdownItem, DropdownMenu } from "../../ui/dropdown.tsx"
-import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowUp,
-  Check,
-  Copy,
-  Edit,
-  FlaskConical,
-  MoreHorizontal,
-  Pause,
-  Play,
-  Plus,
-  Trash,
-  Workflow
-} from "../../ui/icons.tsx"
+import { ArrowLeft, Copy, Edit, FlaskConical, MoreHorizontal, Pause, Play, Trash, Workflow } from "../../ui/icons.tsx"
 import { Field, Input, SearchField, Select, Textarea } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 import { List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
-import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { SettingRow, SettingsSection } from "../../ui/settings.tsx"
 import { Skeleton, SkeletonText } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
@@ -38,8 +22,22 @@ import { Tabs } from "../../ui/tabs.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented, Toggle } from "../../ui/toggle.tsx"
 import { dataState, setView, useView } from "../../view.ts"
-import { FlowStatusLabel, KIND_GLYPH, RunSheet, RunsTable, RunStatusLabel, sentence } from "./parts.tsx"
-import { createDraft, patch, publish, remove, restore, setStatus, setSteps, useFlows, useRuns } from "./store.ts"
+import { WorkflowTab } from "./canvas.tsx"
+import { issuesOf, pathOf, sampleLabel, sampleOf, stepIssues } from "./edits.ts"
+import { FlowStatusLabel, RunSheet, RunsTable, sentence } from "./parts.tsx"
+import {
+  createDraft,
+  logSetting,
+  patch,
+  publish,
+  remove,
+  restore,
+  setStatus,
+  setTest,
+  useFlows,
+  useRuns,
+  useTest
+} from "./store.ts"
 
 type Tab = "workflow" | "uitvoeringen" | "overzicht" | "instellingen"
 const TABS: ReadonlyArray<{ readonly value: Tab; readonly label: string }> = [
@@ -49,8 +47,7 @@ const TABS: ReadonlyArray<{ readonly value: Tab; readonly label: string }> = [
   { value: "instellingen", label: "Instellingen" }
 ]
 
-/** What a test with an example says each step would do, so nothing is saved or sent. */
-type TestResult = { readonly record: string; readonly lines: Readonly<Record<string, string>> }
+const STEP_MS = 320
 
 /**
  * One automation: its flow as a calm sequence from the trigger down (`/app/automations/$id`, whose
@@ -130,12 +127,15 @@ function Editor({ flow, tab }: { readonly flow: Automation; readonly tab: Tab })
   const runs = useRuns().filter((r) => r.automationId === flow.id)
   const [renaming, setRenaming] = useState(false)
   const [publishing, setPublishing] = useState(false)
-  const [test, setTest] = useState<"idle" | "running" | TestResult>("idle")
+  const test = useTest(flow.id)
+  const running = test !== null && test.at !== null
   const timer = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(timer.current), [])
   const hasTrigger = stepType(flow.steps[0]?.type ?? "")?.kind === "trigger"
   const changes = flow.unpublished === true
 
+  /* Walks the flow on a real order, lighting each step for a beat. Nothing is saved or sent and no run
+     is logged; a step that cannot run stops the test there and stays red until the flow is edited. */
   const runTest = () => {
     if (!hasTrigger) {
       toast({
@@ -144,17 +144,43 @@ function Editor({ flow, tab }: { readonly flow: Automation; readonly tab: Tab })
       })
       return
     }
-    setTest("running")
-    if (tab !== "workflow") setQuery({ tab: null })
-    timer.current = window.setTimeout(() => {
-      const result = testOf(flow)
-      setTest(result)
-      toast({
-        title: "Test geslaagd, niets opgeslagen of verstuurd",
-        body: `Met ${result.record} als voorbeeld.`,
-        tone: "good"
-      })
-    }, 1200)
+    if (tab !== "workflow") setQuery({ tab: null, run: null })
+    const order = sampleOf(flow)
+    const big = (order?.total ?? 0) > 100
+    const path = pathOf(flow.steps, big)
+    const sample = sampleLabel(order)
+    const done: Array<string> = []
+    const walk = (i: number) => {
+      const st = path[i]
+      if (st === undefined) {
+        setTest({ flowId: flow.id, at: null, done, sample })
+        const split = flatSteps(flow.steps).some((x) => x.branches !== undefined)
+        toast({
+          title: "Test geslaagd, niets opgeslagen of verstuurd",
+          body: `Voorbeeld ${sample} · ${path.length} stappen${split ? `, via ${big ? "Ja" : "Nee"}` : ""}.`,
+          tone: "good"
+        })
+        return
+      }
+      setTest({ flowId: flow.id, at: st.id, done: [...done], sample })
+      timer.current = window.setTimeout(() => {
+        const [reason] = stepIssues(st, flow)
+        if (reason !== undefined) {
+          setTest({ flowId: flow.id, at: null, done, failed: { id: st.id, reason }, sample })
+          toast({
+            title: `Test gestopt bij ${st.summary}`,
+            body: `${reason} Voorbeeld ${sample}.`,
+            tone: "bad",
+            duration: 8000,
+            action: { label: "Stap openen", onClick: () => setQuery({ stap: st.id }) }
+          })
+          return
+        }
+        done.push(st.id)
+        walk(i + 1)
+      }, STEP_MS)
+    }
+    walk(0)
   }
 
   const togglePause = () => {
@@ -189,12 +215,8 @@ function Editor({ flow, tab }: { readonly flow: Automation; readonly tab: Tab })
           }
           actions={
             <>
-              <Button
-                icon={test === "running" ? undefined : <FlaskConical />}
-                loading={test === "running"}
-                onClick={runTest}
-              >
-                {test === "running" ? "Bezig met testen" : "Test met voorbeeld"}
+              <Button icon={running ? undefined : <FlaskConical />} loading={running} onClick={runTest}>
+                {running ? "Bezig met testen" : "Test met voorbeeld"}
               </Button>
               {access.manage && (
                 <Button
@@ -225,7 +247,7 @@ function Editor({ flow, tab }: { readonly flow: Automation; readonly tab: Tab })
                     glyph={Copy}
                     onSelect={() => {
                       const copy = createDraft(undefined, `${flow.name} (kopie)`)
-                      patch(copy, { steps: flow.steps, description: flow.description })
+                      patch(copy, { steps: flow.steps, description: flow.description, scopesOff: flow.scopesOff })
                       toast({
                         title: "Kopie gemaakt als concept",
                         action: { label: "Openen", onClick: () => navigate(paths.automation(copy)) }
@@ -271,14 +293,7 @@ function Editor({ flow, tab }: { readonly flow: Automation; readonly tab: Tab })
         />
         <div role="tabpanel" id={`paneel-${tab}`} aria-labelledby={`paneel-${tab}-tab`}>
           {tab === "workflow"
-            ? (
-              <WorkflowTab
-                flow={flow}
-                runs={runs}
-                test={typeof test === "object" ? test : null}
-                onTest={() => setTest("idle")}
-              />
-            )
+            ? <WorkflowTab flow={flow} runs={runs} />
             : tab === "uitvoeringen"
             ? <RunsTab flow={flow} runs={runs} />
             : tab === "overzicht"
@@ -290,407 +305,6 @@ function Editor({ flow, tab }: { readonly flow: Automation; readonly tab: Tab })
       <RenameDialog flow={flow} open={renaming} onClose={() => setRenaming(false)} />
       <PublishDialog flow={flow} open={publishing} onClose={() => setPublishing(false)} />
     </Page>
-  )
-}
-
-/* ── the flow ──────────────────────────────────────────────────────────────────────────────────── */
-
-function exampleOrder(flow: Automation) {
-  const href = flow.touches.find((t) => t.kind === "order")?.href
-  const number = href?.split("/").at(-1)
-  return ORDERS.find((o) => o.number === number) ?? ORDERS[0]
-}
-
-function testOf(flow: Automation): TestResult {
-  const o = exampleOrder(flow)
-  const c = o === undefined ? CUSTOMERS[0] : customer(o.customerId)
-  const record = o === undefined ? "een voorbeeld" : `bestelling #${o.number}`
-  const lines: Record<string, string> = {}
-  for (const st of flow.steps) {
-    const kind = stepType(st.type)?.kind
-    lines[st.id] = kind === "trigger"
-      ? `Zou afgaan op ${record}${c === undefined ? "" : ` van ${c.name}`}.`
-      : kind === "voorwaarde"
-      ? "Klopt voor dit voorbeeld, dus de flow gaat verder."
-      : kind === "wachten"
-      ? "Zou hier wachten; de test slaat de wachttijd over."
-      : kind === "ai"
-      ? `${ASSISTANT} zou hier een tekst opstellen; die staat dan als concept klaar.`
-      : st.type === "send_email" || st.type === "klaviyo_send"
-      ? `Zou mailen naar ${c?.email ?? "de klant"}.`
-      : st.type === "create_ticket"
-      ? `Zou een ticket aanmaken: ‘${
-        (st.values?.title ?? st.summary).replace("{{bestelling.nummer}}", `#${o?.number ?? ""}`)
-      }’.`
-      : st.type === "stripe_refund"
-      ? "Zou terugbetalen via Stripe; in een test gaat er geen geld."
-      : "Zou dit doen; in een test gebeurt het niet echt."
-  }
-  return { record, lines }
-}
-
-function WorkflowTab({ flow, runs, test, onTest }: {
-  readonly flow: Automation
-  readonly runs: ReadonlyArray<Run>
-  readonly test: TestResult | null
-  readonly onTest: () => void
-}) {
-  const access = useAccess("automations")
-  const [palette, setPalette] = useState(false)
-  const openStep = useQuery("stap")
-  const step = flow.steps.find((st) => st.id === openStep)
-  const hasTrigger = stepType(flow.steps[0]?.type ?? "")?.kind === "trigger"
-
-  const add = (type: string) => {
-    const t = stepType(type)
-    if (t === undefined) return
-    const next: Step = { id: `s${crypto.randomUUID().slice(0, 8)}`, type, summary: t.label }
-    setSteps(flow.id, t.kind === "trigger" ? [next, ...flow.steps] : [...flow.steps, next])
-    setPalette(false)
-    onTest()
-    setQuery({ stap: next.id })
-  }
-
-  return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-12">
-      <section aria-labelledby="flow-stappen" className="flex max-w-2xl flex-col gap-4">
-        <h2 id="flow-stappen" className="sr-only">Stappen</h2>
-        {flow.unpublished === true && flow.version > 0 && (
-          <Notice tone="info" title="Er zijn wijzigingen die nog niet live staan">
-            Lopende runs gebruiken v{flow.version}. Publiceer om de nieuwe stappen live te zetten.
-          </Notice>
-        )}
-        {test !== null && (
-          <Notice tone="good" title={`Test met ${test.record}`} onDismiss={onTest}>
-            Elke stap zegt hieronder wat hij gedaan zou hebben. Er is niets opgeslagen of verstuurd.
-          </Notice>
-        )}
-        <p className="max-w-[60ch] text-sm text-pretty text-ink-2">{sentence(flow)}</p>
-        <ol aria-label="Stappen van de flow" className="flex flex-col">
-          {!hasTrigger && (
-            <li className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-x-3 pb-5">
-              {flow.steps.length > 0 && (
-                <span aria-hidden="true" className="absolute top-7 bottom-0 left-[13.5px] w-px bg-line" />
-              )}
-              <span className="flex size-7 items-center justify-center rounded-full bg-warn-tint text-warn-ink">
-                <KIND_GLYPH.trigger size={14} />
-              </span>
-              <div className="flex flex-col items-start gap-2 pt-0.5">
-                <p className="text-sm text-ink">Nog geen trigger</p>
-                <p className="text-xs text-ink-3">Waar moet de flow op letten? Zonder trigger kan hij niet draaien.</p>
-                {access.edit && (
-                  <Button size="sm" icon={<Plus />} onClick={() => setPalette(true)}>Trigger kiezen</Button>
-                )}
-              </div>
-            </li>
-          )}
-          {flow.steps.map((st, i) => {
-            const t = stepType(st.type)
-            const kind: StepKind = t?.kind ?? "actie"
-            const G = KIND_GLYPH[kind]
-            const last = i === flow.steps.length - 1
-            const result = test?.lines[st.id]
-            return (
-              <li key={st.id} className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-x-3 pb-5">
-                {(!last || access.edit) && (
-                  <span aria-hidden="true" className="absolute top-7 bottom-0 left-[13.5px] w-px bg-line" />
-                )}
-                {kind === "actie" && t?.via !== undefined
-                  ? <ServiceLogo service={t.via} name={t.via} size={28} />
-                  : (
-                    <span
-                      className={kind === "trigger"
-                        ? "relative flex size-7 items-center justify-center rounded-full bg-ink text-on-ink"
-                        : kind === "ai"
-                        ? "relative flex size-7 items-center justify-center rounded-full bg-accent-tint text-accent-ink"
-                        : "relative flex size-7 items-center justify-center rounded-full bg-well text-ink-2"}
-                    >
-                      <G size={14} />
-                    </span>
-                  )}
-                <button
-                  type="button"
-                  onClick={() => setQuery({ stap: st.id })}
-                  className="-mx-2 -my-1 flex min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-hover"
-                >
-                  <span className="text-xs text-ink-3">
-                    {STEP_KIND[kind]} · {t?.label ?? "Onbekende stap"}
-                    {t?.via !== undefined && ` · via ${t.via}`}
-                  </span>
-                  <span className="text-sm text-ink">{st.summary}</span>
-                  {st.values !== undefined && Object.keys(st.values).length > 0 && (
-                    <span className="max-w-full truncate text-xs text-ink-3">
-                      {Object.entries(st.values).map(([k, val]) =>
-                        `${t?.fields.find((x) => x.key === k)?.label ?? k}: ${val}`
-                      ).join(" · ")}
-                    </span>
-                  )}
-                  {result !== undefined && (
-                    <span className="mt-1 flex items-start gap-1.5 text-xs text-good-ink">
-                      <Check size={13} className="mt-px shrink-0" />
-                      {result}
-                    </span>
-                  )}
-                </button>
-              </li>
-            )
-          })}
-          {access.edit && hasTrigger && (
-            <li className="grid grid-cols-[28px_minmax(0,1fr)] gap-x-3">
-              <span className="flex size-7 items-center justify-center rounded-full text-ink-3 ring-1 ring-line-strong ring-dashed ring-inset">
-                <Plus size={13} />
-              </span>
-              <span>
-                <Button size="sm" variant="ghost" onClick={() => setPalette(true)} className="pointer-coarse:h-11">
-                  Stap toevoegen
-                </Button>
-              </span>
-            </li>
-          )}
-        </ol>
-      </section>
-
-      <aside aria-label="Bij deze flow" className="flex flex-col gap-8">
-        <PageSection
-          title="Laatste uitvoeringen"
-          id="flow-laatst"
-          actions={runs.length > 0 && (
-            <Link
-              to={`${paths.automation(flow.id)}?tab=uitvoeringen`}
-              className="text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline"
-            >
-              Alle {runs.length}
-            </Link>
-          )}
-        >
-          {runs.length === 0
-            ? (
-              <p className="text-sm text-ink-3">
-                {flow.version === 0
-                  ? "Nog geen: publiceer de flow om hem te laten draaien."
-                  : "De trigger is nog niet afgegaan."}
-              </p>
-            )
-            : (
-              <List label="Laatste uitvoeringen">
-                {runs.slice(0, 5).map((r) => (
-                  <ListRow
-                    key={r.id}
-                    title={r.record?.label ?? "Volgens schema"}
-                    meta={[r.record?.who, r.at].filter(Boolean).join(" · ")}
-                    trail={<RunStatusLabel status={r.status} />}
-                    onClick={() => navigate(`${paths.automation(flow.id)}?tab=uitvoeringen&run=${r.id}`)}
-                  />
-                ))}
-              </List>
-            )}
-        </PageSection>
-        {flow.touches.length > 0 && (
-          <PageSection title="Raakt aan" id="flow-raakt">
-            <List label="Wat de flow aanraakt">
-              {flow.touches.map((t) => <ListRow key={t.href + t.label} title={t.label} meta={t.meta} href={t.href} />)}
-            </List>
-          </PageSection>
-        )}
-      </aside>
-
-      <StepSheet flow={flow} step={step} onClose={() => setQuery({ stap: null })} />
-      <Palette open={palette} trigger={!hasTrigger} onClose={() => setPalette(false)} onPick={add} />
-    </div>
-  )
-}
-
-/** A step opened from the flow: what it does, its fields, the right it needs; move or remove it. */
-function StepSheet({ flow, step, onClose }: {
-  readonly flow: Automation
-  readonly step: Step | undefined
-  readonly onClose: () => void
-}) {
-  const access = useAccess("automations")
-  const [summary, setSummary] = useState(step?.summary ?? "")
-  const [values, setValues] = useState<Record<string, string>>({ ...step?.values })
-  const [stepId, setStepId] = useState(step?.id)
-  if (step?.id !== stepId) {
-    setStepId(step?.id)
-    setSummary(step?.summary ?? "")
-    setValues({ ...step?.values })
-  }
-  if (step === undefined) return null
-  const t = stepType(step.type)
-  const at = flow.steps.findIndex((st) => st.id === step.id)
-  const scope = SCOPES.find((x) => x.id === t?.scope)
-  const move = (by: number) => {
-    const next = [...flow.steps]
-    const [moved] = next.splice(at, 1)
-    if (moved === undefined) return
-    next.splice(at + by, 0, moved)
-    setSteps(flow.id, next)
-  }
-  const save = () => {
-    setSteps(
-      flow.id,
-      flow.steps.map((st) => (st.id === step.id ? { ...st, summary: summary.trim() || st.summary, values } : st))
-    )
-    toast({ title: "Stap opgeslagen", body: "Publiceer om de wijziging live te zetten." })
-    onClose()
-  }
-  const drop = () => {
-    const before = flow.steps
-    setSteps(flow.id, flow.steps.filter((st) => st.id !== step.id))
-    onClose()
-    toast({ title: "Stap verwijderd", action: { label: "Ongedaan maken", onClick: () => setSteps(flow.id, before) } })
-  }
-  const kind = t?.kind ?? "actie"
-  return (
-    <Sheet
-      open
-      onClose={onClose}
-      title={t?.label ?? "Stap"}
-      meta={`${STEP_KIND[kind]} · stap ${at + 1} van ${flow.steps.length}`}
-      footer={access.edit && (
-        <>
-          <Button variant="ghost" icon={<Trash />} onClick={drop} className="mr-auto">Verwijderen</Button>
-          <Button onClick={onClose}>Annuleren</Button>
-          <Button variant="primary" onClick={save}>Opslaan</Button>
-        </>
-      )}
-    >
-      <div className="flex flex-col gap-5">
-        <p className="text-sm text-ink-2">{t?.detail}</p>
-        <Field label="Wat deze stap doet">
-          {(control) => (
-            <Input
-              {...control}
-              value={summary}
-              readOnly={!access.edit}
-              onChange={(event) => setSummary(event.target.value)}
-            />
-          )}
-        </Field>
-        {t?.fields.map((field) => (
-          <Field key={field.key} label={field.label}>
-            {(control) =>
-              field.key === "body" || field.key === "instructions" || field.key === "message"
-                ? (
-                  <Textarea
-                    {...control}
-                    rows={4}
-                    value={values[field.key] ?? ""}
-                    placeholder={field.placeholder}
-                    readOnly={!access.edit}
-                    onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
-                  />
-                )
-                : (
-                  <Input
-                    {...control}
-                    value={values[field.key] ?? ""}
-                    placeholder={field.placeholder}
-                    readOnly={!access.edit}
-                    onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
-                  />
-                )}
-          </Field>
-        ))}
-        <KeyValue
-          items={[
-            { label: "Nodig recht", value: scope?.label ?? "Geen" },
-            {
-              label: "Loopt via",
-              value: t?.via === undefined ? "Insyte" : (
-                <span className="flex items-center gap-1.5">
-                  <ServiceLogo service={t.via} name={t.via} size={16} bare />
-                  {t.via}
-                </span>
-              )
-            }
-          ]}
-        />
-        {kind === "ai" && (
-          <p className="rounded-md bg-well px-3 py-2.5 text-xs text-pretty text-ink-2">
-            Wat {ASSISTANT}{" "}
-            hier opstelt, gaat de deur niet uit zonder de stap erna. Een mail aan een klant valt onder je regel voor
-            e-mail: standaard Eerst vragen.
-          </p>
-        )}
-        {access.edit && flow.steps.length > 1 && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              icon={<ArrowUp />}
-              disabled={at <= (stepType(flow.steps[0]?.type ?? "")?.kind === "trigger" ? 1 : 0)}
-              onClick={() => move(-1)}
-            >
-              Omhoog
-            </Button>
-            <Button
-              size="sm"
-              icon={<ArrowDown />}
-              disabled={at === flow.steps.length - 1 || kind === "trigger"}
-              onClick={() => move(1)}
-            >
-              Omlaag
-            </Button>
-          </div>
-        )}
-      </div>
-    </Sheet>
-  )
-}
-
-/** The steps the editor offers, by kind, with a search; a flow without a trigger is offered triggers. */
-function Palette({ open, trigger, onClose, onPick }: {
-  readonly open: boolean
-  readonly trigger: boolean
-  readonly onClose: () => void
-  readonly onPick: (type: string) => void
-}) {
-  const [search, setSearch] = useState("")
-  const q = search.trim().toLowerCase()
-  const kinds: ReadonlyArray<StepKind> = trigger ? ["trigger"] : ["voorwaarde", "wachten", "ai", "actie"]
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={trigger ? "Trigger kiezen" : "Stap toevoegen"}
-      description={trigger
-        ? "Waar de flow op let."
-        : `Een voorwaarde, een wachttijd, iets dat ${ASSISTANT} schrijft, of een actie.`}
-    >
-      <div className="flex flex-col gap-4">
-        <SearchField value={search} onChange={setSearch} label="Zoek een stap" placeholder="Zoek een stap" />
-        <div className="flex max-h-[min(26rem,60vh)] flex-col gap-5 overflow-y-auto">
-          {kinds.map((kind) => {
-            const items = STEP_TYPES.filter((t) => t.kind === kind)
-              .filter((t) => q === "" || `${t.label} ${t.detail}`.toLowerCase().includes(q))
-            if (items.length === 0) return null
-            const G = KIND_GLYPH[kind]
-            return (
-              <section key={kind} aria-label={STEP_KIND[kind]} className="flex flex-col gap-1">
-                <h3 className="text-xs font-medium text-ink-3">{STEP_KIND[kind]}</h3>
-                <List label={STEP_KIND[kind]}>
-                  {items.map((t) => (
-                    <ListRow
-                      key={t.id}
-                      lead={t.via === undefined
-                        ? (
-                          <span className="inline-flex size-7 items-center justify-center rounded-full bg-well text-ink-2">
-                            <G size={13} />
-                          </span>
-                        )
-                        : <ServiceLogo service={t.via} name={t.via} size={28} />}
-                      title={t.label}
-                      meta={t.via === undefined ? t.detail : `${t.detail} · via ${t.via}`}
-                      onClick={() => onPick(t.id)}
-                    />
-                  ))}
-                </List>
-              </section>
-            )
-          })}
-        </div>
-      </div>
-    </Dialog>
   )
 }
 
@@ -759,6 +373,105 @@ function RunsTab({ flow, runs }: { readonly flow: Automation; readonly runs: Rea
 
 /* ── overview ──────────────────────────────────────────────────────────────────────────────────── */
 
+const DAY_MS = 86_400_000
+/** Monday 23 November 2026: the day the screens are set on. */
+const TODAY = new Date(2026, 10, 23).getTime()
+const shortDate = (t: number) =>
+  new Date(t).toLocaleDateString("nl-NL", { day: "numeric", month: "short" }).replace(".", "")
+
+/** A flow's runs over the last 30 days, one figure a day, spread the way its trigger fires (weekdays busier). */
+function runsPerDay(flow: Automation): ReadonlyArray<number> {
+  if (flow.runs30 === 0) return Array.from({ length: 30 }, () => 0)
+  let seed = [...flow.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7)
+  const weights = Array.from({ length: 30 }, (_, i) => {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0
+    const day = new Date(TODAY - (29 - i) * DAY_MS).getDay()
+    return (day === 0 || day === 6 ? 0.6 : 1) * (0.5 + seed / 4_294_967_296)
+  })
+  const total = weights.reduce((a, b) => a + b, 0)
+  return weights.map((w) => Math.round((w / total) * flow.runs30))
+}
+
+function RunsChart({ flow, runs }: { readonly flow: Automation; readonly runs: ReadonlyArray<Run> }) {
+  const days = runsPerDay(flow)
+  const max = Math.max(1, ...days)
+  const failed = runs.filter((r) => r.status === "mislukt").length
+  const waiting = runs.filter((r) => r.status === "wacht").length
+  const ok = runs.length === 0 ? null : Math.round(((runs.length - failed) / runs.length) * 100)
+  const saved = (flow.runs30 * 3) / 60
+  return (
+    <PageSection
+      title="Uitvoeringen in de laatste 30 dagen"
+      id="overzicht-runs"
+      actions={runs.length > 0 && (
+        <Link
+          to={`${paths.automation(flow.id)}?tab=uitvoeringen`}
+          className="text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+        >
+          Alle uitvoeringen
+        </Link>
+      )}
+    >
+      {flow.runs30 === 0
+        ? (
+          <p className="text-sm text-ink-3">
+            {flow.version === 0
+              ? "Publiceer de flow om hem te laten draaien."
+              : "De trigger is deze maand niet afgegaan."}
+          </p>
+        )
+        : (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-x-10 gap-y-3">
+              <Figure value={flow.runs30.toLocaleString("nl-NL")} label="uitvoeringen" />
+              <Figure value={ok === null ? "—" : `${ok}%`} label="geslaagd" />
+              <Figure
+                value={`≈ ${saved.toLocaleString("nl-NL", { maximumFractionDigits: 1 })} u`}
+                label="handwerk bespaard"
+              />
+              <p className="max-w-[44ch] pb-1 text-xs text-ink-3">
+                {failed > 0 ? `${failed} mislukt` : "Niets mislukt"}
+                {waiting > 0 ? `, ${waiting} wacht` : ""} in de laatste {runs.length} uitvoeringen.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div
+                className="flex h-24 items-end gap-[3px]"
+                role="img"
+                aria-label={`${flow.runs30} uitvoeringen in 30 dagen, het meest op één dag ${max}`}
+              >
+                {days.map((n, i) => (
+                  <span
+                    key={TODAY - (29 - i) * DAY_MS}
+                    title={`${shortDate(TODAY - (29 - i) * DAY_MS)}: ${n} ${n === 1 ? "uitvoering" : "uitvoeringen"}`}
+                    className={cx(
+                      "flex-1 rounded-t-[2px]",
+                      n === 0 ? "bg-line" : i === days.length - 1 ? "bg-accent" : "bg-series-2 hover:bg-ink-3"
+                    )}
+                    style={{ height: `${Math.max(4, (n / max) * 100)}%` }}
+                  />
+                ))}
+              </div>
+              <div className="figure flex justify-between text-xs text-ink-3">
+                <span>{shortDate(TODAY - 29 * DAY_MS)}</span>
+                <span>vandaag</span>
+              </div>
+            </div>
+          </div>
+        )}
+    </PageSection>
+  )
+}
+
+function Figure({ value, label }: { readonly value: string; readonly label: string }) {
+  return (
+    <span className="flex flex-col">
+      <span className="figure text-xl font-semibold text-ink">{value}</span>
+      <span className="text-xs text-ink-3">{label}</span>
+    </span>
+  )
+}
+
 function OverviewTab({ flow }: { readonly flow: Automation }) {
   const access = useAccess("automations")
   const runs = useRuns().filter((r) => r.automationId === flow.id)
@@ -787,14 +500,15 @@ function OverviewTab({ flow }: { readonly flow: Automation }) {
               value: flow.version === 0 ? "Nog niet gepubliceerd" : `v${flow.version}`,
               figure: true
             },
-            { label: "Uitvoeringen, 30 dagen", value: flow.runs30.toLocaleString("nl-NL"), figure: true },
             { label: "Uitvoeringen in totaal", value: flow.runs.toLocaleString("nl-NL"), figure: true },
             { label: "Mislukt, recent", value: failed === 0 ? "Niets mislukt" : `${failed} mislukt`, figure: true },
+            { label: "Stappen", value: flatSteps(flow.steps).length, figure: true },
             { label: "Koppelingen", value: ["Insyte", ...viaOf(flow)].join(", ") },
             { label: "Met AI-stap", value: usesAi(flow) ? "Ja" : "Nee" }
           ]}
         />
       </div>
+      <RunsChart flow={flow} runs={runs} />
       <PageSection
         title="Versies"
         id="overzicht-versies"
@@ -856,25 +570,57 @@ function OverviewTab({ flow }: { readonly flow: Automation }) {
 
 /* ── settings ──────────────────────────────────────────────────────────────────────────────────── */
 
+const LIMITS: ReadonlyArray<readonly [string, string]> = [
+  ["0", "Geen limiet"],
+  ["10u", "10 per uur"],
+  ["100u", "100 per uur"],
+  ["1000d", "1.000 per dag"]
+]
+
+/** What the flow itself changed, under its own name, from its latest runs. */
+function flowActions(flow: Automation, runs: ReadonlyArray<Run>) {
+  const steps = flatSteps(flow.steps).filter((st) => stepType(st.type)?.kind === "actie")
+  return runs
+    .filter((r) => r.status === "geslaagd" && r.record !== null)
+    .flatMap((r) => {
+      const taken = r.lane === undefined ? steps : steps.filter((st) => {
+        const branch = flow.steps.find((x) => x.branches !== undefined)
+        const other = r.lane === "yes" ? branch?.branches?.no : branch?.branches?.yes
+        return other?.some((x) => x.id === st.id) !== true
+      })
+      return taken.map((st) => ({ key: `${r.id}-${st.id}`, at: r.at, what: st.summary, on: r.record }))
+    })
+    .slice(0, 8)
+}
+
 function SettingsTab({ flow }: { readonly flow: Automation }) {
   const access = useAccess("automations")
+  const runs = useRuns().filter((r) => r.automationId === flow.id)
   const needs = scopesOf(flow)
-  const [off, setOff] = useState<ReadonlyArray<Scope>>([])
+  const off = flow.scopesOff ?? []
   const [all, setAll] = useState(false)
-  const [limit, setLimit] = useState("0")
-  const [notify, setNotify] = useState<string>(PEOPLE[flow.owner].name)
   const [deleting, setDeleting] = useState(false)
   const shown = SCOPES.filter((sc) => all || needs.has(sc.id))
+  const notify = flow.notify ?? flow.owner
+  const limit = flow.limit ?? "0"
+  const acted = flowActions(flow, runs)
+
   const toggle = (sc: Scope, on: boolean) => {
-    const before = off
-    setOff(on ? off.filter((x) => x !== sc) : [...off, sc])
+    const label = SCOPES.find((x) => x.id === sc)?.label ?? sc
+    const before = flow
+    logSetting(flow, `zette ‘${label}’ ${on ? "aan" : "uit"}`, {
+      scopesOff: on ? off.filter((x) => x !== sc) : [...off, sc]
+    })
     const by = needs.get(sc)
     if (!on && by !== undefined) {
       toast({
         title: "Recht uitgezet",
-        body: `De stap ‘${by[0] ?? ""}’ mislukt nu als hij draait.`,
+        body: `De stap ‘${by[0] ?? ""}’ mislukt nu als hij draait; een test stopt daar ook.`,
         tone: "bad",
-        action: { label: "Ongedaan maken", onClick: () => setOff(before) }
+        action: {
+          label: "Ongedaan maken",
+          onClick: () => patch(flow.id, { scopesOff: before.scopesOff ?? [], log: before.log ?? [] })
+        }
       })
     }
   }
@@ -913,7 +659,11 @@ function SettingsTab({ flow }: { readonly flow: Automation }) {
             <SettingRow
               key={sc.id}
               title={sc.label}
-              description={by === undefined ? "Niet nodig: geen stap gebruikt dit" : `Gebruikt door ${by.join(", ")}`}
+              description={by === undefined
+                ? "Niet nodig: geen stap gebruikt dit"
+                : on
+                ? `Gebruikt door ${by.join(", ")}`
+                : `Staat uit: ${by.join(", ")} mislukt`}
               control={
                 <Toggle
                   label={sc.label}
@@ -940,7 +690,9 @@ function SettingsTab({ flow }: { readonly flow: Automation }) {
               on={flow.status === "actief"}
               disabled={!access.edit || flow.version === 0}
               onChange={(next) => {
-                setStatus(flow.id, next ? "actief" : "gepauzeerd")
+                logSetting(flow, next ? "zette de flow aan" : "pauzeerde de flow", {
+                  status: next ? "actief" : "gepauzeerd"
+                })
                 toast({
                   title: next ? "Flow staat aan" : "Flow gepauzeerd",
                   action: { label: "Ongedaan maken", onClick: () => setStatus(flow.id, flow.status) }
@@ -957,13 +709,13 @@ function SettingsTab({ flow }: { readonly flow: Automation }) {
               id="inst-limiet"
               value={limit}
               disabled={!access.edit}
-              onChange={(event) => setLimit(event.target.value)}
+              onChange={(event) => {
+                const label = LIMITS.find(([v]) => v === event.target.value)?.[1] ?? ""
+                logSetting(flow, `zette de limiet op ${label.toLowerCase()}`, { limit: event.target.value })
+              }}
               className="w-44"
             >
-              <option value="0">Geen limiet</option>
-              <option value="10u">10 per uur</option>
-              <option value="100u">100 per uur</option>
-              <option value="1000d">1.000 per dag</option>
+              {LIMITS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
             </Select>
           }
         />
@@ -981,14 +733,68 @@ function SettingsTab({ flow }: { readonly flow: Automation }) {
               id="inst-melding"
               value={notify}
               disabled={!access.edit}
-              onChange={(event) => setNotify(event.target.value)}
+              onChange={(event) => {
+                const who = event.target.value as keyof typeof PEOPLE
+                logSetting(flow, `liet meldingen bij een fout naar ${PEOPLE[who].name} gaan`, { notify: who })
+              }}
               className="w-44"
             >
-              {Object.values(PEOPLE).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+              {(Object.keys(PEOPLE) as Array<keyof typeof PEOPLE>).map((k) => (
+                <option key={k} value={k}>{PEOPLE[k].name}</option>
+              ))}
             </Select>
           }
         />
       </SettingsSection>
+      <section aria-labelledby="inst-logboek" className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 id="inst-logboek" className="text-md font-semibold text-ink">Logboek</h2>
+          <Link to={paths.log} className="text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline">
+            Volledig logboek
+          </Link>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <h3 className="text-xs font-medium text-ink-3">Instellingen</h3>
+          {(flow.log ?? []).length === 0
+            ? <p className="text-sm text-ink-3">Nog niemand heeft de instellingen van deze flow veranderd.</p>
+            : (
+              <ul className="flex flex-col">
+                {(flow.log ?? []).slice(0, 8).map((e, i) => (
+                  <li key={`${e.at}-${i}`} className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 py-1.5 text-sm">
+                    <span className="figure text-ink-3">{e.at}</span>
+                    <span className="text-ink-2">
+                      <span className="font-medium text-ink">{e.by}</span> {e.what}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <h3 className="text-xs font-medium text-ink-3">Wat de flow veranderde, als Flow · {flow.name}</h3>
+          {acted.length === 0
+            ? <p className="text-sm text-ink-3">Nog niets: de flow heeft nog geen record veranderd.</p>
+            : (
+              <ul className="flex flex-col">
+                {acted.map((e) => (
+                  <li key={e.key} className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 py-1.5 text-sm">
+                    <span className="figure text-ink-3">{e.at}</span>
+                    <span className="min-w-0 truncate text-ink-2">
+                      <span className="font-medium text-ink">{e.what}</span> op {e.on === null ?
+                        "een record" :
+                        (
+                          <Link to={e.on.href} className="underline-offset-2 hover:underline">
+                            {e.on.label}
+                            {e.on.who === undefined ? "" : ` · ${e.on.who}`}
+                          </Link>
+                        )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
+      </section>
       {access.manage && (
         <SettingsSection
           id="inst-weg"
@@ -1063,6 +869,10 @@ function PublishDialog(
 ) {
   const [note, setNote] = useState("")
   const first = flow.version === 0
+  const issues = [...issuesOf(flow)].flatMap(([id, found]) => {
+    const st = flatSteps(flow.steps).find((x) => x.id === id)
+    return found.map((why) => `${st?.summary ?? "Een stap"}: ${why}`)
+  })
   return (
     <Dialog
       open={open}
@@ -1076,6 +886,7 @@ function PublishDialog(
           <Button onClick={onClose}>Annuleren</Button>
           <Button
             variant="primary"
+            disabled={issues.length > 0}
             onClick={() => {
               publish(flow, note.trim() || (first ? "Eerste publicatie" : "Gepubliceerd"))
               onClose()
@@ -1092,6 +903,13 @@ function PublishDialog(
       }
     >
       <div className="flex flex-col gap-4">
+        {issues.length > 0 && (
+          <Notice tone="bad" title={`Los eerst ${issues.length === 1 ? "dit" : `deze ${issues.length}`} op`}>
+            <ul className="flex flex-col gap-0.5">
+              {issues.map((x) => <li key={x}>{x}</li>)}
+            </ul>
+          </Notice>
+        )}
         <Field label="Wat is er veranderd" optional hint="Staat bij de versie, voor wie later wil weten waarom.">
           {(control) => (
             <Textarea
@@ -1104,7 +922,7 @@ function PublishDialog(
           )}
         </Field>
         <p className="text-xs text-pretty text-ink-3">
-          {flow.steps.length} stappen · rechten:{" "}
+          {flatSteps(flow.steps).length} stappen · rechten:{" "}
           {[...scopesOf(flow).keys()].map((sc) => SCOPES.find((x) => x.id === sc)?.label).join(", ") || "geen"}
         </p>
       </div>

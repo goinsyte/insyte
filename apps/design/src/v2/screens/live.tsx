@@ -9,15 +9,21 @@ import {
   COMING_FROM,
   EVENTS,
   INCOMING,
+  LANDING_PAGES,
   LIVE_KEY,
   LOOKING_AT,
   NOW,
   OPENED_AT,
+  pickWeighted,
+  place,
+  PLACES,
   SAME_TIME,
+  VISITORS,
   VISITORS_TODAY,
+  visitorTraits,
   WHERE_THEY_ARE
 } from "../fixtures/live.ts"
-import type { LiveEvent } from "../fixtures/live.ts"
+import type { LiveEvent, Stage, Visitor } from "../fixtures/live.ts"
 import { navigate, paths, setQuery, useQuery } from "../router.tsx"
 import { Button } from "../ui/button.tsx"
 import { cx } from "../ui/cx.ts"
@@ -27,6 +33,7 @@ import { Skeleton } from "../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../ui/states.tsx"
 import { Segmented } from "../ui/toggle.tsx"
 import { dataState, setView, useView } from "../view.ts"
+import { LiveMap } from "./live/map.tsx"
 
 /** "Vraag door" on a Live block opens a chat with that block as context. */
 const ask = (title: string) => navigate(paths.newChat(`Live · ${title}`))
@@ -54,7 +61,8 @@ export function LiveScreen() {
 
 function LiveNow() {
   const [paused, setPaused] = useState(false)
-  const { visitors, events, clock, announcement, still } = useTicker(paused)
+  const { crowd, events, clock, announcement, still, elapsed, turn, sales } = useTicker(paused)
+  const visitors = tallyStages(crowd, sales)
 
   const figures: ReadonlyArray<Figure> = [
     { label: "Op de winkel", value: visitors.onStore, previous: SAME_TIME.onStore, format: "count", better: "higher" },
@@ -112,6 +120,13 @@ function LiveNow() {
               compareLabel={`vorige maandag om ${pad(OPENED_AT.hours)}:${pad(OPENED_AT.minutes)}`}
             />
           </header>
+          <LiveMap
+            visitors={crowd}
+            elapsed={elapsed}
+            turn={turn}
+            opened={OPENED_AT}
+            boughtRecently={recentSales(events, elapsed)}
+          />
           <Feed events={events} />
           <p role="status" className="sr-only">{announcement}</p>
         </section>
@@ -141,8 +156,20 @@ function LiveNow() {
             />
             <p className="text-2xs text-ink-3">Shopify · sessies van de laatste 5 minuten</p>
           </article>
-          <BlockView block={LOOKING_AT} size="compact" compareLabel="was" keyLabels={LIVE_KEY} onAsk={ask} />
-          <BlockView block={WHERE_THEY_ARE} size="compact" compareLabel="was" keyLabels={LIVE_KEY} onAsk={ask} />
+          <BlockView
+            block={lookingAt(crowd)}
+            size="compact"
+            compareLabel="was"
+            keyLabels={LIVE_KEY}
+            onAsk={ask}
+          />
+          <BlockView
+            block={whereTheyAre(crowd)}
+            size="compact"
+            compareLabel="was"
+            keyLabels={LIVE_KEY}
+            onAsk={ask}
+          />
           <BlockView block={COMING_FROM} size="compact" compareLabel="was" keyLabels={LIVE_KEY} onAsk={ask} />
         </aside>
       </div>
@@ -212,8 +239,57 @@ type Visitors = {
   readonly ordersToday: number
 }
 
-const drift = (value: number, spread: number, min: number) =>
-  Math.max(min, value + Math.round((Math.random() - 0.5) * 2 * spread))
+const FURTHER: Readonly<Record<Stage, number>> = { kijkt: 0, product: 1, mandje: 2, afrekenen: 3, gekocht: 4 }
+
+/** The figures and the funnel, counted from the dots: the map and the numbers cannot disagree. */
+function tallyStages(crowd: ReadonlyArray<Visitor>, sales: { readonly revenue: number; readonly orders: number }) {
+  const atLeast = (stage: Stage) =>
+    crowd.filter((v) => v.stage !== "gekocht" && FURTHER[v.stage] >= FURTHER[stage]).length
+  return {
+    onStore: crowd.filter((v) => v.stage !== "gekocht").length,
+    browsing: atLeast("product"),
+    inCart: atLeast("mandje"),
+    checkout: atLeast("afrekenen"),
+    salesToday: sales.revenue,
+    ordersToday: sales.orders
+  } satisfies Visitors
+}
+
+/** "Waar kijken ze nu naar?", counted from who is on a product page now. */
+function lookingAt(crowd: ReadonlyArray<Visitor>): typeof LOOKING_AT {
+  const items = tally(crowd.filter((v) => v.stage !== "kijkt" && v.stage !== "gekocht"), (v) => v.page).slice(0, 5)
+  // The note is about the Aurora; it stays while the Aurora is the one most looked at.
+  const { note, ...rest } = LOOKING_AT
+  return {
+    ...(items[0]?.label === "Aurora Hooded Fleece" && note !== undefined ? { note } : {}),
+    ...rest,
+    data: { ...LOOKING_AT.data, items, focus: 0 }
+  }
+}
+
+/** "Waar zijn ze?", counted from the dots: the four biggest countries, and the rest as Overig. */
+function whereTheyAre(crowd: ReadonlyArray<Visitor>): typeof WHERE_THEY_ARE {
+  const all = tally(crowd.filter((v) => v.stage !== "gekocht"), (v) => v.country)
+  const rest = all.slice(4).reduce((sum, item) => sum + item.value, 0)
+  const items = rest > 0 ? [...all.slice(0, 4), { label: "Overig", value: rest }] : all.slice(0, 4)
+  return { ...WHERE_THEY_ARE, data: { ...WHERE_THEY_ARE.data, items } }
+}
+
+function tally(crowd: ReadonlyArray<Visitor>, key: (v: Visitor) => string) {
+  const counts = new Map<string, number>()
+  for (const v of crowd) counts.set(key(v), (counts.get(key(v)) ?? 0) + 1)
+  return [...counts].map(([label, value]) => ({ label, value })).toSorted((a, b) => b.value - a.value)
+}
+
+/** Sales in the ten demo minutes before now. */
+function recentSales(events: ReadonlyArray<LiveEvent>, elapsed: number) {
+  const now = OPENED_AT.hours * 60 + OPENED_AT.minutes + Math.floor(elapsed / 60)
+  return events.filter((e) => {
+    if (e.kind !== "sale") return false
+    const [h, m] = e.at.split(":").map(Number)
+    return now - ((h ?? 0) * 60 + (m ?? 0)) < 10
+  }).length
+}
 
 const pad = (n: number) => String(n).padStart(2, "0")
 
@@ -225,45 +301,129 @@ function demoTime(seconds: number) {
   return `${pad(h)}:${pad(m)}`
 }
 
+/** A dot moved to a city's centre: where a cart or a sale in the script happened. */
+function moveTo(city: string) {
+  const at = place(city)
+  return at === undefined ? {} : { city, country: at.country, lon: at.lon, lat: at.lat }
+}
+
+/** How many stay on the store, give or take: the crowd drifts around the 47 it opened with. */
+const BASE = VISITORS.length
+let arrivals = 0
+
 /**
- * The demo's heartbeat: visitors drift around the base, and an event from the script arrives with its
- * own gap, so the times in the feed move on. Revenue and orders grow only by the sales that arrive.
- * Screen readers get the sales only, at most once a minute, through one status line.
+ * One turn of the crowd. A sale or a cart in the script happens to a dot in its city (moved there
+ * if nobody from that city is far enough in); around it the crowd drifts: someone arrives, someone
+ * leaves, one looks at a product, one gives up on a cart. A dot that just bought stays one turn and
+ * then goes. Every dot whose stage changed carries this turn, so the map rings it.
+ */
+function stepCrowd(
+  crowd: ReadonlyArray<Visitor>,
+  next: (typeof INCOMING)[number],
+  turn: number,
+  seconds: number
+): ReadonlyArray<Visitor> {
+  const roll = Math.random
+  let list = crowd.filter((v) => !(v.stage === "gekocht" && v.moved < turn - 1))
+  const change = (id: string | undefined, fields: Partial<Visitor>) => {
+    if (id === undefined) return
+    list = list.map((v) => (v.id === id ? { ...v, ...fields, moved: turn } : v))
+  }
+  const anyAt = (stages: ReadonlyArray<Stage>, city?: string) => {
+    const pool = list.filter((v) => stages.includes(v.stage))
+    return (pool.find((v) => v.city === city) ?? pool[Math.floor(roll() * pool.length)])?.id
+  }
+
+  if (next.who !== undefined) {
+    const { place: city, product, size } = next.who
+    if (next.kind === "cart") {
+      change(anyAt(["product", "kijkt"], city), {
+        ...moveTo(city),
+        stage: "mandje",
+        page: product,
+        cart: `${product}, maat ${size}`
+      })
+    } else if (next.kind === "sale") {
+      change(anyAt(["afrekenen"], city) ?? anyAt(["mandje"], city), {
+        ...moveTo(city),
+        stage: "gekocht",
+        page: product,
+        cart: `${product}, maat ${size}`
+      })
+      // The next in line starts paying, so the funnel's last step does not run dry.
+      change(anyAt(["mandje"]), { stage: "afrekenen" })
+    }
+  }
+
+  // The drift: one arrives or one leaves, by how far the crowd is from its base.
+  const onStore = list.filter((v) => v.stage !== "gekocht").length
+  if (roll() < 0.5 + (BASE - onStore) * 0.08) {
+    const where = pickWeighted(PLACES, (p) => p.weight, roll())
+    const traits = visitorTraits(roll)
+    arrivals += 1
+    list = [...list, {
+      id: `n${arrivals}`,
+      city: where.city,
+      country: where.country,
+      lon: where.lon + traits.jitter[0],
+      lat: where.lat + traits.jitter[1],
+      stage: "kijkt",
+      page: LANDING_PAGES[Math.floor(roll() * LANDING_PAGES.length)] ?? "Homepagina",
+      source: traits.source,
+      device: traits.device,
+      returning: traits.returning,
+      since: seconds,
+      moved: turn
+    }]
+  } else {
+    const leaving = anyAt(["kijkt", "product"])
+    list = list.filter((v) => v.id !== leaving)
+  }
+  const looking = anyAt(["kijkt"])
+  const viewed = LOOKING_AT.data.items[Math.floor(roll() * LOOKING_AT.data.items.length)]?.label
+  if (viewed !== undefined) change(looking, { stage: "product", page: viewed })
+  if (roll() < 0.3) change(anyAt(["mandje"]), { stage: "product", cart: undefined })
+  return list
+}
+
+/**
+ * The demo's heartbeat: an event from the script arrives with its own gap, so the times in the feed
+ * move on, and the crowd on the map takes a turn with it. Revenue and orders grow only by the sales
+ * that arrive. Screen readers get the sales only, at most once a minute, through one status line.
  */
 function useTicker(paused: boolean) {
-  const [visitors, setVisitors] = useState<Visitors>(NOW)
+  const [crowd, setCrowd] = useState<ReadonlyArray<Visitor>>(VISITORS)
+  const [sales, setSales] = useState<{ readonly revenue: number; readonly orders: number }>({
+    revenue: NOW.salesToday,
+    orders: NOW.ordersToday
+  })
   const [events, setEvents] = useState<ReadonlyArray<LiveEvent>>(EVENTS)
   const [clock, setClock] = useState(() => demoTime(0))
+  const [elapsed, setElapsed] = useState(0)
+  const [turn, setTurn] = useState(0)
   const [announcement, setAnnouncement] = useState("")
   const lastSpoken = useRef(0)
-  const turn = useRef(0)
+  const turns = useRef(0)
   const seconds = useRef(0)
   const [still] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)
 
   useEffect(() => {
     if (still || paused) return
     const id = window.setInterval(() => {
-      const next = INCOMING[turn.current % INCOMING.length]
-      turn.current += 1
+      const next = INCOMING[turns.current % INCOMING.length]
+      turns.current += 1
       if (next === undefined) return
       seconds.current += next.after
       const at = demoTime(seconds.current)
+      const now = turns.current
       setClock(at)
-      setVisitors((v) => {
-        const onStore = drift(v.onStore, 3, 30)
-        const browsing = Math.min(onStore - 2, drift(v.browsing, 2, 18))
-        const inCart = Math.min(browsing - 4, drift(v.inCart, 1, 5))
-        const checkout = Math.min(inCart - 1, drift(v.checkout, 1, 1))
-        return {
-          onStore,
-          browsing,
-          inCart,
-          checkout,
-          salesToday: v.salesToday + (next.amount ?? 0),
-          ordersToday: v.ordersToday + (next.kind === "sale" ? 1 : 0)
-        }
-      })
-      setEvents((list) => [{ ...next, id: `live-${turn.current}`, at }, ...list].slice(0, FEED_LENGTH))
+      setElapsed(seconds.current)
+      setTurn(now)
+      setCrowd((list) => stepCrowd(list, next, now, seconds.current))
+      if (next.kind === "sale") {
+        setSales((s) => ({ revenue: s.revenue + (next.amount ?? 0), orders: s.orders + 1 }))
+      }
+      setEvents((list) => [{ ...next, id: `live-${now}`, at }, ...list].slice(0, FEED_LENGTH))
       if (next.kind === "sale" && Date.now() - lastSpoken.current >= ANNOUNCE_MS) {
         lastSpoken.current = Date.now()
         setAnnouncement(`Verkoop om ${at}: ${formatValue(next.amount ?? 0, "euro")}`)
@@ -274,7 +434,7 @@ function useTicker(paused: boolean) {
     }
   }, [still, paused])
 
-  return { visitors, events, clock, announcement, still }
+  return { crowd, sales, events, clock, elapsed, turn, announcement, still }
 }
 
 /* ── the states ─────────────────────────────────────────────────────────────────────────────────── */

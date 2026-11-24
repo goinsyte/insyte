@@ -1,4 +1,8 @@
 import { useState } from "react"
+import { refByLabel } from "../ask/catalogue.ts"
+import type { Ref } from "../ask/catalogue.ts"
+import type { Question } from "../ask/scripts.ts"
+import { startChat } from "../ask/thread.ts"
 import { ASSISTANT } from "../assistant.ts"
 import { myWork, openProposals, useDemo } from "../demo.ts"
 import type { Glyph } from "../fixtures/agents.ts"
@@ -10,11 +14,10 @@ import { Composer } from "../ui/composer.tsx"
 import { ArrowUp, BarChart3, CreditCard, Factory, Inbox, Mail, Sparkle } from "../ui/icons.tsx"
 import { MagnusMark } from "../ui/magnus-mark.tsx"
 
-/** The demo's scripted conversations; a first message opens the one closest to it. */
-const open = (chatId: string) => () => navigate(paths.chat(chatId))
-const start = open("terugbetalingen")
+/** A first message opens a new conversation, answered from the workspace by what it asks. */
+const begin = (question: Question) => navigate(paths.chat(startChat(question)))
 
-type Starter = { readonly text: string; readonly hint: string; readonly glyph: Glyph; readonly go: () => void }
+type Starter = { readonly text: string; readonly hint: string; readonly glyph: Glyph }
 
 /**
  * Where to begin: what the original "Vraag Insyte" offered as its four commands (summarise today,
@@ -22,32 +25,17 @@ type Starter = { readonly text: string; readonly hint: string; readonly glyph: G
  * and the week's summary for the team.
  */
 const STARTERS: ReadonlyArray<Starter> = [
-  { text: "Vat de open zaken van vandaag samen", hint: "Wat vandaag op jou wacht", glyph: Inbox, go: start },
-  {
-    text: "Welke bestellingen dreigen te laat te komen?",
-    hint: "Per leverancier en vervoerder",
-    glyph: Factory,
-    go: start
-  },
-  {
-    text: "Stel een antwoord op aan Luca Romano",
-    hint: "Over zijn vertraagde levering, als concept",
-    glyph: Mail,
-    go: start
-  },
-  {
-    text: "Welke chargebacks hebben bewijs nodig?",
-    hint: "Zaken die op bewijs wachten",
-    glyph: CreditCard,
-    go: open("geschil")
-  },
-  { text: SUGGESTIONS[2], hint: "Voor het overleg van maandag", glyph: BarChart3, go: start }
+  { text: "Vat de open zaken van vandaag samen", hint: "Wat vandaag op jou wacht", glyph: Inbox },
+  { text: "Welke bestellingen dreigen te laat te komen?", hint: "Per leverancier en vervoerder", glyph: Factory },
+  { text: "Stel een antwoord op aan Luca Romano", hint: "Over zijn vertraagde levering, als concept", glyph: Mail },
+  { text: "Welke chargebacks hebben bewijs nodig?", hint: "Zaken die op bewijs wachten", glyph: CreditCard },
+  { text: SUGGESTIONS[2], hint: "Voor het overleg van maandag", glyph: BarChart3 }
 ]
 
 /** With context attached, the first starters are about that thing. */
 const aboutContext = (context: string): ReadonlyArray<Starter> => [
-  { text: `Wat moet ik weten over ${context}?`, hint: "Uit de records die eraan hangen", glyph: Sparkle, go: start },
-  { text: `Wat zou jij doen met ${context}?`, hint: "Als voorstel, binnen je regels", glyph: Sparkle, go: start }
+  { text: `Wat moet ik weten over ${context}?`, hint: "Uit de records die eraan hangen", glyph: Sparkle },
+  { text: `Wat zou jij doen met ${context}?`, hint: "Als voorstel, binnen je regels", glyph: Sparkle }
 ]
 
 /**
@@ -66,6 +54,7 @@ export function NewChatScreen({ context }: { readonly context: string | null }) 
     0,
     attached.length > 0 ? 5 : STARTERS.length
   )
+  const about = attached.map(refByLabel).filter((r): r is Ref => r !== undefined)
 
   return (
     <div className="pane-scroll flex flex-1 flex-col items-center justify-center px-4 py-10 sm:px-6">
@@ -88,14 +77,20 @@ export function NewChatScreen({ context }: { readonly context: string | null }) 
           placeholder={`Vraag ${ASSISTANT} iets over Northwind`}
           context={attached}
           onRemoveContext={(item) => setAttached((list) => list.filter((x) => x !== item))}
-          onSend={start}
+          onSend={(text, extra) =>
+            begin({
+              text,
+              refs: extra.refs,
+              about,
+              ...(extra.command === undefined ? {} : { command: extra.command })
+            })}
         />
         <ul className="flex flex-col gap-px" aria-label="Begin met">
           {starters.map((starter) => (
             <li key={starter.text}>
               <button
                 type="button"
-                onClick={starter.go}
+                onClick={() => begin({ text: starter.text, about })}
                 className="group flex min-h-11 w-full items-center gap-3 rounded-sm px-3 py-2 text-left hover:bg-hover"
               >
                 <starter.glyph size={15} className="shrink-0 text-ink-3 group-hover:text-ink-2" />

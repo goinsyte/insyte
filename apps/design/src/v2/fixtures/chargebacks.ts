@@ -34,6 +34,9 @@ export type EvidenceFile = { readonly id: string; readonly name: string; readonl
 
 export type CaseEvent = { readonly at: number; readonly who: string; readonly text: string; readonly tone?: Tone }
 
+/** A note the team keeps on a case; the provider and the customer never see it. */
+type CaseNote = { readonly id: string; readonly at: number; readonly by: string; readonly text: string }
+
 export type Chargeback = {
   /** "CB-2291"; the URL holds it in lower case (`paths.chargeback`). */
   readonly id: string
@@ -55,6 +58,9 @@ export type Chargeback = {
   /** Set when an agent drafted the pack: who and when. */
   readonly draftedBy?: { readonly agentId: string; readonly agent: string; readonly at: number }
   readonly events: ReadonlyArray<CaseEvent>
+  readonly notes?: ReadonlyArray<CaseNote>
+  /** Opened by hand in Insyte rather than by the provider's webhook. */
+  readonly manual?: boolean
 }
 
 const PAYMENT_CHANNEL: Readonly<Partial<Record<Payment, Channel>>> = {
@@ -122,6 +128,15 @@ export const CHARGEBACKS: ReadonlyArray<Chargeback> = [
         at: at(23, 11, 5),
         who: "Chargeback-assistent",
         text: "Bewijspakket opgesteld: 4 documenten en een verweer; indienen wacht op jou"
+      }
+    ],
+    notes: [
+      {
+        id: "n1",
+        at: at(23, 11, 40),
+        by: PEOPLE.sofia.name,
+        text:
+          "Felix belde vanochtend nog: zijn buurvrouw heeft vaker pakketten aangenomen. Ik heb gevraagd of hij daar wil kijken."
       }
     ]
   },
@@ -237,9 +252,13 @@ export const CHARGEBACKS: ReadonlyArray<Chargeback> = [
 
 /* ── the visit's changes ───────────────────────────────────────────────────────────────────────── */
 
-type CaseState = { readonly patch: Readonly<Record<string, Partial<Chargeback>>> }
+type CaseState = {
+  readonly patch: Readonly<Record<string, Partial<Chargeback>>>
+  /** Cases opened by hand this visit, newest first. */
+  readonly created: ReadonlyArray<Chargeback>
+}
 
-let state: CaseState = { patch: {} }
+let state: CaseState = { patch: {}, created: [] }
 const listeners = new Set<() => void>()
 const subscribe = (l: () => void) => {
   listeners.add(l)
@@ -252,9 +271,137 @@ export function changeCase(id: string, fields: (c: Chargeback) => Partial<Charge
   const before = state
   const current = casesOf().find((c) => c.id === id)
   if (current === undefined) return before
-  state = { patch: { ...state.patch, [id]: { ...state.patch[id], ...fields(current) } } }
+  state = { ...state, patch: { ...state.patch, [id]: { ...state.patch[id], ...fields(current) } } }
   for (const l of listeners) l()
   return before
+}
+
+/** The next case number after the highest there is. */
+const nextCaseId = () => `CB-${Math.max(...casesOf().map((c) => Number(c.id.replace("CB-", "")) || 0)) + 1}`
+
+/**
+ * A dispute logged by hand (a provider that sent a letter, a bank that phoned): the provider's
+ * deadline is 14 days out, and the case starts waiting on evidence. Returns the state before, for
+ * the toast's undo, and the new case.
+ */
+export function openCase(input: {
+  readonly id: string
+  readonly channel: Channel
+  readonly customerId: string
+  readonly orderNumber: string
+  readonly amount: number
+  readonly reason: string
+  readonly note: string
+  readonly by: string
+}): { readonly before: CaseState; readonly created: Chargeback } {
+  const before = state
+  const opened = casesNow()
+  const created: Chargeback = {
+    id: input.id.trim() === "" ? nextCaseId() : input.id.trim().toUpperCase(),
+    channel: input.channel,
+    customerId: input.customerId,
+    orderNumber: input.orderNumber,
+    linked: order(input.orderNumber) !== undefined,
+    amount: input.amount,
+    reason: input.reason,
+    claim: input.note.trim() === "" ? "Nog geen toelichting van de aanbieder." : input.note.trim(),
+    status: "wacht-op-bewijs",
+    openedAt: opened,
+    dueAt: opened + 14 * DAY,
+    files: [],
+    statement: "",
+    manual: true,
+    events: [{ at: opened, who: input.by, text: "Zaak handmatig geopend", tone: "bad" }]
+  }
+  state = { ...state, created: [created, ...state.created] }
+  for (const l of listeners) l()
+  return { before, created }
+}
+
+export const nextCaseNumber = () => nextCaseId()
+
+/** How the team has fared with the provider: cases decided, and won. */
+export function winRecord(s: CaseState = state): { readonly won: number; readonly decided: number } {
+  const all = casesOf(s)
+  const won = all.filter((c) => c.status === "gewonnen").length
+  return { won, decided: won + all.filter((c) => c.status === "verloren").length }
+}
+
+/** The money won back in decided cases. */
+export const recovered = (s: CaseState = state) =>
+  casesOf(s).filter((c) => c.status === "gewonnen").reduce((n, c) => n + c.amount, 0)
+
+/**
+ * What the Chargeback-assistent gathers for a case without a pack, by what the customer claims: the
+ * documents in the order it finds them, and the answer it writes from them.
+ */
+export function evidencePlan(c: Chargeback): {
+  readonly files: ReadonlyArray<EvidenceFile>
+  readonly statement: string
+} {
+  const o = order(c.orderNumber)
+  const n = c.orderNumber
+  const carrier = o?.carrier ?? "PostNL"
+  const reason = c.reason.toLowerCase()
+  if (reason.includes("niet ontvangen")) {
+    return {
+      files: [
+        {
+          id: "a1",
+          name: `Bezorgbewijs ${carrier} #${n}.pdf`,
+          bytes: 380_000,
+          what: "Bezorgd op het adres van de bestelling"
+        },
+        { id: "a2", name: `Bestelbevestiging #${n}.pdf`, bytes: 92_000, what: "Wat er besteld en betaald is" },
+        { id: "a3", name: "Track & trace-verloop.pdf", bytes: 170_000, what: "Elke scan van ophalen tot bezorgd" },
+        { id: "a4", name: "Klantcontact.pdf", bytes: 60_000, what: "De mails en chats over deze bestelling" }
+      ],
+      statement:
+        `Bestelling #${n} is bezorgd op het adres dat de klant bij het afrekenen opgaf; het bezorgbewijs en de track & trace van ${carrier} laten elke stap zien. We vragen het geschil af te wijzen.`
+    }
+  }
+  if (reason.includes("beschreven") || reason.includes("verkeerd")) {
+    return {
+      files: [
+        {
+          id: "a1",
+          name: "Productpagina op de besteldag.pdf",
+          bytes: 640_000,
+          what: "Tekst, foto's en materiaal zoals de klant ze zag"
+        },
+        {
+          id: "a2",
+          name: "Materiaalspecificatie van de leverancier.pdf",
+          bytes: 210_000,
+          what: "De stof en samenstelling per partij"
+        },
+        { id: "a3", name: `Bestelbevestiging #${n}.pdf`, bytes: 92_000, what: "Het artikel, de maat en de prijs" },
+        { id: "a4", name: "Klantcontact.pdf", bytes: 48_000, what: "Geen klacht bij de winkel voor het geschil" }
+      ],
+      statement:
+        `Het artikel uit bestelling #${n} komt overeen met de productpagina op de dag van bestellen; de specificatie van de leverancier bevestigt het materiaal. De klant heeft geen retour aangevraagd, terwijl dat 30 dagen gratis kan. We vragen het geschil af te wijzen.`
+    }
+  }
+  return {
+    files: [
+      {
+        id: "a1",
+        name: `Bestelbevestiging #${n}.pdf`,
+        bytes: 92_000,
+        what: "Besteld en betaald vanaf het account van de klant"
+      },
+      { id: "a2", name: "Betaaloverzicht.pdf", bytes: 54_000, what: `De betaling via ${CHANNEL_LABEL[c.channel]}` },
+      { id: "a3", name: "Eerdere bestellingen.pdf", bytes: 110_000, what: "Dezelfde betaalmethode en hetzelfde adres" },
+      {
+        id: "a4",
+        name: "Algemene voorwaarden.pdf",
+        bytes: 130_000,
+        what: "Zoals de klant ze bij het afrekenen accepteerde"
+      }
+    ],
+    statement:
+      `Bestelling #${n} is geplaatst en betaald vanaf het account van de klant, op hetzelfde adres en met dezelfde betaalmethode als eerdere bestellingen. We vragen het geschil af te wijzen.`
+  }
 }
 
 export function restoreCases(to: CaseState) {
@@ -269,7 +416,7 @@ const cache = new WeakMap<CaseState, ReadonlyArray<Chargeback>>()
 export function casesOf(s: CaseState = state): ReadonlyArray<Chargeback> {
   const hit = cache.get(s)
   if (hit !== undefined) return hit
-  const all = CHARGEBACKS.map((c) => (s.patch[c.id] === undefined ? c : { ...c, ...s.patch[c.id] }))
+  const all = [...s.created, ...CHARGEBACKS].map((c) => (s.patch[c.id] === undefined ? c : { ...c, ...s.patch[c.id] }))
   cache.set(s, all)
   return all
 }

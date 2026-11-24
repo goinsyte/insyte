@@ -8,7 +8,8 @@ import { Avatar } from "../../ui/avatar.tsx"
 import { Status } from "../../ui/badge.tsx"
 import { Button } from "../../ui/button.tsx"
 import { Dialog } from "../../ui/dialog.tsx"
-import { GraduationCap, Plus } from "../../ui/icons.tsx"
+import { DropdownItem, DropdownMenu } from "../../ui/dropdown.tsx"
+import { Bell, Check, Edit, GraduationCap, MoreHorizontal, Plus } from "../../ui/icons.tsx"
 import { Field, Input, Select, Textarea } from "../../ui/input.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
@@ -19,7 +20,20 @@ import { Tabs } from "../../ui/tabs.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dataState, setView, useView } from "../../view.ts"
 import { BADGE_GLYPH, mine, personName, ProgressLabel } from "./parts.tsx"
-import { answer, createCourse, useChapters, useCourses, useProgress, useQuestions, useRun } from "./store.ts"
+import {
+  addChapter,
+  addModule,
+  answer,
+  createCourse,
+  remind,
+  rename,
+  useChapters,
+  useCourses,
+  useProgress,
+  useQuestions,
+  useReminded,
+  useRun
+} from "./store.ts"
 
 const COURSE_VIEWS = ["mijn", "alle", "team", "vragen", "concepten", "archief"] as const
 type CourseView = (typeof COURSE_VIEWS)[number]
@@ -38,7 +52,8 @@ export function CoursesList() {
   const questions = useQuestions()
   const asked = (useQuery("view") ?? "mijn") as CourseView
   const view = !access.edit && EDITOR_VIEWS.has(asked) ? "mijn" : asked
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState<{ readonly where?: string } | null>(null)
+  const [naming, setNaming] = useState<Naming | null>(null)
   const counts = courseCounts(courses, questions)
 
   if (!access.view) {
@@ -76,7 +91,7 @@ export function CoursesList() {
           <Button
             variant="primary"
             icon={<Plus />}
-            onClick={() => setCreating(true)}
+            onClick={() => setCreating({})}
           >
             Nieuwe cursus
           </Button>
@@ -114,7 +129,7 @@ export function CoursesList() {
             glyph={GraduationCap}
             title="Nog geen cursussen"
             action={access.edit && (
-              <Button variant="primary" onClick={() => setCreating(true)}>Eerste cursus maken</Button>
+              <Button variant="primary" onClick={() => setCreating({})}>Eerste cursus maken</Button>
             )}
           >
             Schrijf op hoe Northwind werkt: de toon naar klanten, doorsturen naar de leverancier, chargebacks. Nieuwe
@@ -130,8 +145,15 @@ export function CoursesList() {
               tabs={tabs}
             />
             {view === "mijn" && <Mine courses={courses} />}
-            {view === "alle" && <Library courses={courses.filter((c) => c.status === "live")} />}
-            {view === "team" && <Team courses={courses.filter((c) => c.status === "live")} />}
+            {view === "alle" && (
+              <Library
+                courses={courses.filter((c) => c.status === "live")}
+                edit={access.edit}
+                onName={setNaming}
+                onCreate={(where) => setCreating({ where })}
+              />
+            )}
+            {view === "team" && <Team courses={courses.filter((c) => c.status === "live")} edit={access.edit} />}
             {view === "vragen" && <Questions questions={questions} courses={courses} />}
             {(view === "concepten" || view === "archief") && (
               <CourseTable
@@ -141,7 +163,8 @@ export function CoursesList() {
             )}
           </div>
         )}
-      <NewCourse open={creating} onClose={() => setCreating(false)} />
+      <NewCourse key={creating?.where ?? "nieuw"} open={creating} onClose={() => setCreating(null)} />
+      <NameDialog naming={naming} onClose={() => setNaming(null)} />
     </Page>
   )
 }
@@ -214,27 +237,100 @@ function Mine({ courses }: { readonly courses: ReadonlyArray<Course> }) {
   )
 }
 
-function Library({ courses }: { readonly courses: ReadonlyArray<Course> }) {
+/** What is being named: a new chapter, a new module in a chapter, or a chapter or module renamed. */
+type Naming =
+  | { readonly kind: "chapter" }
+  | { readonly kind: "module"; readonly chapterId: string; readonly chapter: string }
+  | { readonly kind: "rename"; readonly id: string; readonly what: "hoofdstuk" | "module"; readonly title: string }
+
+const more = (label: string) => (props: Record<string, unknown>) => (
+  <button
+    {...props}
+    type="button"
+    aria-label={label}
+    className="inline-flex size-7 items-center justify-center rounded-sm text-ink-3 hover:bg-hover hover:text-ink pointer-coarse:size-11"
+  >
+    <MoreHorizontal size={15} />
+  </button>
+)
+
+function Library({ courses, edit, onName, onCreate }: {
+  readonly courses: ReadonlyArray<Course>
+  readonly edit: boolean
+  readonly onName: (n: Naming) => void
+  readonly onCreate: (where: string) => void
+}) {
   const chapters = useChapters()
   return (
     <div className="flex max-w-3xl flex-col gap-8">
+      {edit && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="max-w-[60ch] text-sm text-ink-2">
+            Een hoofdstuk is een onderwerp, een module een stuk ervan. Elke cursus staat in één module.
+          </p>
+          <Button size="sm" icon={<Plus />} onClick={() => onName({ kind: "chapter" })}>Hoofdstuk toevoegen</Button>
+        </div>
+      )}
       {chapters.map((ch) => {
         const inChapter = courses.filter((c) => c.chapterId === ch.id)
-        if (inChapter.length === 0) return null
+        if (inChapter.length === 0 && !edit) return null
         return (
           <PageSection
             key={ch.id}
             id={ch.id}
             title={ch.title}
             meta={`${inChapter.length} ${inChapter.length === 1 ? "cursus" : "cursussen"}`}
+            actions={edit && (
+              <DropdownMenu
+                label={`Hoofdstuk ${ch.title}`}
+                placement="bottom-end"
+                trigger={more(`Opties voor ${ch.title}`)}
+              >
+                <DropdownItem
+                  glyph={Edit}
+                  onSelect={() => onName({ kind: "rename", id: ch.id, what: "hoofdstuk", title: ch.title })}
+                >
+                  Hernoemen
+                </DropdownItem>
+                <DropdownItem
+                  glyph={Plus}
+                  onSelect={() => onName({ kind: "module", chapterId: ch.id, chapter: ch.title })}
+                >
+                  Module toevoegen
+                </DropdownItem>
+              </DropdownMenu>
+            )}
           >
             {ch.modules.map((m) => {
               const inModule = inChapter.filter((c) => c.moduleId === m.id)
-              if (inModule.length === 0) return null
+              if (inModule.length === 0 && !edit) return null
               return (
                 <div key={m.id} className="flex flex-col gap-1 pb-3">
-                  <h3 className="text-xs font-medium text-ink-3">{m.title}</h3>
-                  <List label={m.title} divided>{inModule.map((c) => <CourseRow key={c.id} course={c} />)}</List>
+                  <div className="flex min-h-7 items-center justify-between gap-2">
+                    <h3 className="text-xs font-medium text-ink-3">{m.title}</h3>
+                    {edit && (
+                      <span className="flex items-center gap-0.5">
+                        <Button size="sm" variant="ghost" icon={<Plus />} onClick={() => onCreate(`${ch.id}/${m.id}`)}>
+                          Cursus
+                        </Button>
+                        <DropdownMenu
+                          label={`Module ${m.title}`}
+                          placement="bottom-end"
+                          trigger={more(`Opties voor ${m.title}`)}
+                        >
+                          <DropdownItem
+                            glyph={Edit}
+                            onSelect={() => onName({ kind: "rename", id: m.id, what: "module", title: m.title })}
+                          >
+                            Hernoemen
+                          </DropdownItem>
+                        </DropdownMenu>
+                      </span>
+                    )}
+                  </div>
+                  {inModule.length === 0
+                    ? <p className="py-2 text-sm text-ink-3">Nog geen live cursus in deze module.</p>
+                    : <List label={m.title} divided>{inModule.map((c) => <CourseRow key={c.id} course={c} />)}</List>}
                 </div>
               )
             })}
@@ -245,8 +341,93 @@ function Library({ courses }: { readonly courses: ReadonlyArray<Course> }) {
   )
 }
 
-function Team({ courses }: { readonly courses: ReadonlyArray<Course> }) {
+function NameDialog({ naming, onClose }: { readonly naming: Naming | null; readonly onClose: () => void }) {
+  const [name, setName] = useState("")
+  const close = () => {
+    setName("")
+    onClose()
+  }
+  const title = naming === null
+    ? ""
+    : naming.kind === "chapter"
+    ? "Nieuw hoofdstuk"
+    : naming.kind === "module"
+    ? `Module in ${naming.chapter}`
+    : naming.what === "hoofdstuk"
+    ? "Hoofdstuk hernoemen"
+    : "Module hernoemen"
+  const value = naming?.kind === "rename" && name === "" ? naming.title : name
+  const save = () => {
+    const t = value.trim()
+    if (naming === null || t === "") return
+    if (naming.kind === "chapter") {
+      const undo = addChapter(t)
+      toast({
+        title: `Hoofdstuk “${t}” toegevoegd`,
+        body: "Met een eerste module, Algemeen.",
+        tone: "good",
+        action: { label: "Ongedaan maken", onClick: undo }
+      })
+    } else if (naming.kind === "module") {
+      const undo = addModule(naming.chapterId, t)
+      toast({ title: `Module “${t}” toegevoegd`, tone: "good", action: { label: "Ongedaan maken", onClick: undo } })
+    } else {
+      if (t === naming.title) return close()
+      const undo = rename(naming.id, t)
+      toast({
+        title: naming.what === "hoofdstuk" ? "Hoofdstuk hernoemd" : "Module hernoemd",
+        body: `Heet nu “${t}”.`,
+        action: { label: "Ongedaan maken", onClick: undo }
+      })
+    }
+    close()
+  }
+  return (
+    <Dialog
+      open={naming !== null}
+      onClose={close}
+      size="sm"
+      title={title}
+      description={naming?.kind === "chapter"
+        ? "Een onderwerp, zoals Klantenservice of Bestellingen. Het krijgt meteen een eerste module."
+        : undefined}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>Annuleren</Button>
+          <Button variant="primary" disabled={value.trim() === ""} onClick={save}>
+            {naming?.kind === "rename"
+              ? "Opslaan"
+              : naming?.kind === "module"
+              ? "Module toevoegen"
+              : "Hoofdstuk toevoegen"}
+          </Button>
+        </>
+      }
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+      >
+        <Field label="Naam">
+          {(control) => (
+            <Input
+              {...control}
+              value={value}
+              placeholder={naming?.kind === "module" ? "Bijvoorbeeld: Lastige gesprekken" : "Bijvoorbeeld: Retouren"}
+              onChange={(event) => setName(event.target.value)}
+            />
+          )}
+        </Field>
+      </form>
+    </Dialog>
+  )
+}
+
+function Team({ courses, edit }: { readonly courses: ReadonlyArray<Course>; readonly edit: boolean }) {
   const progress = useProgress()
+  const reminded = useReminded()
   const people = (Object.keys(PEOPLE) as Array<keyof typeof PEOPLE>).filter((p) => p !== "elena")
   return (
     <div className="flex flex-col gap-3">
@@ -275,11 +456,38 @@ function Team({ courses }: { readonly courses: ReadonlyArray<Course> }) {
                   </span>
                 </Link>
               </Td>
-              {courses.map((c) => (
-                <Td key={c.id}>
-                  <ProgressLabel course={c} progress={progress.find((x) => x.courseId === c.id && x.person === p)} />
-                </Td>
-              ))}
+              {courses.map((c) => {
+                const pr = progress.find((x) => x.courseId === c.id && x.person === p)
+                const key = `${c.id}:${p}`
+                const done = pr?.finished !== undefined && (pr.score ?? 0) >= c.passMark
+                const sent = reminded.includes(key)
+                return (
+                  <Td key={c.id}>
+                    <span className="flex flex-col items-start gap-1">
+                      <ProgressLabel course={c} progress={pr} />
+                      {!done && edit && (
+                        <button
+                          type="button"
+                          disabled={sent}
+                          onClick={() => {
+                            remind(c.id, p)
+                            toast({
+                              title: `Herinnering naar ${PEOPLE[p].name.split(" ")[0] ?? ""}`,
+                              body: `Over ${c.title}, in de app en per e-mail.`,
+                              tone: "good"
+                            })
+                          }}
+                          aria-label={`${PEOPLE[p].name} herinneren aan ${c.title}`}
+                          className="inline-flex h-6 items-center gap-1 rounded-xs text-xs text-ink-3 hover:text-ink disabled:text-good-ink pointer-coarse:h-11"
+                        >
+                          {sent ? <Check size={12} /> : <Bell size={12} />}
+                          {sent ? "Herinnerd" : "Herinneren"}
+                        </button>
+                      )}
+                    </span>
+                  </Td>
+                )
+              })}
             </Tr>
           ))}
         </TBody>
@@ -425,13 +633,17 @@ function CourseTable(
   )
 }
 
-function NewCourse({ open, onClose }: { readonly open: boolean; readonly onClose: () => void }) {
+function NewCourse(
+  { open, onClose }: { readonly open: { readonly where?: string } | null; readonly onClose: () => void }
+) {
   const chapters = useChapters()
   const [title, setTitle] = useState("")
-  const [where, setWhere] = useState(`${chapters[0]?.id ?? ""}/${chapters[0]?.modules[0]?.id ?? ""}`)
+  const [where, setWhere] = useState(
+    open?.where ?? `${chapters[0]?.id ?? ""}/${chapters[0]?.modules[0]?.id ?? ""}`
+  )
   return (
     <Dialog
-      open={open}
+      open={open !== null}
       onClose={onClose}
       title="Nieuwe cursus"
       description="Hij begint als concept. Niemand ziet hem tot je hem live zet."

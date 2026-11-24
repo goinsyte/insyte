@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useDemo } from "../../demo.ts"
 import { APPROVALS } from "../../fixtures/home.ts"
 import { longDate, money, stamp } from "../../fixtures/order-desk.ts"
-import { customer, order, product } from "../../fixtures/records.ts"
+import { customer, order } from "../../fixtures/records.ts"
 import {
   amountOf,
   changeReturns,
@@ -38,13 +38,13 @@ import { Field, Input, Textarea } from "../../ui/input.tsx"
 import { Fact } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
-import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Stepper } from "../../ui/stepper.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
 import { dataState, useView } from "../../view.ts"
 import { WaitingProposal } from "../waiting-proposal.tsx"
 import { wishOf } from "./list.tsx"
+import { InShopifyLine, Items, LabelSection, makeInShopify, Photos } from "./parts.tsx"
 
 /*
  * One return (`/app`'s `returns/$returnId`, `return-screen.tsx`): what came back and why, where it is
@@ -117,7 +117,6 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
     )
   }
 
-  const p = product(r.productId)
   const who = customer(r.customerId)
   const o = order(r.orderNumber)
   const win = windowOf(r)
@@ -143,7 +142,10 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
   })
   const resolve = () => {
     move(
-      { status: "afgehandeld", resolution: { kind: chosen, amount, at: returnsNow(), by: ME.name } },
+      {
+        status: "afgehandeld",
+        resolution: { kind: chosen, amount, at: returnsNow(), by: ME.name, shopify: { state: "maken" } }
+      },
       `Afgehandeld: ${RESOLUTION_LABEL[chosen].toLowerCase()}${
         chosen === "terugbetalen" || chosen === "cadeaubon" ? `, ${money(amount)}` : ""
       }`,
@@ -153,6 +155,7 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
         : `${firstName} krijgt ${RESOLUTION_DETAIL[chosen]}.`
     )
     setDialog(null)
+    makeInShopify(r.id)
   }
 
   const approve = () =>
@@ -199,7 +202,7 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
       case "wacht-op-pakket":
         return (
           <>
-            {r.label?.sentAt === undefined && (
+            {r.label?.sentAt === undefined && r.label?.failed === undefined && (
               <Button
                 onClick={() =>
                   move(
@@ -348,13 +351,7 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
 
           <PageSection title="Wat terugkomt" id="artikel">
             <div className="flex flex-col gap-3">
-              <p className="text-sm text-ink">
-                <Link to={paths.product(r.productId)} className="font-medium hover:underline">
-                  {p?.name ?? r.productId}
-                </Link>
-                {` · maat ${r.size} · ${r.qty}× `}
-                <span className="figure">{money(r.unitPrice)}</span>
-              </p>
+              <Items r={r} />
               <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
                 <Fact label="Reden">{REASON_LABEL[r.reason]}</Fact>
                 <Fact label="Wat de klant wil">{wishOf(r)}</Fact>
@@ -365,6 +362,7 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
                   <span className="mt-1 block text-xs text-ink-3">{who?.name}, in het retourportaal</span>
                 </blockquote>
               )}
+              <Photos r={r} edit={access.edit} />
               {r.resolution !== undefined && (
                 <p className="text-sm text-ink-2">
                   Afgehandeld met {RESOLUTION_LABEL[r.resolution.kind].toLowerCase()}
@@ -377,8 +375,11 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
                     : ""} door {r.resolution.by}, {stamp(new Date(r.resolution.at))}.
                 </p>
               )}
+              <InShopifyLine r={r} edit={access.edit} />
             </div>
           </PageSection>
+
+          <LabelSection r={r} edit={access.edit} />
 
           <PageSection title="Geschiedenis" id="geschiedenis">
             <Timeline label={`Geschiedenis van ${r.number}`} items={events} />
@@ -427,21 +428,6 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
                 )}
               </span>
             </Fact>
-            {r.label !== undefined && (
-              <Fact label="Retourlabel">
-                <span className="flex items-center gap-2.5">
-                  <ServiceLogo service={r.label.carrier} name={r.label.carrier} size={28} />
-                  <span className="min-w-0">
-                    {r.label.carrier} <span className="figure">{r.label.tracking}</span>
-                    <span className="block text-ink-3">
-                      {r.label.sentAt === undefined
-                        ? `Gemaakt ${stamp(new Date(r.label.madeAt))}, nog niet verstuurd`
-                        : `Verstuurd ${stamp(new Date(r.label.sentAt))}`}
-                    </span>
-                  </span>
-                </span>
-              </Fact>
-            )}
             <Fact label="Retouradres">
               <span className="text-pretty">
                 {o?.storeId === "store_eu" || o === undefined ? RETURN_SETTINGS.address : RETURN_SETTINGS.addressAbroad}

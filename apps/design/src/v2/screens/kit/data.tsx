@@ -8,24 +8,15 @@ import { paths } from "../../router.tsx"
 import { Accordion, Disclosure } from "../../ui/accordion.tsx"
 import { AgentAvatar, Avatar, AvatarStack } from "../../ui/avatar.tsx"
 import { Alert, Count, RecordLabel, Status, Tag } from "../../ui/badge.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
 import { Button } from "../../ui/button.tsx"
 import { Card, CardHead } from "../../ui/card.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
-import { AddFilter, ColumnPicker, FilterChip, ListToolbar, SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import type { ColumnOption, FilterField } from "../../ui/filters.tsx"
-import {
-  Archive,
-  Bot,
-  CreditCard,
-  Download,
-  Factory,
-  Mail,
-  Package,
-  RotateCcw,
-  TagGlyph,
-  Truck,
-  Zap
-} from "../../ui/icons.tsx"
+import { applyFilter, emptyGroup, ruleFor } from "../../ui/filter-model.ts"
+import type { Group, Rule as FilterRule, TypedField } from "../../ui/filter-model.ts"
+import { ColumnPicker, FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
+import type { ColumnOption } from "../../ui/filters.tsx"
+import { Bot, CreditCard, Download, Factory, Mail, Package, RotateCcw, TagGlyph, Truck, Zap } from "../../ui/icons.tsx"
 import { SearchField } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
@@ -33,19 +24,64 @@ import { Pagination } from "../../ui/pagination.tsx"
 import { Stat } from "../../ui/stat.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Stepper } from "../../ui/stepper.tsx"
-import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
+import { Table, TBody, Td, Th, THead, Tr, useSelection } from "../../ui/table.tsx"
 import type { Sort } from "../../ui/table.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
 import { toast } from "../../ui/toast.tsx"
+import { Segmented } from "../../ui/toggle.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { DoDont, KitSection, Rule, Spec, State, States } from "./frame.tsx"
 
 const euro = (n: number) => `€ ${n.toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-const FIELDS: ReadonlyArray<FilterField> = [
-  { key: "status", label: "Status", glyph: TagGlyph, options: Object.values(STATUS).map((s) => s.label) },
-  { key: "carrier", label: "Vervoerder", glyph: Truck, options: ["PostNL", "DPD", "DHL"] },
-  { key: "product", label: "Product", glyph: Package, options: [...new Set(ORDERS.map((o) => o.product))] }
+const STATUS_FIELD: TypedField<Order> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: Object.values(STATUS).map((s) => s.label),
+  get: (o) => STATUS[o.status].label
+}
+const CARRIER_FIELD: TypedField<Order> = {
+  key: "carrier",
+  label: "Vervoerder",
+  type: "option",
+  options: ["PostNL", "DPD", "DHL"],
+  get: (o) => o.carrier
+}
+const TOTAL_FIELD: TypedField<Order> = { key: "total", label: "Totaal", type: "number", get: (o) => o.total }
+
+/** "22 nov" as the day it is, for "in de afgelopen 7 dagen"; the kit's orders are from November 2026. */
+const placedOn = (o: Order) => `2026-11-${(o.placed.split(" ")[0] ?? "1").padStart(2, "0")}`
+
+const FIELDS: ReadonlyArray<TypedField<Order>> = [
+  STATUS_FIELD,
+  CARRIER_FIELD,
+  { key: "product", label: "Product", type: "option", get: (o) => o.product },
+  { key: "customer", label: "Klant", type: "text", get: (o) => o.customer },
+  TOTAL_FIELD,
+  { key: "placed", label: "Geplaatst", type: "date", get: placedOn },
+  { key: "label", label: "Label", type: "option", get: (o) => o.labels.join(", ") }
 ]
+
+const rule = (field: TypedField<Order>, op: FilterRule["op"], value: FilterRule["value"]): FilterRule => ({
+  ...ruleFor(field),
+  op,
+  value
+})
+const where = (join: "and" | "or", ...children: ReadonlyArray<FilterRule | Group>): Group => ({
+  ...emptyGroup(join),
+  children
+})
+
+const VIEWS = "kit-bestellingen"
+seedViews(VIEWS, [
+  {
+    name: "Vertraagd of DHL",
+    pinned: true,
+    filter: where("or", rule(STATUS_FIELD, "any", ["Vertraagd"]), rule(CARRIER_FIELD, "any", ["DHL"]))
+  },
+  { name: "Boven € 100", pinned: false, filter: where("and", rule(TOTAL_FIELD, "gt", "100")) }
+])
 
 const COLUMNS: ReadonlyArray<ColumnOption> = [
   { key: "number", label: "Bestelling", locked: true },
@@ -57,54 +93,101 @@ const COLUMNS: ReadonlyArray<ColumnOption> = [
   { key: "total", label: "Totaal" }
 ]
 
-const matches = (order: Order, field: string, value: string) =>
-  field === "status"
-    ? STATUS[order.status].label === value
-    : field === "carrier"
-    ? order.carrier === value
-    : order.product === value
+const ROLES = [{ value: "eigenaar", label: "Eigenaar" }, { value: "klantenservice", label: "Klantenservice" }] as const
 
-/** The whole list pattern: search, filters, columns, selection with bulk actions, sort, pages, empty. */
+const n = (r: ReadonlyArray<Order>) => `${r.length} ${r.length === 1 ? "bestelling" : "bestellingen"}`
+
+/**
+ * The whole list pattern: saved views, search, the filter builder with its chips, columns, selection
+ * with one list of bulk actions (bar, Acties, ⌘K and keys), sort, pages, empty.
+ */
 function OrdersList() {
+  const [orders, setOrders] = useState<ReadonlyArray<Order>>(ORDERS)
   const [query, setQuery] = useState("")
-  const [filters, setFilters] = useState<ReadonlyArray<{ field: string; value: string }>>([{
-    field: "status",
-    value: "Vertraagd"
-  }])
+  const [filter, setFilter] = useState<Group>(() => where("and", rule(STATUS_FIELD, "any", ["Vertraagd"])))
   const [visible, setVisible] = useState<ReadonlySet<string>>(
     new Set(["number", "customer", "product", "carrier", "status", "total"])
   )
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [sort, setSort] = useState<{ key: "placed" | "total"; dir: Exclude<Sort, null> }>({
     key: "placed",
     dir: "desc"
   })
   const [page, setPage] = useState(1)
+  const [as, setAs] = useState<"eigenaar" | "klantenservice">("eigenaar")
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const shown = ORDERS.filter((o) =>
-      (q === "" || `${o.number} ${o.customer} ${o.product}`.toLowerCase().includes(q))
-      && filters.every((f) => matches(o, f.field, f.value))
+    const shown = applyFilter(orders, filter, FIELDS, "2026-11-23").filter((o) =>
+      q === "" || `${o.number} ${o.customer} ${o.product}`.toLowerCase().includes(q)
     )
     const dir = sort.dir === "asc" ? 1 : -1
     return shown.toSorted((a, b) =>
       sort.key === "total" ? (a.total - b.total) * dir : (Number(a.number) - Number(b.number)) * dir
     )
-  }, [query, filters, sort])
+  }, [orders, query, filter, sort])
+  const selection = useSelection(rows)
 
-  const allOn = rows.length > 0 && rows.every((r) => selected.has(r.id))
-  const someOn = rows.some((r) => selected.has(r.id))
   const toggleSort = (key: "placed" | "total") =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }))
   const show = (key: string) => visible.has(key)
   const clearAll = () => {
     setQuery("")
-    setFilters([])
+    setFilter(emptyGroup())
   }
+  /** Change the rows an action ran on, said once, with the way back. */
+  const change = (picked: ReadonlyArray<Order>, patch: (o: Order) => Order, title: string) => {
+    const before = orders
+    const ids = new Set(picked.map((o) => o.id))
+    setOrders((all) => all.map((o) => (ids.has(o.id) ? patch(o) : o)))
+    toast({ title, tone: "good", action: { label: "Ongedaan maken", onClick: () => setOrders(before) } })
+  }
+  const actions: ReadonlyArray<RowAction<Order>> = [
+    {
+      id: "mail",
+      label: "Klant mailen",
+      icon: <Mail />,
+      bar: true,
+      shortcut: "m",
+      run: (r) => toast({ title: `${r.length} ${r.length === 1 ? "klant" : "klanten"} gemaild`, tone: "good" })
+    },
+    {
+      id: "ship",
+      label: "Als verzonden markeren",
+      icon: <Truck />,
+      bar: true,
+      shortcut: "v",
+      applies: (o) => o.status === "betaald" || o.status === "vertraagd",
+      run: (r) => change(r, (o) => ({ ...o, status: "verzonden" }), `${n(r)} verzonden`)
+    },
+    {
+      id: "vip",
+      label: "Label VIP geven",
+      icon: <TagGlyph />,
+      shortcut: "l",
+      applies: (o) => !o.labels.includes("VIP"),
+      run: (r) => change(r, (o) => ({ ...o, labels: [...o.labels, "VIP"] }), `Label VIP gegeven aan ${n(r)}`)
+    },
+    {
+      id: "refund",
+      label: "Terugbetalen",
+      icon: <RotateCcw />,
+      tone: "danger",
+      needs: { area: "orders", level: 3 },
+      applies: (o) => o.status !== "terugbetaald",
+      run: (r) => change(r, (o) => ({ ...o, status: "terugbetaald" }), `${n(r)} terugbetaald`)
+    },
+    {
+      id: "export",
+      label: "Exporteren als CSV",
+      icon: <Download />,
+      group: "Delen",
+      run: (r) => toast({ title: `${n(r)} geëxporteerd`, body: "bestellingen.csv staat in je downloads." })
+    }
+  ]
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-3">
+      <SavedViews list={VIEWS} value={filter} onPick={setFilter} />
       <ListToolbar
         start={
           <>
@@ -117,19 +200,8 @@ function OrdersList() {
                 shortcut="/"
               />
             </div>
-            {filters.map((f) => (
-              <FilterChip
-                key={`${f.field}-${f.value}`}
-                field={FIELDS.find((x) => x.key === f.field)?.label ?? f.field}
-                value={f.value}
-                onRemove={() => setFilters((all) => all.filter((x) => x !== f))}
-              />
-            ))}
-            <AddFilter
-              fields={FIELDS}
-              active={new Set(filters.map((f) => f.field))}
-              onAdd={(field, value) => setFilters((all) => [...all, { field, value }])}
-            />
+            <FilterRules fields={FIELDS} rows={orders} value={filter} onChange={setFilter} />
+            <FilterBuilder fields={FIELDS} rows={orders} value={filter} onChange={setFilter} views={VIEWS} />
           </>
         }
         end={
@@ -145,21 +217,14 @@ function OrdersList() {
           </>
         }
       />
-      {selected.size > 0 && (
+      {selection.picked.length > 0 && (
         <SelectionBar
-          count={selected.size}
+          rows={selection.picked}
+          actions={actions}
+          as={as}
           noun={["bestelling", "bestellingen"]}
-          onClear={() => setSelected(new Set())}
-        >
-          <SelectionAction
-            icon={<Mail />}
-            onClick={() => toast({ title: `${selected.size} klanten gemaild`, tone: "good" })}
-          >
-            Klant mailen
-          </SelectionAction>
-          <SelectionAction icon={<TagGlyph />}>Label geven</SelectionAction>
-          <SelectionAction icon={<Archive />} tone="danger">Archiveren</SelectionAction>
-        </SelectionBar>
+          onClear={selection.clear}
+        />
       )}
       {rows.length === 0
         ? (
@@ -178,9 +243,9 @@ function OrdersList() {
               <Th width={44}>
                 <RowCheckbox
                   label="Alles op deze pagina kiezen"
-                  checked={allOn}
-                  indeterminate={!allOn && someOn}
-                  onChange={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())}
+                  checked={selection.all}
+                  indeterminate={selection.some}
+                  onChange={selection.setAll}
                 />
               </Th>
               <Th sort={sort.key === "placed" ? sort.dir : null} onSort={() => toggleSort("placed")}>Bestelling</Th>
@@ -203,20 +268,14 @@ function OrdersList() {
               {rows.map((o) => (
                 <Tr
                   key={o.id}
-                  selected={selected.has(o.id)}
+                  selected={selection.has(o.id)}
                   onOpen={() => toast({ title: `Bestelling #${o.number}`, body: "Het bestellingscherm komt later." })}
                 >
                   <Td>
                     <RowCheckbox
                       label={`Bestelling ${o.number} kiezen`}
-                      checked={selected.has(o.id)}
-                      onChange={(on) =>
-                        setSelected((s) => {
-                          const next = new Set(s)
-                          if (on) next.add(o.id)
-                          else next.delete(o.id)
-                          return next
-                        })}
+                      checked={selection.has(o.id)}
+                      onChange={(on) => selection.toggle(o.id, on)}
                     />
                   </Td>
                   <Td header figure>
@@ -249,8 +308,12 @@ function OrdersList() {
             </TBody>
           </Table>
         )}
-      <div className="py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
         <Pagination page={page} pageSize={25} total={rows.length === 0 ? 0 : ORDER_TOTAL} onChange={setPage} />
+        <span className="flex items-center gap-2 text-xs text-ink-3">
+          Acties bekijken als
+          <Segmented size="sm" label="Acties bekijken als" value={as} onChange={setAs} options={ROLES} />
+        </span>
       </div>
     </div>
   )
@@ -268,8 +331,9 @@ export function DataDisplay() {
         id="table"
         title="Tabel"
         anatomy={[
-          "Werkbalk: zoeken, filters als chips, kolommen, export",
-          "Balk met acties zodra je regels kiest",
+          "Weergaven: Alles en wat je bewaarde, vastgezet vooraan",
+          "Werkbalk: zoeken, filters als chips, de filterbouwer, kolommen, export",
+          "Balk met acties zodra je regels kiest: knoppen, Acties (⌘K) en losse toetsen",
           "Kop: sorteren alleen waar een pijltje staat",
           "Regels: woorden links, cijfers rechts",
           "Voet: waar je bent en bladeren"
@@ -277,14 +341,17 @@ export function DataDisplay() {
         use={["Elke lijst van records die je doorzoekt, filtert of in bulk bewerkt."]}
         avoid={["Kleur per regel of per kolom.", "Een kaart per record als de lijst langer is dan een handvol."]}
         name="Table · THead · Th · Tr · Td"
-        file="ui/table.tsx · ui/filters.tsx"
-        summary="De hele lijst uit het product, samengesteld: zoeken, filters als chips, kolommen kiezen, regels kiezen met acties voor allemaal tegelijk, sorteren, bladeren, en leeg als er niets past. Kies een paar regels of haal het filter weg."
-        also="data-table/*, orders/customers/tickets lists, filters/filter-bar"
+        file="ui/table.tsx · ui/filters.tsx · ui/bulk.tsx · ui/filter-model.ts · ui/views.ts"
+        summary="De hele lijst uit het product, samengesteld: weergaven, zoeken, filters met regels die je met En en Of en in groepen combineert, kolommen kiezen, regels kiezen met acties voor allemaal tegelijk, sorteren, bladeren, en leeg als er niets past. Bouw een filter, bewaar het als weergave, of kies regels en druk ⌘K."
+        also="data-table/*, table/selection-bar, filters/filter-bar, stores/views-store"
       >
         <OrdersList />
         <Rule>
-          Een regel opent met een klik of Enter. Een kolomkop sorteert alleen als hij een pijltje heeft. Kies je regels,
-          dan verschijnt de balk met acties boven de tabel; Escape of het kruisje wist de keuze.
+          Een regel opent met een klik of Enter. Een kolomkop sorteert alleen als hij een pijltje heeft. Elk veld heeft
+          zijn eigen vragen: een optie is een van, tekst bevat, een getal is hoger dan, een datum valt in de afgelopen
+          dagen. Een chip opent zijn eigen regel. Kies je regels, dan verschijnt de balk met acties boven de tabel; een
+          actie die maar voor een deel geldt zegt "3 van 5", een actie die je rol niet mag blijft staan en zegt waarom.
+          Escape of het kruisje wist de keuze.
         </Rule>
       </Spec>
 

@@ -32,6 +32,7 @@ import {
   variantHref
 } from "../variants.ts"
 import type { DirectionId, Logo } from "../variants.ts"
+import { useShellState } from "./shell-state.ts"
 
 /*
  * Varianten: a round button bottom right on every `/v2` page (mounted once in `app.tsx`) that opens
@@ -298,7 +299,7 @@ function useComposerLift(active: boolean, pathname: string): number {
         const vh = window.innerHeight
         let next = 0
         sizes.disconnect()
-        for (const el of document.querySelectorAll<HTMLElement>("#main .ai-ring")) {
+        for (const el of document.querySelectorAll<HTMLElement>("#main .ai-ring, #magnus-drawer .ai-ring")) {
           sizes.observe(el)
           const r = el.getBoundingClientRect()
           if (r.height > 0 && r.bottom > vh - 96 && r.top < vh) next = Math.max(next, Math.round(vh - r.top + 12))
@@ -350,7 +351,8 @@ export function FabFace({ on }: { readonly on: boolean }) {
 export function VariantsButton() {
   const v = useVariant()
   const { route, pathname } = useRoute()
-  const lift = useComposerLift(CHAT_ROUTES.has(route.name), pathname)
+  const { drawer } = useShellState()
+  const lift = useComposerLift(CHAT_ROUTES.has(route.name) || drawer, `${pathname}|${drawer}`)
   // A navigation writes a new address without `v`; put the variant back so the address stays a link to it.
   useEffect(() => syncAddress(readVariant()), [pathname])
   return (

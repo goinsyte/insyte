@@ -1,24 +1,23 @@
 import { useState } from "react"
 import { budgetFor, member, relative, roleLabel, ROLES, storesLabel } from "../../fixtures/settings.ts"
 import type { Member } from "../../fixtures/settings.ts"
-import { Link, paths } from "../../router.tsx"
+import { Link, navigate, paths } from "../../router.tsx"
 import { useAccess } from "../../ui/access.tsx"
 import { Avatar } from "../../ui/avatar.tsx"
 import { Status } from "../../ui/badge.tsx"
 import type { Tone } from "../../ui/badge.tsx"
 import { Button, ButtonLink } from "../../ui/button.tsx"
 import { AlertDialog } from "../../ui/dialog.tsx"
-import { ArrowUpRight, MessageSquare, Ticket, UserX } from "../../ui/icons.tsx"
+import { ArrowUpRight, Key, MessageSquare, Ticket, Trash, UserX } from "../../ui/icons.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { PageSection } from "../../ui/page.tsx"
 import { Meter } from "../../ui/progress.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { toast } from "../../ui/toast.tsx"
-import { AREA_LABEL, LEVEL_LABEL } from "../../view.ts"
-import type { Level, PermArea } from "../../view.ts"
-import { money, SettingsPage, useSaved } from "./parts.tsx"
-import { RoleDialog } from "./team.tsx"
+import { RoleReach, useTeam } from "./invite.tsx"
+import { money, SettingsPage } from "./parts.tsx"
+import { RoleDialog, TransferDialog, useTeamActions } from "./team.tsx"
 
 const PRESENCE: Readonly<Record<Member["presence"], { tone: Tone; word: string }>> = {
   online: { tone: "good", word: "Online" },
@@ -32,12 +31,13 @@ const PRESENCE: Readonly<Record<Member["presence"], { tone: Tone; word: string }
  * The werkdraad leads from here to their tickets and their area.
  */
 export function PersonScreen({ id }: { readonly id: string }) {
-  const seed = member(id)
+  const team = useTeam()
+  const seed = team.members.find((x) => x.id === id)
   const { edit } = useAccess("team")
-  const [roleId, setRoleId] = useSaved(`person.${id}.role`, seed?.roleId ?? "alleen-lezen")
-  const [active, setActive] = useSaved(`person.${id}.active`, true)
+  const actions = useTeamActions()
   const [changing, setChanging] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const [transferring, setTransferring] = useState(false)
   const budget = budgetFor("gewoon").people.find((p) => p.id === id)
 
   if (seed === undefined) {
@@ -52,19 +52,18 @@ export function PersonScreen({ id }: { readonly id: string }) {
       </SettingsPage>
     )
   }
-  const m: Member = { ...seed, roleId }
+  const m: Member = seed
+  const roleId = m.roleId
+  const active = m.deactivated !== true
   const role = ROLES.find((r) => r.id === roleId)
   const owner = roleId === "eigenaar"
+  const me = m.id === team.me
   const firstName = m.name.split(" ")[0] ?? m.name
   const presence = PRESENCE[m.presence]
-  const byLevel = ([3, 2, 1] as const).map((lvl) => ({
-    lvl,
-    areas: role === undefined
-      ? []
-      : (Object.entries(role.levels) as Array<[PermArea, Level]>).filter(([, l]) => l === lvl).map(([a]) =>
-        AREA_LABEL[a]
-      )
-  })).filter((g) => g.areas.length > 0)
+  const patch = (next: Partial<Member>) =>
+    team.setMembers((all) => all.map((x) => (x.id === m.id ? { ...x, ...next } : x)))
+  const setRoleId = (next: string) => patch({ roleId: next })
+  const setActive = (on: boolean) => patch({ deactivated: !on })
 
   return (
     <SettingsPage
@@ -82,7 +81,7 @@ export function PersonScreen({ id }: { readonly id: string }) {
       actions={
         <>
           <ButtonLink size="sm" to={paths.teamChat} icon={<MessageSquare />}>Bericht sturen</ButtonLink>
-          {edit && !owner && <Button size="sm" onClick={() => setChanging(true)}>Rol wijzigen</Button>}
+          {edit && !owner && !me && <Button size="sm" onClick={() => setChanging(true)}>Rol wijzigen</Button>}
         </>
       }
     >
@@ -180,16 +179,7 @@ export function PersonScreen({ id }: { readonly id: string }) {
         />
         {owner
           ? <p className="text-sm text-ink-2">De eigenaar kan altijd alles en is niet te wijzigen.</p>
-          : (
-            <dl className="flex flex-col gap-1.5 pt-1">
-              {byLevel.map((g) => (
-                <div key={g.lvl} className="grid grid-cols-[minmax(7rem,34%)_minmax(0,1fr)] gap-3">
-                  <dt className="text-xs leading-5 text-ink-3">{LEVEL_LABEL[g.lvl]}</dt>
-                  <dd className="text-sm text-ink-2">{g.areas.join(", ")}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
+          : <RoleReach roleId={roleId} className="pt-1" />}
       </PageSection>
 
       {budget !== undefined && (
@@ -216,7 +206,7 @@ export function PersonScreen({ id }: { readonly id: string }) {
         </PageSection>
       )}
 
-      {edit && !owner && (
+      {edit && !owner && !me && (
         <div className="flex flex-wrap items-center gap-3 pt-2">
           {active
             ? (
@@ -234,7 +224,32 @@ export function PersonScreen({ id }: { readonly id: string }) {
                 Weer activeren
               </Button>
             )}
+          <Button
+            variant="ghost"
+            icon={<Trash />}
+            onClick={() => {
+              actions.remove(m)
+              navigate(paths.settings("team"))
+            }}
+          >
+            Verwijderen uit werkruimte
+          </Button>
+          {team.meOwner && active && (
+            <Button
+              variant="ghost"
+              icon={<Key />}
+              className="sm:ml-auto"
+              onClick={() => setTransferring(true)}
+            >
+              Eigendom overdragen
+            </Button>
+          )}
         </div>
+      )}
+      {edit && owner && (
+        <p className="pt-2 text-sm text-ink-3">
+          De eigenaar kan niet worden verwijderd. Draag de werkruimte eerst over aan iemand anders.
+        </p>
       )}
 
       <RoleDialog
@@ -251,6 +266,11 @@ export function PersonScreen({ id }: { readonly id: string }) {
             action: { label: "Ongedaan maken", onClick: () => setRoleId(before) }
           })
         }}
+      />
+      <TransferDialog
+        member={transferring ? m : null}
+        onClose={() => setTransferring(false)}
+        onConfirm={actions.transfer}
       />
       <AlertDialog
         open={confirm}

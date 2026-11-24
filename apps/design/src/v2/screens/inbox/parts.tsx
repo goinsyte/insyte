@@ -1,10 +1,20 @@
 import { Fragment, useId, useRef, useState } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import { AGENTS } from "../../fixtures/agents.ts"
-import { channelLabel, channelService, PRIORITY, STATUS_ORDER, TICKET_STATUS } from "../../fixtures/inbox.ts"
+import {
+  channelLabel,
+  channelService,
+  entryTime,
+  fillTemplate,
+  PRIORITY,
+  replyWindow,
+  STATUS_ORDER,
+  TICKET_STATUS,
+  WHATSAPP_TEMPLATES
+} from "../../fixtures/inbox.ts"
 import type { Channel, Entry, PersonKey, Priority, Ticket, TicketStatus } from "../../fixtures/inbox.ts"
 import { PEOPLE } from "../../fixtures/workspace.ts"
-import { AgentAvatar, Avatar } from "../../ui/avatar.tsx"
+import { AgentAvatar, Avatar, AvatarStack } from "../../ui/avatar.tsx"
 import { Status, Tag } from "../../ui/badge.tsx"
 import { Button } from "../../ui/button.tsx"
 import { cx } from "../../ui/cx.ts"
@@ -12,6 +22,7 @@ import { DropdownItem, DropdownLabel, DropdownMenu, DropdownSeparator } from "..
 import {
   Bot,
   ChevronDown,
+  Clock,
   Image,
   Lock,
   Mail,
@@ -85,17 +96,32 @@ export function setStatus(t: Ticket, next: TicketStatus) {
   })
 }
 
-function assign(t: Ticket, who: PersonKey | null) {
-  if (t.assignee === who) return
-  const before = t.assignee
-  patchTicket(t.number, { assignee: who })
+/** Everyone who has the ticket: the one it is assigned to first, then the colleagues with it. */
+export const assigneesOf = (t: Ticket): ReadonlyArray<PersonKey> =>
+  t.assignee === null ? [] : [t.assignee, ...(t.with ?? []).filter((k) => k !== t.assignee)]
+
+/** Put a colleague on the ticket or take them off; the first one left is the one it is assigned to. */
+function toggleAssignee(t: Ticket, who: PersonKey) {
+  const now = assigneesOf(t)
+  const on = !now.includes(who)
+  const next = on ? [...now, who] : now.filter((k) => k !== who)
+  const before = { assignee: t.assignee, with: t.with ?? [] }
+  patchTicket(t.number, { assignee: next[0] ?? null, with: next.slice(1) })
+  const name = who === MY_KEY ? "jou" : PEOPLE[who].name
   toast({
-    title: who === null
-      ? `Toewijzing van #${t.number} weggehaald`
-      : who === MY_KEY
-      ? `#${t.number} aan jou toegewezen`
-      : `#${t.number} toegewezen aan ${PEOPLE[who].name}`,
-    action: { label: "Ongedaan maken", onClick: () => patchTicket(t.number, { assignee: before }) }
+    title: on
+      ? `#${t.number} ook toegewezen aan ${name}`
+      : `${who === MY_KEY ? "Jij bent" : `${PEOPLE[who].name} is`} niet meer toegewezen aan #${t.number}`,
+    action: { label: "Ongedaan maken", onClick: () => patchTicket(t.number, before) }
+  })
+}
+
+function unassign(t: Ticket) {
+  const before = { assignee: t.assignee, with: t.with ?? [] }
+  patchTicket(t.number, { assignee: null, with: [] })
+  toast({
+    title: `Toewijzing van #${t.number} weggehaald`,
+    action: { label: "Ongedaan maken", onClick: () => patchTicket(t.number, before) }
   })
 }
 
@@ -167,36 +193,45 @@ export function AssignMenu({ t, disabled = false, compact = false }: {
   readonly disabled?: boolean
   readonly compact?: boolean
 }) {
+  const who = assigneesOf(t)
+  const lead = who[0]
+  const label = lead === undefined
+    ? "Niet toegewezen"
+    : who.length > 1
+    ? `${lead === MY_KEY ? "Jij" : firstName(lead)} en ${
+      who.length - 1 === 1 ? firstName(who[1] ?? lead) : `${who.length - 1} anderen`
+    }`
+    : lead === MY_KEY
+    ? "Jij"
+    : firstName(lead)
   return (
     <DropdownMenu
       label="Toewijzen"
       width="w-60"
       trigger={(props) => (
         <button type="button" disabled={disabled} className={triggerClass} {...props}>
-          {t.assignee === null
+          {lead === undefined
             ? <UserX size={15} className="text-ink-3" />
-            : <Avatar name={PEOPLE[t.assignee].name} size={20} />}
-          <span className={cx(compact && "sr-only sm:not-sr-only")}>
-            {t.assignee === null ? "Niet toegewezen" : t.assignee === MY_KEY ? "Jij" : firstName(t.assignee)}
-          </span>
+            : <AvatarStack names={who.map((k) => PEOPLE[k].name)} size={20} />}
+          <span className={cx(compact && "sr-only sm:not-sr-only")}>{label}</span>
           <ChevronDown size={13} className="text-ink-3" />
           <span className="sr-only">Toewijzen</span>
         </button>
       )}
     >
-      <DropdownLabel>Toewijzen aan</DropdownLabel>
+      <DropdownLabel>Toegewezen aan</DropdownLabel>
       {(Object.keys(PEOPLE) as ReadonlyArray<PersonKey>).map((key) => (
         <DropdownItem
           key={key}
-          checked={t.assignee === key}
-          onSelect={() => assign(t, key)}
+          checked={who.includes(key)}
+          onSelect={() => toggleAssignee(t, key)}
         >
           {PEOPLE[key].name}
           {key === MY_KEY ? " (jij)" : ""}
         </DropdownItem>
       ))}
       <DropdownSeparator />
-      <DropdownItem glyph={UserX} disabled={t.assignee === null} onSelect={() => assign(t, null)}>
+      <DropdownItem glyph={UserX} disabled={lead === undefined} onSelect={() => unassign(t)}>
         Toewijzing weghalen
       </DropdownItem>
     </DropdownMenu>
@@ -226,7 +261,7 @@ export function EntryView({ entry, customer }: { readonly entry: Entry; readonly
   if (entry.kind === "event") {
     return (
       <li className="flex items-start gap-2 pl-10 text-xs text-ink-3">
-        <span className="figure shrink-0">{entry.at}</span>
+        <span className="figure shrink-0">{entryTime(entry)}</span>
         <span className="text-pretty">{entry.text}</span>
       </li>
     )
@@ -248,7 +283,11 @@ export function EntryView({ entry, customer }: { readonly entry: Entry; readonly
       <div className={cx("flex min-w-0 flex-col gap-1.5", note && "rounded-md bg-warn-tint px-3 py-2.5")}>
         <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
           <span className="font-semibold text-ink">{name}</span>
-          {entry.kind === "team" && <span className="text-xs text-ink-3">antwoordde</span>}
+          {entry.kind === "team" && (
+            <span className="text-xs text-ink-3">
+              {entry.template === undefined ? "antwoordde" : `stuurde sjabloon ${entry.template}`}
+            </span>
+          )}
           {entry.kind === "agent" && <span className="text-xs text-ink-3">agent</span>}
           {note && (
             <span className="inline-flex items-center gap-1 text-xs text-warn-ink">
@@ -256,7 +295,7 @@ export function EntryView({ entry, customer }: { readonly entry: Entry; readonly
               Interne notitie
             </span>
           )}
-          <span className="figure text-2xs text-ink-3">{entry.at}</span>
+          <span className="figure text-2xs text-ink-3">{entryTime(entry)}</span>
         </p>
         <p className="max-w-[62ch] text-sm leading-6 text-pretty whitespace-pre-line text-ink">
           <Mentioned text={entry.text} />
@@ -283,8 +322,10 @@ const MENTIONABLE = (Object.keys(PEOPLE) as ReadonlyArray<PersonKey>).filter((k)
 /**
  * Answering a ticket: a reply to the customer, or an internal note the team sees (with `@` to
  * mention a colleague). A reply waits out the send window before it leaves, with "Niet versturen"
- * beside it, as every send in the product does. Not Magnus's composer: no gradient, this is a person
- * writing to a person.
+ * beside it, as every send in the product does. On WhatsApp and Instagram a free reply may only go
+ * out within 24 hours of the customer's last message: after that WhatsApp takes an approved template
+ * and Instagram nothing until the customer writes again. Not Magnus's composer: no gradient, this is
+ * a person writing to a person.
  */
 export function ReplyBox({ t, customer, prefill, onPrefillUsed }: {
   readonly t: Ticket
@@ -295,6 +336,7 @@ export function ReplyBox({ t, customer, prefill, onPrefillUsed }: {
 }) {
   const [mode, setMode] = useState<"antwoord" | "notitie">("antwoord")
   const [text, setText] = useState("")
+  const [templateId, setTemplateId] = useState<string | undefined>(undefined)
   const area = useRef<HTMLTextAreaElement>(null)
   const id = useId()
   const [seen, setSeen] = useState<string | undefined>(undefined)
@@ -304,6 +346,20 @@ export function ReplyBox({ t, customer, prefill, onPrefillUsed }: {
     setMode("antwoord")
     onPrefillUsed?.()
   }
+
+  const first = customer.split(" ")[0] ?? customer
+  const win = replyWindow(t)
+  const can = win.applies ? win.can : "vrij"
+  const reply = mode === "antwoord"
+  const template = can === "sjabloon" ? WHATSAPP_TEMPLATES.find((x) => x.id === templateId) : undefined
+  const filled = template === undefined
+    ? ""
+    : fillTemplate(template.body, {
+      naam: first,
+      onderwerp: t.subject,
+      ...(t.order === undefined ? {} : { bestelling: t.order })
+    })
+  const value = reply && can === "sjabloon" ? filled : reply && can === "niets" ? "" : text
 
   const mention = /(^|\s)@(\p{L}*)$/u.exec(text)
   const matches = mention === null
@@ -316,29 +372,39 @@ export function ReplyBox({ t, customer, prefill, onPrefillUsed }: {
   }
 
   const send = () => {
-    const body = text.trim()
+    const body = value.trim()
     if (body === "") return
-    if (mode === "antwoord") {
+    if (reply) {
       patchTicket(t.number, {
-        entries: [{ kind: "team", who: MY_KEY, at: nowClock(), text: body }],
+        entries: [{
+          kind: "team",
+          who: MY_KEY,
+          at: nowClock(),
+          text: body,
+          ...(template === undefined ? {} : { template: template.label })
+        }],
         answered: true,
         unread: false,
         ...(t.status === "nieuw" ? { status: "bezig" as const } : {})
       })
       const before = { status: t.status, waitingSince: t.waitingSince }
+      const typed = text
       toast({
         title: `Wordt over ${SEND_WINDOW_S} s verstuurd`,
-        body: `Via ${channelLabel(t.channel)} aan ${customer}.`,
+        body: template === undefined
+          ? `Via ${channelLabel(t.channel)} aan ${customer}.`
+          : `Sjabloon ${template.label} via WhatsApp aan ${customer}.`,
         duration: SEND_WINDOW_S * 1000,
         action: {
           label: "Niet versturen",
           onClick: () => {
             dropEntries(t.number, 1)
             patchTicket(t.number, { status: before.status, answered: before.waitingSince === undefined })
-            setText(body)
+            setText(typed)
           }
         }
       })
+      setTemplateId(undefined)
     } else {
       patchTicket(t.number, { entries: [{ kind: "note", who: MY_KEY, at: nowClock(), text: body }] })
       const told = MENTIONABLE.filter((k) => body.includes(`@${firstName(k)}`))
@@ -355,71 +421,134 @@ export function ReplyBox({ t, customer, prefill, onPrefillUsed }: {
   }
 
   return (
-    <div
-      className={cx(
-        "flex flex-col gap-2 rounded-lg p-3 ring-1 ring-inset transition-colors",
-        mode === "notitie" ? "bg-warn-tint ring-transparent" : "bg-canvas ring-line-strong focus-within:ring-ink-4"
-      )}
-    >
-      <Tabs
-        label="Soort bericht"
-        variant="pill"
-        value={mode}
-        onChange={setMode}
-        tabs={[
-          { value: "antwoord", label: `Antwoord aan ${customer.split(" ")[0] ?? customer}` },
-          { value: "notitie", label: "Interne notitie" }
-        ]}
-      />
-      <label htmlFor={id} className="sr-only">
-        {mode === "antwoord" ? `Antwoord aan ${customer}` : "Interne notitie"}
-      </label>
-      <textarea
-        id={id}
-        ref={area}
-        rows={3}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) send()
-        }}
-        placeholder={mode === "antwoord"
-          ? `Schrijf ${customer.split(" ")[0] ?? customer} via ${channelLabel(t.channel)}`
-          : "Alleen het team ziet dit. Typ @ om een collega te noemen"}
-        className="min-h-16 w-full resize-y bg-transparent px-1 text-sm leading-6 text-ink outline-none placeholder:text-ink-3"
-      />
-      {matches.length > 0 && mode === "notitie" && (
-        <ul aria-label="Collega noemen" className="flex flex-wrap gap-1">
-          {matches.map((k) => (
-            <li key={k}>
+    <div className="flex flex-col gap-2">
+      {reply && win.applies && <WindowLine t={t} hoursLeft={win.hoursLeft} can={can} />}
+      <div
+        className={cx(
+          "flex flex-col gap-2 rounded-lg p-3 ring-1 ring-inset transition-colors",
+          reply ? "bg-canvas ring-line-strong focus-within:ring-ink-4" : "bg-warn-tint ring-transparent"
+        )}
+      >
+        <Tabs
+          label="Soort bericht"
+          variant="pill"
+          value={mode}
+          onChange={setMode}
+          tabs={[
+            { value: "antwoord", label: `Antwoord aan ${first}` },
+            { value: "notitie", label: "Interne notitie" }
+          ]}
+        />
+        {reply && can === "sjabloon" && (
+          <div role="group" aria-label="Sjabloon" className="flex flex-wrap items-center gap-1.5 px-1">
+            <span className="mr-1 text-xs text-ink-3">Sjabloon</span>
+            {WHATSAPP_TEMPLATES.map((x) => (
               <button
+                key={x.id}
                 type="button"
-                onClick={() => pick(k)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-canvas px-2 text-xs text-ink-2 hover:text-ink pointer-coarse:h-11"
+                disabled={!x.approved}
+                aria-pressed={templateId === x.id}
+                title={x.approved ? undefined : "Wacht nog op goedkeuring van Meta"}
+                onClick={() => setTemplateId(templateId === x.id ? undefined : x.id)}
+                className={cx(
+                  "inline-flex h-7 items-center rounded-sm px-2 text-xs transition-colors pointer-coarse:h-11",
+                  templateId === x.id
+                    ? "bg-accent-tint font-medium text-accent-ink"
+                    : "bg-well text-ink-2 hover:text-ink",
+                  "disabled:pointer-events-none disabled:text-ink-4"
+                )}
               >
-                <Avatar name={PEOPLE[k].name} size={16} />
-                {PEOPLE[k].name}
+                {x.label}
+                {!x.approved && <span className="ml-1 text-ink-4">· wacht op Meta</span>}
               </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-2xs text-ink-3">
-          {mode === "antwoord" ? `Wacht ${SEND_WINDOW_S} s voor hij vertrekt` : "Geen bericht naar de klant"}
-        </p>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={<Send />}
-          disabled={text.trim() === ""}
-          onClick={send}
-          className="pointer-coarse:h-11"
-        >
-          {mode === "antwoord" ? "Versturen" : "Notitie plaatsen"}
-        </Button>
+            ))}
+          </div>
+        )}
+        <label htmlFor={id} className="sr-only">
+          {reply ? `Antwoord aan ${customer}` : "Interne notitie"}
+        </label>
+        <textarea
+          id={id}
+          ref={area}
+          rows={3}
+          value={value}
+          readOnly={reply && can === "sjabloon"}
+          disabled={reply && can === "niets"}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) send()
+          }}
+          placeholder={!reply
+            ? "Alleen het team ziet dit. Typ @ om een collega te noemen"
+            : can === "niets"
+            ? "Wacht tot de klant weer iets stuurt."
+            : can === "sjabloon"
+            ? "Kies een sjabloon; de tekst ligt vast."
+            : `Schrijf ${first} via ${channelLabel(t.channel)}`}
+          className="min-h-16 w-full resize-y bg-transparent px-1 text-sm leading-6 text-ink outline-none placeholder:text-ink-3 disabled:cursor-not-allowed read-only:text-ink-2"
+        />
+        {matches.length > 0 && !reply && (
+          <ul aria-label="Collega noemen" className="flex flex-wrap gap-1">
+            {matches.map((k) => (
+              <li key={k}>
+                <button
+                  type="button"
+                  onClick={() => pick(k)}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-canvas px-2 text-xs text-ink-2 hover:text-ink pointer-coarse:h-11"
+                >
+                  <Avatar name={PEOPLE[k].name} size={16} />
+                  {PEOPLE[k].name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-2xs text-ink-3">
+            {reply ? `Wacht ${SEND_WINDOW_S} s voor hij vertrekt` : "Geen bericht naar de klant"}
+          </p>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Send />}
+            disabled={value.trim() === ""}
+            onClick={send}
+            className="pointer-coarse:h-11"
+          >
+            {!reply ? "Notitie plaatsen" : template === undefined ? "Versturen" : "Sjabloon versturen"}
+          </Button>
+        </div>
       </div>
     </div>
+  )
+}
+
+/** Where the 24-hour window stands, above the reply on WhatsApp and Instagram. */
+function WindowLine({ t, hoursLeft, can }: {
+  readonly t: Ticket
+  readonly hoursLeft: number
+  readonly can: "vrij" | "sjabloon" | "niets"
+}) {
+  const whatsapp = t.channel === "whatsapp"
+  if (can !== "vrij") {
+    return (
+      <p className="flex items-start gap-2 px-1 text-xs text-pretty text-warn-ink" role="status">
+        <Clock size={14} className="mt-px shrink-0" />
+        {whatsapp
+          ? "Het venster van 24 uur is dicht. Je kunt alleen een goedgekeurd WhatsApp-sjabloon sturen."
+          : "Het venster van 24 uur is dicht. Instagram laat je pas weer antwoorden als de klant iets stuurt."}
+      </p>
+    )
+  }
+  return (
+    <p
+      className={cx("flex items-start gap-2 px-1 text-xs text-pretty", hoursLeft < 6 ? "text-warn-ink" : "text-ink-3")}
+    >
+      <Clock size={14} className="mt-px shrink-0" />
+      {hoursLeft === 0 ? "Nog minder dan een uur" : `Nog ${hoursLeft} uur`} om vrij te antwoorden; {whatsapp
+        ? "daarna alleen een goedgekeurd sjabloon."
+        : "daarna kun je pas weer antwoorden als de klant iets stuurt."}
+    </p>
   )
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { ASSISTANT } from "../../assistant.ts"
 import {
   CANCEL_REASONS,
@@ -24,7 +24,7 @@ import { Button } from "../../ui/button.tsx"
 import { RadioGroup } from "../../ui/checkbox.tsx"
 import { AlertDialog, Dialog } from "../../ui/dialog.tsx"
 import { DropdownItem, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
-import { CreditCard, Download, MoreHorizontal, Plus } from "../../ui/icons.tsx"
+import { Check, CreditCard, Download, MoreHorizontal, Plus } from "../../ui/icons.tsx"
 import { Field, Input, Select, Textarea } from "../../ui/input.tsx"
 import { List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
@@ -32,9 +32,12 @@ import { PageSection } from "../../ui/page.tsx"
 import { Meter } from "../../ui/progress.tsx"
 import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { SettingRow, SettingsSection } from "../../ui/settings.tsx"
+import { Stepper } from "../../ui/stepper.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented, Toggle } from "../../ui/toggle.tsx"
+import { pause } from "../auth/frame.tsx"
+import { AffixField, shopDomain, SyncProgress } from "../auth/setup-parts.tsx"
 import { figure, money, SaveBar, SettingsPage, useDraft, useSaved } from "./parts.tsx"
 
 /* ── Winkels ───────────────────────────────────────────────────────────────────────────────────── */
@@ -183,10 +186,12 @@ export function StoresScreen() {
               tone: "good"
             })
           } else {
-            setStores((all) => [...all, row])
+            setStores((all) =>
+              all.some((x) => x.id === row.id) ? all.map((x) => (x.id === row.id ? row : x)) : [...all, row]
+            )
             toast({
               title: `${row.name} gekoppeld`,
-              body: "Bestellingen, producten en klanten komen binnen enkele minuten binnen.",
+              body: "Nieuwe bestellingen, producten en klanten komen vanaf nu vanzelf binnen.",
               tone: "good"
             })
           }
@@ -216,106 +221,193 @@ export function StoresScreen() {
   )
 }
 
+type ConnectStep = "address" | "approve" | "sync" | "done"
+
+const CONNECT_STEPS: ReadonlyArray<ConnectStep> = ["address", "approve", "sync"]
+
+/** What Insyte asks of Shopify, and why (`/app`'s `connect-store-flow.tsx`). */
+const SCOPES: ReadonlyArray<{ readonly label: string; readonly why: string }> = [
+  { label: "Bestellingen en afhandeling", why: "om te tonen wat op jou wacht en erop te handelen" },
+  { label: "Producten en voorraad", why: "om te waarschuwen voordat een SKU uitverkocht raakt" },
+  { label: "Klanten", why: "om ze te beantwoorden met hun geschiedenis naast het antwoord" }
+]
+
+/** `northwind-de.myshopify.com` as a person names it: "Northwind DE". */
+const nameOfDomain = (domain: string) =>
+  (domain.split(".")[0] ?? domain).split("-").filter((w) => w !== "").map((w) =>
+    w.length <= 3 && w !== "the" ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)
+  ).join(" ")
+
+/**
+ * Winkel koppelen as Shopify does it (`/app`'s `connect-store-flow.tsx`, the look of onboarding's
+ * `ShopifyConnect`): the store's address, approving Insyte in Shopify with what it reads and why,
+ * the first sync counted in, and done. Reconnecting a store that lost its access starts at the
+ * approval. The dialog cannot be closed while the sync runs.
+ */
 function ConnectDialog({ open, store, onClose, onConnect }: {
   readonly open: boolean
   readonly store: StoreRow | null
   readonly onClose: () => void
   readonly onConnect: (row: StoreRow) => void
 }) {
-  const [name, setName] = useState("")
-  const [domain, setDomain] = useState("")
-  const [platform, setPlatform] = useState("Shopify")
-  const [token, setToken] = useState("")
+  const id = useId()
+  const [step, setStep] = useState<ConnectStep>("address")
+  const [handle, setHandle] = useState("")
   const [tried, setTried] = useState(false)
-  const missing = store === null && (name.trim() === "" || domain.trim() === "")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (open) {
+      setStep(store === null ? "address" : "approve")
+      setHandle("")
+      setTried(false)
+      setBusy(false)
+    }
+  }, [open, store])
+  useEffect(() => {
+    if (step !== "sync") return
+    const t = window.setTimeout(() => setStep("done"), 2600)
+    return () => window.clearTimeout(t)
+  }, [step])
+
+  const domain = store?.domain ?? shopDomain(handle)
+  const name = store?.name ?? (domain === null ? "" : nameOfDomain(domain))
+  const at = step === "done" ? CONNECT_STEPS.length : CONNECT_STEPS.indexOf(step)
+  const go = async (next: ConnectStep) => {
+    setBusy(true)
+    await pause(700)
+    setBusy(false)
+    setStep(next)
+  }
+  const finish = () => {
+    if (domain === null) return
+    onConnect({
+      id: store?.id ?? `store_${domain.split(".")[0] ?? "nieuw"}`,
+      name,
+      domain,
+      currency: store?.currency ?? "EUR",
+      connected: true,
+      synced: "Gesynchroniseerd om 14:30",
+      incidents: store?.incidents ?? []
+    })
+  }
+
+  const head = {
+    address: {
+      title: "Shopify-winkel koppelen",
+      description:
+        "Insyte leest bestellingen, producten en klanten, en schrijft in Shopify alleen binnen de regels die jij stelt."
+    },
+    approve: {
+      title: store === null ? "Insyte goedkeuren in Shopify" : `${store.name} opnieuw koppelen`,
+      description: store === null
+        ? `Shopify vraagt of ${domain ?? "je winkel"} Insyte deze toegang geeft.`
+        : "Shopify gaf Insyte geen toegang meer. Keur het opnieuw goed; er gaat niets verloren."
+    },
+    sync: {
+      title: `${domain ?? ""} wordt gelezen`,
+      description: store === null
+        ? "De eerste synchronisatie duurt even. Daarna komen wijzigingen vanzelf binnen."
+        : "De wijzigingen sinds 18 nov worden opgehaald."
+    },
+    done: {
+      title: `${name} is gekoppeld`,
+      description: "Bestellingen, producten en klanten staan in Insyte. Nieuwe wijzigingen komen vanzelf binnen."
+    }
+  }[step]
+
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={step === "sync" ? () => undefined : onClose}
       lead={<ServiceLogo service="shopify" name="Shopify" size={40} />}
-      title={store === null ? "Winkel toevoegen" : `${store.name} opnieuw koppelen`}
-      description={store === null
-        ? "Koppel een Shopify-winkel. Bestellingen, producten en klanten worden binnen enkele minuten gesynchroniseerd."
-        : "Shopify gaf Insyte geen toegang meer. Maak een nieuw toegangstoken en plak het hier."}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>Annuleren</Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setTried(true)
-              if (missing || token.trim() === "") return
-              onConnect({
-                id: `store_${domain.split(".")[0] ?? "nieuw"}`,
-                name: name.trim(),
-                domain: domain.trim(),
-                currency: "EUR",
-                connected: true,
-                synced: "Gesynchroniseerd om 14:30",
-                incidents: []
-              })
-              setName("")
-              setDomain("")
-              setToken("")
-              setTried(false)
-            }}
-          >
-            {store === null ? "Winkel koppelen" : "Opnieuw koppelen"}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        {store === null && (
+      title={head.title}
+      description={head.description}
+      footer={step === "address"
+        ? (
           <>
-            {tried && missing && (
-              <p className="text-sm text-bad-ink" role="alert">Winkelnaam en domein zijn verplicht</p>
-            )}
-            <Field label="Winkelnaam">
-              {(c) => (
-                <Input
-                  {...c}
-                  placeholder="Northwind DE"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Domein">
-              {(c) => (
-                <Input
-                  {...c}
-                  placeholder="northwind-de.myshopify.com"
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Platform">
-              {(c) => (
-                <Select {...c} value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                  <option>Shopify</option>
-                  <option>Shopify Plus</option>
-                </Select>
-              )}
-            </Field>
+            <Button variant="ghost" onClick={onClose}>Annuleren</Button>
+            <Button
+              variant="primary"
+              loading={busy}
+              onClick={() => {
+                setTried(true)
+                if (domain !== null) void go("approve")
+              }}
+            >
+              Doorgaan naar Shopify
+            </Button>
           </>
+        )
+        : step === "approve"
+        ? (
+          <>
+            {store === null
+              ? <Button variant="ghost" disabled={busy} onClick={() => setStep("address")}>Terug</Button>
+              : <Button variant="ghost" onClick={onClose}>Annuleren</Button>}
+            <Button variant="primary" loading={busy} onClick={() => void go("sync")}>Goedkeuren en koppelen</Button>
+          </>
+        )
+        : step === "done"
+        ? <Button variant="primary" onClick={finish}>Klaar</Button>
+        : undefined}
+    >
+      <div className="flex flex-col gap-5 pb-1">
+        {step !== "done" && (
+          <Stepper
+            label="Stappen"
+            current={at}
+            steps={[{ label: "Winkeladres" }, { label: "Goedkeuren" }, { label: "Synchroniseren" }]}
+          />
         )}
-        <Field
-          label="API-toegangstoken"
-          hint="Maak er een aan in Shopify → Apps en verkoopkanalen → Apps ontwikkelen."
-          error={tried && token.trim() === "" ? "Plak het toegangstoken" : undefined}
-        >
-          {(c) => (
-            <Input
-              {...c}
-              type="password"
-              autoComplete="off"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
+        {step === "address" && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={`${id}-shop`} className="text-xs font-medium text-ink">Winkeladres</label>
+            <AffixField
+              id={`${id}-shop`}
+              after=".myshopify.com"
+              value={handle}
+              onChange={setHandle}
+              placeholder="je-winkel"
+              invalid={tried && domain === null}
+              describedBy={`${id}-hint`}
             />
-          )}
-        </Field>
+            <span
+              id={`${id}-hint`}
+              className={tried && domain === null ? "text-xs text-bad-ink" : "text-xs text-ink-3"}
+            >
+              {tried && domain === null
+                ? "Vul het adres in, zoals northwind-de of northwind-de.myshopify.com"
+                : "Je vindt het in Shopify onder Instellingen, Domeinen."}
+            </span>
+          </div>
+        )}
+        {step === "approve" && (
+          <div className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-2.5">
+              {SCOPES.map((x) => (
+                <li key={x.label} className="flex items-start gap-2.5 text-sm">
+                  <Check size={15} strokeWidth={2.25} className="mt-0.5 shrink-0 text-good-ink" />
+                  <span className="text-pretty">
+                    <span className="font-medium text-ink">{x.label}</span>
+                    <span className="text-ink-3">, {x.why}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-ink-3">
+              Je kunt dit altijd intrekken in Shopify. Insyte slaat nooit kaartgegevens op.
+            </p>
+          </div>
+        )}
+        {step === "sync" && (
+          <SyncProgress
+            connected
+            domain={domain}
+            store={store === null
+              ? { products: 214, customers: 3_180, orders: 1_046, mails: 0, days: 0 }
+              : { products: 12, customers: 48, orders: 96, mails: 0, days: 0 }}
+          />
+        )}
       </div>
     </Dialog>
   )

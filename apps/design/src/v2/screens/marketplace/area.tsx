@@ -17,10 +17,12 @@ import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dataState, setView, useView } from "../../view.ts"
+import { install, markOpened, OpenAppDialog, ScopesDialog, uninstall, useInstalled } from "./installed.tsx"
+import type { Installed } from "./installed.tsx"
 
-/* Installed apps and "let me know" requests, while the demo is looked at. */
-type State = { readonly installed: ReadonlyArray<string>; readonly notify: ReadonlyArray<string> }
-let state: State = { installed: [], notify: [] }
+/* "Let me know" requests, while the demo is looked at. Installed apps live in `installed.tsx`. */
+type State = { readonly notify: ReadonlyArray<string> }
+let state: State = { notify: [] }
 const listeners = new Set<() => void>()
 const set = (next: State) => {
   state = next
@@ -44,7 +46,7 @@ function MarketplaceScreen() {
   const access = useAccess("integrations")
   const view = useView()
   const status = dataState(view)
-  const s = useStore()
+  const mine = useInstalled()
   const open = useQuery("app")
   const category = useQuery("categorie") as AppCategory | null
   const [search, setSearch] = useState("")
@@ -58,7 +60,8 @@ function MarketplaceScreen() {
     (q === "" || `${a.name} ${a.tagline} ${a.listing}`.toLowerCase().includes(q))
   )
   const featured = FEATURED.map((id) => catalog.find((a) => a.id === id)).filter((a): a is App => a !== undefined)
-  const installed = catalog.filter((a) => s.installed.includes(a.id))
+  const installedIds = new Set(mine.map((i) => i.app.id))
+  const installed = status === "empty" ? [] : mine
   const app = CATALOG.find((a) => a.id === open)
 
   return (
@@ -123,13 +126,17 @@ function MarketplaceScreen() {
             {installed.length > 0 && (
               <PageSection id="geinstalleerd" title="Geïnstalleerd" meta={`${installed.length}`}>
                 <List label="Geïnstalleerd" divided>
-                  {installed.map((a) => (
+                  {installed.map((i) => (
                     <ListRow
-                      key={a.id}
-                      lead={<Lead app={a} />}
-                      title={a.name}
-                      meta={a.tagline}
-                      onClick={() => setQuery({ app: a.id })}
+                      key={i.app.id}
+                      lead={<Lead app={i.app} />}
+                      title={i.app.name}
+                      meta={i.revoked.length > 0
+                        ? `${i.app.tagline} · ${i.revoked.length} ${
+                          i.revoked.length === 1 ? "recht" : "rechten"
+                        } ingetrokken`
+                        : i.app.tagline}
+                      onClick={() => setQuery({ app: i.app.id })}
                       trail={<Status tone="good">Geïnstalleerd</Status>}
                     />
                   ))}
@@ -152,7 +159,7 @@ function MarketplaceScreen() {
                   {category === null && q === "" && (
                     <PageSection id="uitgelicht" title="Uitgelicht" meta="Door Insyte gekozen">
                       <List label="Uitgelicht" divided>
-                        {featured.map((a) => <AppRow key={a.id} app={a} installed={s.installed.includes(a.id)} />)}
+                        {featured.map((a) => <AppRow key={a.id} app={a} installed={installedIds.has(a.id)} />)}
                       </List>
                     </PageSection>
                   )}
@@ -204,7 +211,7 @@ function MarketplaceScreen() {
                         )
                         : (
                           <List label="Apps" divided>
-                            {shown.map((a) => <AppRow key={a.id} app={a} installed={s.installed.includes(a.id)} />)}
+                            {shown.map((a) => <AppRow key={a.id} app={a} installed={installedIds.has(a.id)} />)}
                           </List>
                         )}
                     </div>
@@ -238,7 +245,12 @@ function MarketplaceScreen() {
             </p>
           </div>
         )}
-      <AppSheet app={app} canInstall={access.edit} onClose={() => setQuery({ app: null })} />
+      <AppSheet
+        app={app}
+        item={mine.find((i) => i.app.id === app?.id)}
+        canInstall={access.edit}
+        onClose={() => setQuery({ app: null })}
+      />
       <FeedbackDialog open={feedback} onClose={() => setFeedback(false)} />
       <LegalDialog tab={legal} onTab={setLegal} />
     </Page>
@@ -266,8 +278,9 @@ function AppRow({ app, installed }: { readonly app: App; readonly installed: boo
 }
 
 function AppSheet(
-  { app, canInstall, onClose }: {
+  { app, item, canInstall, onClose }: {
     readonly app: App | undefined
+    readonly item: Installed | undefined
     readonly canInstall: boolean
     readonly onClose: () => void
   }
@@ -275,11 +288,13 @@ function AppSheet(
   const s = useStore()
   const [consent, setConsent] = useState(false)
   const [removing, setRemoving] = useState(false)
-  const installed = app !== undefined && s.installed.includes(app.id)
+  const [opening, setOpening] = useState<Installed | null>(null)
+  const [scopes, setScopes] = useState<Installed | null>(null)
+  const installed = item !== undefined
   const asked = app !== undefined && s.notify.includes(app.id)
 
-  const install = (a: App) => {
-    set({ ...state, installed: [...state.installed, a.id] })
+  const add = (a: App) => {
+    install(a.id)
     setConsent(false)
     toast({
       title: `${a.name} geïnstalleerd`,
@@ -303,7 +318,23 @@ function AppSheet(
         !canInstall
           ? <Denied area="integrations" need={2} size="inline" />
           : installed
-          ? <Button variant="danger" onClick={() => setRemoving(true)}>Verwijderen</Button>
+          ? (
+            <div className="flex w-full flex-wrap justify-between gap-2">
+              <Button variant="danger" onClick={() => setRemoving(true)}>Verwijderen</Button>
+              <span className="flex gap-2">
+                <Button onClick={() => setScopes(item)}>Rechten</Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    markOpened(item.app.id)
+                    setOpening(item)
+                  }}
+                >
+                  Openen
+                </Button>
+              </span>
+            </div>
+          )
           : app.install.kind === "soon"
           ? (
             <Button
@@ -356,7 +387,15 @@ function AppSheet(
               {installed ? "De app kan" : "De app kan straks"}
             </h3>
             <ul className="flex flex-col gap-1.5 text-sm text-ink-2">
-              {app.scopes.map((sc) => <li key={sc.id}>{sc.label}</li>)}
+              {app.scopes.map((sc) => {
+                const off = item?.revoked.includes(sc.id) === true
+                return (
+                  <li key={sc.id} className={off ? "text-ink-3" : undefined}>
+                    <span className={off ? "line-through" : undefined}>{sc.label}</span>
+                    {off && <span className="pl-1.5 text-xs">· ingetrokken</span>}
+                  </li>
+                )
+              })}
             </ul>
             {app.install.kind === "key" && (
               <p className="text-xs text-pretty text-ink-3">
@@ -382,7 +421,7 @@ function AppSheet(
           footer={
             <>
               <Button onClick={() => setConsent(false)}>Annuleren</Button>
-              <Button variant="primary" onClick={() => install(app)}>
+              <Button variant="primary" onClick={() => add(app)}>
                 {app.install.kind === "key" ? "Sleutel maken" : "Toestaan en koppelen"}
               </Button>
             </>
@@ -399,15 +438,21 @@ function AppSheet(
         onCancel={() => setRemoving(false)}
         onConfirm={() => {
           if (app === undefined) return
-          set({ ...state, installed: state.installed.filter((x) => x !== app.id) })
+          const undo = uninstall(app.id)
           setRemoving(false)
-          toast({ title: `${app.name} verwijderd`, body: "De toegang is direct gestopt." })
+          toast({
+            title: `${app.name} verwijderd`,
+            body: "De toegang is direct gestopt.",
+            action: { label: "Ongedaan maken", onClick: undo }
+          })
         }}
         title={`${app?.name ?? "De app"} verwijderen?`}
         body="De toegang stopt direct. Data die de app al kopieerde, valt onder de voorwaarden van de aanbieder."
         confirmLabel="Verwijderen"
         cancelLabel="Annuleren"
       />
+      <OpenAppDialog item={opening} onClose={() => setOpening(null)} onScopes={setScopes} />
+      <ScopesDialog item={scopes} onClose={() => setScopes(null)} />
     </Sheet>
   )
 }

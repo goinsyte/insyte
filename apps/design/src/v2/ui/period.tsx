@@ -25,7 +25,7 @@ const short = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" 
 const WEEKDAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"] as const
 
 /** "16–22 nov", "28 okt – 3 nov", "23 nov". */
-function formatRange({ from, to }: Range): string {
+export function formatRange({ from, to }: Range): string {
   if (sameDay(from, to)) return short.format(from).replace(".", "")
   if (from.getMonth() === to.getMonth()) return `${from.getDate()}–${short.format(to).replace(".", "")}`
   return `${short.format(from).replace(".", "")} – ${short.format(to).replace(".", "")}`
@@ -115,7 +115,7 @@ function Calendar({ month, onMonth, range, onPick, today }: {
   )
 }
 
-type Compare = "periode" | "jaar" | "geen"
+export type Compare = "periode" | "jaar" | "geen"
 
 export type Period = { readonly preset: string; readonly range: Range; readonly compare: Compare }
 

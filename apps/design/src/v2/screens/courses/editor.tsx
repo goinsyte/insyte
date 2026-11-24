@@ -1,5 +1,7 @@
-import { audienceLabel, BADGE_LABEL, BLOCK_LABEL, minutesOf } from "../../fixtures/courses.ts"
-import type { Badge, Block, BlockKind, Course } from "../../fixtures/courses.ts"
+import { useState } from "react"
+import { ASSISTANT } from "../../assistant.ts"
+import { audienceLabel, BADGE_LABEL, BLOCK_LABEL, minutesOf, suggestQuestions } from "../../fixtures/courses.ts"
+import type { Badge, Block, BlockKind, Course, QuizBlock } from "../../fixtures/courses.ts"
 import { SUPPLIERS } from "../../fixtures/records.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, useAccess } from "../../ui/access.tsx"
@@ -8,23 +10,29 @@ import { Button, ButtonLink, IconButton } from "../../ui/button.tsx"
 import { Checkbox } from "../../ui/checkbox.tsx"
 import { cx } from "../../ui/cx.ts"
 import { Sheet } from "../../ui/dialog.tsx"
-import { DropdownItem, DropdownMenu } from "../../ui/dropdown.tsx"
+import { DropdownItem, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
+import { FileDrop } from "../../ui/file-drop.tsx"
 import {
   Archive,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  Copy,
   Eye,
   FileText,
   Image,
   MessageSquare,
   MoreHorizontal,
   Plus,
+  RotateCcw,
+  Sparkles,
   Trash,
   Undo,
-  Video
+  Video,
+  X
 } from "../../ui/icons.tsx"
 import { Field, Input, Select, Textarea } from "../../ui/input.tsx"
+import { MagnusMark } from "../../ui/magnus-mark.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { SettingRow, SettingsSection } from "../../ui/settings.tsx"
@@ -35,7 +43,7 @@ import { toast } from "../../ui/toast.tsx"
 import { Segmented, Toggle } from "../../ui/toggle.tsx"
 import { dataState, setView, useView } from "../../view.ts"
 import { BADGE_GLYPH, personName } from "./parts.tsx"
-import { patchCourse, setBlocks, useChapters, useCourses } from "./store.ts"
+import { duplicateCourse, patchCourse, removeCourse, setBlocks, useChapters, useCourses } from "./store.ts"
 
 type Tab = "over" | "inhoud" | "instellingen"
 
@@ -172,16 +180,45 @@ function Editor({ course, canManage }: { readonly course: Course; readonly canMa
                   Live zetten
                 </Button>
               )}
-              {canManage && (
-                <DropdownMenu
-                  label="Meer acties"
-                  placement="bottom-end"
-                  trigger={(props) => (
-                    <IconButton label="Meer acties" tone="outline" {...props}>
-                      <MoreHorizontal />
-                    </IconButton>
-                  )}
+              <DropdownMenu
+                label="Meer acties"
+                placement="bottom-end"
+                trigger={(props) => (
+                  <IconButton label="Meer acties" tone="outline" {...props}>
+                    <MoreHorizontal />
+                  </IconButton>
+                )}
+              >
+                <DropdownItem
+                  glyph={Copy}
+                  onSelect={() => {
+                    const id = duplicateCourse(course)
+                    toast({
+                      title: `“${course.title} (kopie)” gemaakt`,
+                      body: "Als concept, met dezelfde blokken en instellingen.",
+                      tone: "good"
+                    })
+                    navigate(`${paths.course(id)}?tab=inhoud`)
+                  }}
                 >
+                  Dupliceren
+                </DropdownItem>
+                {course.status === "live" && (
+                  <DropdownItem
+                    glyph={RotateCcw}
+                    onSelect={() => {
+                      patchCourse(course.id, { status: "concept" })
+                      toast({
+                        title: `“${course.title}” terug naar concept`,
+                        body: "Het team ziet hem niet meer. De voortgang blijft bewaard.",
+                        action: { label: "Ongedaan maken", onClick: () => patchCourse(course.id, { status: "live" }) }
+                      })
+                    }}
+                  >
+                    Publicatie intrekken
+                  </DropdownItem>
+                )}
+                {canManage && (
                   <DropdownItem
                     glyph={course.status === "archief" ? Undo : Archive}
                     onSelect={() => {
@@ -190,14 +227,35 @@ function Editor({ course, canManage }: { readonly course: Course; readonly canMa
                       patchCourse(course.id, { status: next })
                       toast({
                         title: next === "archief" ? "Gearchiveerd" : "Teruggezet als concept",
+                        body: next === "archief" ? "De voortgang van het team blijft bewaard." : undefined,
                         action: { label: "Ongedaan maken", onClick: () => patchCourse(course.id, { status: before }) }
                       })
                     }}
                   >
                     {course.status === "archief" ? "Terugzetten" : "Archiveren"}
                   </DropdownItem>
-                </DropdownMenu>
-              )}
+                )}
+                {canManage && (
+                  <>
+                    <DropdownSeparator />
+                    <DropdownItem
+                      glyph={Trash}
+                      tone="danger"
+                      onSelect={() => {
+                        const undo = removeCourse(course.id)
+                        navigate(paths.courses)
+                        toast({
+                          title: `“${course.title}” verwijderd`,
+                          body: "Ook de voortgang en de vragen erbij.",
+                          action: { label: "Ongedaan maken", onClick: undo }
+                        })
+                      }}
+                    >
+                      Verwijderen
+                    </DropdownItem>
+                  </>
+                )}
+              </DropdownMenu>
             </>
           }
         />
@@ -310,6 +368,36 @@ const titleOf = (b: Block) => (b.kind === "quiz" ? b.question : b.title)
 function Content({ course }: { readonly course: Course }) {
   const open = useQuery("blok")
   const block = course.blocks.find((b) => b.id === open)
+  const [proposal, setProposal] = useState<ReadonlyArray<QuizBlock> | null>(null)
+  const texts = course.blocks.filter((b) => b.kind === "text").length
+  const propose = () => {
+    const qs = suggestQuestions(course)
+    if (qs.length === 0) {
+      toast({
+        title: "Geen vragen gevonden",
+        body:
+          "Magnus maakt vragen van zinnen met een getal of een termijn erin. Schrijf er een in een tekstblok en probeer het opnieuw."
+      })
+      return
+    }
+    setProposal(qs)
+  }
+  const take = (q: QuizBlock) => {
+    const id = `${course.id}-${crypto.randomUUID().slice(0, 8)}`
+    setBlocks(course.id, [...course.blocks, { ...q, id }])
+    const rest = (proposal ?? []).filter((x) => x.id !== q.id)
+    setProposal(rest.length === 0 ? null : rest)
+    toast({
+      title: "Vraag toegevoegd",
+      body: `Als blok ${course.blocks.length + 1}. Je kunt hem nog aanpassen.`,
+      tone: "good",
+      action: { label: "Ongedaan maken", onClick: () => setBlocks(course.id, course.blocks) }
+    })
+  }
+  const drop = (q: QuizBlock) => {
+    const rest = (proposal ?? []).filter((x) => x.id !== q.id)
+    setProposal(rest.length === 0 ? null : rest)
+  }
 
   const move = (i: number, by: number) => {
     const next = [...course.blocks]
@@ -384,7 +472,58 @@ function Content({ course }: { readonly course: Course }) {
           const G = KIND_GLYPH[k]
           return <Button key={k} size="sm" icon={<G />} onClick={() => add(k)}>{BLOCK_LABEL[k]}</Button>
         })}
+        <span className="flex-1" />
+        <Button size="sm" variant="ghost" icon={<Sparkles />} disabled={texts === 0} onClick={propose}>
+          Vragen laten voorstellen
+        </Button>
       </div>
+      {proposal !== null && (
+        <section
+          aria-label={`Voorstel van ${ASSISTANT}`}
+          className="grid gap-x-3 pt-2 sm:grid-cols-[28px_minmax(0,1fr)]"
+        >
+          <span className="hidden pt-0.5 sm:flex">
+            <MagnusMark size={22} />
+          </span>
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex items-start gap-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p className="text-xs text-ink-3">
+                  <span className="font-medium text-ink-2">{ASSISTANT}</span> · voorstel · staat nog niet in de cursus
+                </p>
+                <p className="text-sm font-semibold text-ink">
+                  {proposal.length === 1 ? "Eén vraag" : `${proposal.length} vragen`} bij deze cursus
+                </p>
+                <p className="text-sm text-pretty text-ink-2">
+                  Gemaakt van zinnen in je tekst met een getal of een termijn. De foute antwoorden zijn dezelfde zin met
+                  een ander getal.
+                </p>
+              </div>
+              <IconButton label="Voorstel sluiten" size="sm" onClick={() => setProposal(null)}>
+                <X />
+              </IconButton>
+            </div>
+            <ul className="flex flex-col divide-y divide-line">
+              {proposal.map((q) => (
+                <li key={q.id} className="flex flex-col gap-2 py-3">
+                  <p className="text-xs text-ink-3">{q.question} Goed antwoord:</p>
+                  <p className="text-sm text-pretty text-ink">{q.explain}</p>
+                  <p className="text-xs text-ink-3">
+                    Fout: {q.options.filter((_, i) => i !== q.correct).map((o) => `‘${o}’`).join(" en ")}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" icon={<Plus />} onClick={() => take(q)}>Toevoegen</Button>
+                    <Button size="sm" variant="ghost" onClick={() => drop(q)}>Weggooien</Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-ink-3">
+              Bron: {texts === 1 ? "1 tekstblok" : `${texts} tekstblokken`}
+            </p>
+          </div>
+        </section>
+      )}
       <BlockSheet course={course} block={block} onClose={() => setQuery({ blok: null })} />
     </div>
   )
@@ -531,6 +670,7 @@ function BlockSheet(
               )}
             </Field>
           )}
+          {block.kind === "image" && <ImageUpload block={block} onChange={put} />}
           {block.kind === "image" && (
             <Field label="Onderschrift">
               {(control) => (
@@ -678,5 +818,74 @@ function Settings({ course }: { readonly course: Course }) {
         />
       </SettingsSection>
     </div>
+  )
+}
+
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"]
+
+/** The picture of an image block: dropped or picked, checked for kind and size, shown with a way to swap it. */
+function ImageUpload(
+  { block, onChange }: {
+    readonly block: Extract<Block, { kind: "image" }>
+    readonly onChange: (b: Block) => void
+  }
+) {
+  const [error, setError] = useState<string | undefined>(undefined)
+  const pick = (file: File | undefined) => {
+    if (file === undefined) return
+    if (!IMAGE_TYPES.includes(file.type)) {
+      setError("Dat is geen afbeelding. Kies een PNG, JPG of WebP.")
+      return
+    }
+    if (file.size > 1_500_000) {
+      setError("Die afbeelding is te groot. Kies er een tot 1,5 MB, of verklein hem eerst.")
+      return
+    }
+    setError(undefined)
+    const reader = new FileReader()
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        onChange({ ...block, src: reader.result })
+        toast({ title: `${file.name} toegevoegd`, tone: "good" })
+      }
+    })
+    reader.readAsDataURL(file)
+  }
+  if (block.src !== undefined) {
+    return (
+      <figure className="flex flex-col gap-2">
+        <img src={block.src} alt={block.title} className="max-h-72 w-full rounded-md bg-well object-contain" />
+        <div className="flex gap-2">
+          <label className="inline-flex h-8 cursor-pointer items-center rounded-sm px-2.5 text-sm font-medium text-ink ring-1 ring-line-strong hover:bg-hover focus-within:ring-2 focus-within:ring-accent pointer-coarse:h-11">
+            Vervangen
+            <input
+              type="file"
+              accept={IMAGE_TYPES.join(",")}
+              className="sr-only"
+              onChange={(event) => {
+                pick(event.target.files?.[0])
+                event.target.value = ""
+              }}
+            />
+          </label>
+          <Button
+            variant="ghost"
+            icon={<Trash />}
+            onClick={() => onChange({ id: block.id, kind: "image", title: block.title, caption: block.caption })}
+          >
+            Weghalen
+          </Button>
+        </div>
+      </figure>
+    )
+  }
+  return (
+    <FileDrop
+      accept={IMAGE_TYPES.join(",")}
+      label="Sleep een afbeelding hierheen of kies er een"
+      hint="PNG, JPG of WebP, tot 1,5 MB"
+      invalid={error}
+      onFiles={(files) => pick(files[0])}
+    />
   )
 }

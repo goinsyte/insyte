@@ -3,20 +3,27 @@ import { openTickets } from "../demo.ts"
 import type { Glyph } from "../fixtures/agents.ts"
 import { paths } from "../router.tsx"
 import {
+  BadgePercent,
   BarChart3,
   CreditCard,
+  Database,
   Factory,
+  GraduationCap,
   Home,
   Inbox,
   Package,
+  PiggyBank,
   Radio,
   Returns,
+  Sheet,
   ShoppingBag,
+  Store,
   Users,
   Workflow
 } from "../ui/icons.tsx"
 import { level } from "../view.ts"
 import type { PermArea, View } from "../view.ts"
+import type { RailPrefs } from "./shell-state.ts"
 
 /**
  * The icon rail: every area of the product, in groups. The first group is the day (Start, Inbox,
@@ -56,8 +63,35 @@ export const SECTION_GROUPS: ReadonlyArray<ReadonlyArray<Section>> = [
 
 export const SECTIONS: ReadonlyArray<Section> = SECTION_GROUPS.flat()
 
+/** The tools under Meer, any of which can be pinned to the rail (`Zijbalk aanpassen`). */
+export const TOOLS: ReadonlyArray<Section & { readonly detail: string }> = [
+  {
+    id: "affiliates",
+    label: "Affiliates",
+    href: paths.affiliates,
+    glyph: BadgePercent,
+    detail: "Partners die over je producten praten"
+  },
+  { id: "sheets", label: "Sheets", href: paths.sheets, glyph: Sheet, detail: "Rekenen op je eigen cijfers" },
+  {
+    id: "courses",
+    label: "Cursussen",
+    href: paths.courses,
+    glyph: GraduationCap,
+    detail: "Uitleg voor team en leveranciers"
+  },
+  { id: "costs", label: "Kosten", href: paths.costs, glyph: PiggyBank, detail: "Wat de winkel per maand kost" },
+  { id: "data", label: "Data", href: paths.data, glyph: Database, detail: "Importeren, exporteren en opschonen" },
+  { id: "marketplace", label: "Marketplace", href: paths.marketplace, glyph: Store, detail: "Apps en koppelingen" }
+]
+
 /** The permission a rail area reads; Start, Live and Magnus are open to every role. */
 const SECTION_AREA: Readonly<Record<string, PermArea>> = {
+  affiliates: "affiliates",
+  courses: "courses",
+  costs: "billing",
+  data: "data",
+  marketplace: "integrations",
   inbox: "support",
   bestellingen: "orders",
   klanten: "customers",
@@ -70,7 +104,7 @@ const SECTION_AREA: Readonly<Record<string, PermArea>> = {
 }
 
 /** Whether the role in the demo view may open a rail area at all. */
-const sectionVisible = (view: View, id: string) => {
+export const sectionVisible = (view: View, id: string) => {
   const area = SECTION_AREA[id]
   return area === undefined || level(view, area) > 0
 }
@@ -78,6 +112,26 @@ const sectionVisible = (view: View, id: string) => {
 /** The rail's groups as the role sees them: an area it may not open is not offered. */
 export const visibleGroups = (view: View): ReadonlyArray<ReadonlyArray<Section>> =>
   SECTION_GROUPS.map((group) => group.filter((section) => sectionVisible(view, section.id))).filter((g) => g.length > 0)
+
+/**
+ * The rail as this person laid it out: each group in their order, without what they hid, and the
+ * tools they pinned as a group of their own after the areas. What the role may not open stays away.
+ */
+export function railGroups(view: View, prefs: RailPrefs): ReadonlyArray<ReadonlyArray<Section>> {
+  const rank = (id: string) => {
+    const at = prefs.order.indexOf(id)
+    return at === -1 ? Number.MAX_SAFE_INTEGER : at
+  }
+  const groups = visibleGroups(view).map((group) =>
+    group
+      .map((section, i) => ({ section, i }))
+      .toSorted((a, b) => rank(a.section.id) - rank(b.section.id) || a.i - b.i)
+      .map((x) => x.section)
+      .filter((section) => !prefs.hidden.includes(section.id))
+  )
+  const pinned = TOOLS.filter((tool) => prefs.pinned.includes(tool.id) && sectionVisible(view, tool.id))
+  return [...groups, pinned].filter((g) => g.length > 0)
+}
 
 /** Areas reached from a record link that are not on the rail. */
 const OTHER_LABELS: Readonly<Record<string, string>> = {

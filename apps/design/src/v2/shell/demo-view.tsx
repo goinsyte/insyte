@@ -4,6 +4,8 @@ import { Dialog } from "../ui/dialog.tsx"
 import { Select } from "../ui/input.tsx"
 import { AFFILIATE_STATEN, ROLLEN, setView, STATEN, useView } from "../view.ts"
 import type { AffiliateStaat, Rol, Staat } from "../view.ts"
+import { PACES, setPace, usePace } from "./loading.tsx"
+import type { Pace } from "./loading.tsx"
 
 /**
  * "Demoweergave": the design states of `/v2` in one place, for whoever reviews the screens. Which
@@ -39,6 +41,7 @@ const GROUPS = [...new Set(BARE_SCREENS.map((s) => s.group))]
 
 export function DemoViewDialog({ open, onClose }: { readonly open: boolean; readonly onClose: () => void }) {
   const view = useView()
+  const pace = usePace()
   return (
     <Dialog
       open={open}
@@ -93,6 +96,13 @@ export function DemoViewDialog({ open, onClose }: { readonly open: boolean; read
                 </Link>
               </li>
             </ul>
+          </div>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="demo-pace" className="text-sm font-medium text-ink">Laden</label>
+            <Select id="demo-pace" value={pace} onChange={(e) => setPace(e.target.value as Pace)}>
+              {PACES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </Select>
+            <p className="text-xs text-pretty text-ink-3">{PACES.find((p) => p.id === pace)?.detail}</p>
           </div>
           <div className="flex flex-col gap-2">
             <label htmlFor="demo-aff" className="text-sm font-medium text-ink">Aanvraag van de affiliate</label>

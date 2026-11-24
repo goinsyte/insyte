@@ -1,11 +1,12 @@
 import type { BarData, Figure, FunnelData, LineData, Note, TableData } from "../charts/types.ts"
-import { ORDERS, VAT } from "./records.ts"
+import { ORDERS } from "./records.ts"
 import type { Order } from "./records.ts"
 
 /**
  * Analyse's demo data: one week of Northwind EU (16–22 november 2026) against the week before. The
  * figures agree with each other and with Magnus's answers: 41 refunds against 30, 26 of them on the
- * Aurora Hooded Fleece, 21 of those "valt te klein".
+ * Aurora Hooded Fleece, 21 of those "valt te klein". Any other period a board is set to is counted
+ * from these two weeks and the shop's history in `screens/analyse/model.ts`, to the same totals.
  */
 
 export const PERIOD = { label: "16–22 nov", compare: "9–15 nov" } as const
@@ -23,15 +24,6 @@ export const WEEK_ORDERS: ReadonlyArray<Order> = ORDERS.filter((o) => {
   const t = o.placedAt.getTime()
   return t >= WEEK_START && t < WEEK_START + 7 * DAY_MS
 })
-
-/** One day's orders, oldest first: the breakdown behind a point of "Omzet per dag" (`day` 0 is Monday). */
-export function ordersOn(day: number): ReadonlyArray<Order> {
-  const from = WEEK_START + day * DAY_MS
-  return WEEK_ORDERS.filter((o) => o.placedAt.getTime() >= from && o.placedAt.getTime() < from + DAY_MS).toReversed()
-}
-
-/** Revenue excl. btw, as Analyse counts it. */
-export const revenueOf = (orders: ReadonlyArray<Order>) => Math.round(orders.reduce((s, o) => s + o.total, 0) / VAT)
 
 const tally = <K extends string>(key: (o: Order) => K) => {
   const counts = new Map<K, number>()

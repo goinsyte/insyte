@@ -1,33 +1,113 @@
 import { useMemo, useState } from "react"
+import { COMPLAINT_THRESHOLD, percent, supplierQuality, useProductState } from "../../fixtures/products.ts"
 import { decimal, PORTAL, supplierCounts, supplierRows, useSupplierState, VIA } from "../../fixtures/suppliers.ts"
 import type { SupplierRow } from "../../fixtures/suppliers.ts"
 import { navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Link } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Status } from "../../ui/badge.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
 import { Button } from "../../ui/button.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
-import { AddFilter, FilterChip, ListToolbar, SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import type { FilterField } from "../../ui/filters.tsx"
-import { Download, Factory, Mail, Pause, Play, UserPlus } from "../../ui/icons.tsx"
+import { emptyGroup } from "../../ui/filter-model.ts"
+import { FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
+import { Download, Factory, Mail, Pause, Play, Plus, UserPlus } from "../../ui/icons.tsx"
 import { SearchField } from "../../ui/input.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { EmptyState } from "../../ui/states.tsx"
-import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
+import { Table, TBody, Td, Th, THead, Tr, useSelection } from "../../ui/table.tsx"
 import type { Sort } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { dataState, useView } from "../../view.ts"
-import { InviteDialog, MailDialog, withUndo } from "./dialogs.tsx"
+import { filterRows, rule, useListFilter, where } from "../orders/list-filter.ts"
+import type { Address, ListField } from "../orders/list-filter.ts"
+import { InviteDialog, MailDialog, SupplierFormDialog, withUndo } from "./dialogs.tsx"
 import { PageError, TableSkeleton } from "./parts.tsx"
 
-/** The menu's cuts, as the address says them. */
-const VIEWS: Readonly<Record<string, { readonly label: string; readonly test: (r: SupplierRow) => boolean }>> = {
-  vertraagd: { label: "Vertraagd", test: (r) => r.late.length > 0 },
-  uitgenodigd: { label: "Uitgenodigd", test: (r) => r.portal === "uitgenodigd" },
-  api: { label: "Via API", test: (r) => r.apiConnected }
+const STATUS_LABEL = { actief: "Actief", uitgenodigd: "Uitgenodigd", gepauzeerd: "Gepauzeerd" } as const
+
+const STATUS_FIELD: ListField<SupplierRow> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: Object.values(STATUS_LABEL),
+  get: (r) => STATUS_LABEL[r.status]
+}
+const PORTAL_FIELD: ListField<SupplierRow> = {
+  key: "portaal",
+  label: "Portaal",
+  type: "option",
+  options: Object.values(PORTAL).map((p) => p.label),
+  get: (r) => PORTAL[r.portal].label
+}
+const API_FIELD: ListField<SupplierRow> = {
+  key: "api",
+  label: "API",
+  type: "option",
+  options: ["Gekoppeld", "Niet gekoppeld"],
+  get: (r) => (r.apiConnected ? "Gekoppeld" : "Niet gekoppeld")
+}
+const LATE_FIELD: ListField<SupplierRow> = { key: "laat", label: "Te laat", type: "number", get: (r) => r.late.length }
+const SLOWER_FIELD: ListField<SupplierRow> = {
+  key: "trager",
+  label: "Dagen trager dan beloofd",
+  type: "number",
+  get: (r) => (r.leadDays === 0 ? null : r.leadDays - r.promiseDays)
 }
 
+const FIELDS: ReadonlyArray<ListField<SupplierRow>> = [
+  STATUS_FIELD,
+  PORTAL_FIELD,
+  { key: "via", label: "Bestellingen via", type: "option", options: Object.values(VIA), get: (r) => VIA[r.via] },
+  API_FIELD,
+  { key: "land", label: "Land", type: "option", get: (r) => r.country },
+  LATE_FIELD,
+  { key: "open", label: "Open", type: "number", get: (r) => r.open.length },
+  SLOWER_FIELD,
+  {
+    key: "optijd",
+    label: "Op tijd, %",
+    type: "number",
+    get: (r) => (r.onTime === null ? null : Math.round(r.onTime * 100))
+  },
+  { key: "producten", label: "Producten", type: "number", get: (r) => r.products.length }
+]
+
+const LATE = where("and", rule(LATE_FIELD, "gt", "0"))
+
+/** The menu's cuts, as the address says them (`?weergave=vertraagd`). */
+const ADDRESS: Address = {
+  cuts: {
+    param: "weergave",
+    filters: {
+      vertraagd: LATE,
+      uitgenodigd: where("and", rule(PORTAL_FIELD, "any", [PORTAL.uitgenodigd.label])),
+      api: where("and", rule(API_FIELD, "any", ["Gekoppeld"]))
+    }
+  }
+}
+
+const VIEWS = "leveranciers"
+seedViews(VIEWS, [
+  { name: "Vertraagd", pinned: false, filter: LATE },
+  { name: "Trager dan beloofd", pinned: false, filter: where("and", rule(SLOWER_FIELD, "gt", "0")) },
+  { name: "Gepauzeerd", pinned: false, filter: where("and", rule(STATUS_FIELD, "any", ["Gepauzeerd"])) }
+])
+
 type SortKey = "name" | "late" | "lead" | "onTime"
+
+const pause = (list: ReadonlyArray<SupplierRow>, paused: boolean) =>
+  withUndo(
+    paused
+      ? `${list.length} ${list.length === 1 ? "leverancier" : "leveranciers"} gepauzeerd`
+      : `${list.length} ${list.length === 1 ? "leverancier" : "leveranciers"} hervat`,
+    paused ? "Nieuwe bestellingen wachten tot je ze hervat." : undefined,
+    (s) => ({
+      ...s,
+      edits: { ...s.edits, ...Object.fromEntries(list.map((r) => [r.id, { ...s.edits[r.id], paused }])) }
+    })
+  )
 
 /**
  * Leveranciers (`/app/suppliers`): who makes what, and whether they keep their word. Lead time is
@@ -37,45 +117,74 @@ type SortKey = "name" | "late" | "lead" | "onTime"
 export function SuppliersList() {
   const view = useView()
   const st = useSupplierState()
+  const ps = useProductState()
   const access = useAccess("suppliers")
   const state = dataState(view)
-  const weergave = useQuery("weergave")
   const zoek = useQuery("zoek") ?? ""
   const [sort, setSort] = useState<{ key: SortKey; dir: Exclude<Sort, null> }>({ key: "late", dir: "desc" })
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
-  const [dialog, setDialog] = useState<"invite" | "mail" | null>(null)
+  const [dialog, setDialog] = useState<"invite" | "mail" | "new" | null>(null)
+  // Who the mail goes to: the selection is cleared as soon as an action starts.
+  const [mailTo, setMailTo] = useState<ReadonlyArray<SupplierRow>>([])
+  const [filter, setFilter] = useListFilter(VIEWS, FIELDS, ADDRESS)
 
   const all = supplierRows(view, st)
   const counts = supplierCounts(view, st)
-  const cut = weergave === null ? undefined : VIEWS[weergave]
   const rows = useMemo(() => {
     const q = zoek.trim().toLowerCase()
-    const out = all.filter((r) =>
-      (q === "" || r.name.toLowerCase().includes(q) || r.contact.toLowerCase().includes(q))
-      && (cut === undefined || cut.test(r))
+    const out = filterRows(all, filter, FIELDS, "2026-11-23").filter((r) =>
+      q === "" || r.name.toLowerCase().includes(q) || r.contact.toLowerCase().includes(q)
     )
     const val = (r: SupplierRow) =>
       sort.key === "late" ? r.late.length : sort.key === "lead" ? r.leadDays - r.promiseDays : r.onTime ?? 2
     const dir = sort.dir === "asc" ? 1 : -1
     return out.toSorted((a, b) => (sort.key === "name" ? a.name.localeCompare(b.name, "nl") : val(a) - val(b)) * dir)
-  }, [all, zoek, cut, sort])
-  const picked = all.filter((r) => selected.has(r.id))
-  const allOn = rows.length > 0 && rows.every((r) => selected.has(r.id))
+  }, [all, zoek, filter, sort])
+  const selection = useSelection(rows)
   const toggleSort = (key: SortKey) =>
     setSort((cur) => (cur.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }))
   const sortOf = (key: SortKey) => (sort.key === key ? sort.dir : null)
-  const pause = (paused: boolean) => {
-    withUndo(
-      paused
-        ? `${picked.length} ${picked.length === 1 ? "leverancier" : "leveranciers"} gepauzeerd`
-        : `${picked.length} ${picked.length === 1 ? "leverancier" : "leveranciers"} hervat`,
-      paused ? "Nieuwe bestellingen wachten tot je ze hervat." : undefined,
-      (s) => ({ edits: { ...s.edits, ...Object.fromEntries(picked.map((r) => [r.id, { ...s.edits[r.id], paused }])) } })
-    )
-    setSelected(new Set())
-  }
-  const FIELDS: ReadonlyArray<FilterField> = [
-    { key: "weergave", label: "Weergave", options: Object.values(VIEWS).map((v) => v.label) }
+  const EDIT = { area: "suppliers", level: 2 } as const
+  /** One list for the bar, the Acties menu and the keys. */
+  const actions: ReadonlyArray<RowAction<SupplierRow>> = [
+    {
+      id: "mailen",
+      label: "E-mailen",
+      icon: <Mail />,
+      bar: true,
+      shortcut: "m",
+      run: (list) => {
+        setMailTo(list)
+        setDialog("mail")
+      }
+    },
+    {
+      id: "pauzeren",
+      label: "Pauzeren",
+      icon: <Pause />,
+      bar: true,
+      shortcut: "p",
+      needs: EDIT,
+      applies: (r) => !r.paused,
+      run: (list) => pause(list, true)
+    },
+    {
+      id: "hervatten",
+      label: "Hervatten",
+      icon: <Play />,
+      bar: true,
+      shortcut: "h",
+      needs: EDIT,
+      applies: (r) => r.paused,
+      run: (list) => pause(list, false)
+    },
+    {
+      id: "csv",
+      label: "CSV",
+      icon: <Download />,
+      group: "Delen",
+      shortcut: "e",
+      run: () => toast({ title: "Export gestart", body: "leveranciers.csv staat zo bij je downloads." })
+    }
   ]
 
   if (!access.view) {
@@ -96,9 +205,12 @@ export function SuppliersList() {
           : undefined}
         actions={access.edit && state !== "loading" && state !== "error"
           ? (
-            <Button variant="primary" icon={<UserPlus />} onClick={() => setDialog("invite")}>
-              Leverancier uitnodigen
-            </Button>
+            <>
+              <Button icon={<Plus />} onClick={() => setDialog("new")}>Nieuwe leverancier</Button>
+              <Button variant="primary" icon={<UserPlus />} onClick={() => setDialog("invite")}>
+                Leverancier uitnodigen
+              </Button>
+            </>
           )
           : undefined}
       />
@@ -128,34 +240,16 @@ export function SuppliersList() {
       )}
 
       {state === "ready" && (
-        <div className="flex min-w-0 flex-col">
-          {selected.size > 0
+        <div className="flex min-w-0 flex-col gap-3">
+          <SavedViews list={VIEWS} value={filter} onPick={setFilter} allLabel="Alle leveranciers" />
+          {selection.picked.length > 0
             ? (
               <SelectionBar
-                count={selected.size}
+                rows={selection.picked}
+                actions={actions}
                 noun={["leverancier", "leveranciers"]}
-                onClear={() => setSelected(new Set())}
-              >
-                <SelectionAction icon={<Mail />} onClick={() => setDialog("mail")}>E-mailen</SelectionAction>
-                {access.edit && (
-                  <SelectionAction icon={<Pause />} onClick={() => pause(true)}>Pauzeren</SelectionAction>
-                )}
-                {access.edit && picked.some((r) => r.paused) && (
-                  <SelectionAction
-                    icon={<Play />}
-                    onClick={() => pause(false)}
-                  >
-                    Hervatten
-                  </SelectionAction>
-                )}
-                <SelectionAction
-                  icon={<Download />}
-                  onClick={() =>
-                    toast({ title: "Export gestart", body: "leveranciers.csv staat zo bij je downloads." })}
-                >
-                  CSV
-                </SelectionAction>
-              </SelectionBar>
+                onClear={selection.clear}
+              />
             )
             : (
               <ListToolbar
@@ -169,19 +263,8 @@ export function SuppliersList() {
                         placeholder="Zoek op naam of contactpersoon"
                       />
                     </div>
-                    {cut !== undefined && (
-                      <FilterChip
-                        field="Weergave"
-                        value={cut.label}
-                        onRemove={() => setQuery({ weergave: null })}
-                      />
-                    )}
-                    <AddFilter
-                      fields={FIELDS}
-                      active={new Set(cut === undefined ? [] : [`weergave:${cut.label}`])}
-                      onAdd={(_, value) =>
-                        setQuery({ weergave: Object.entries(VIEWS).find(([, v]) => v.label === value)?.[0] ?? null })}
-                    />
+                    <FilterRules fields={FIELDS} rows={all} value={filter} onChange={setFilter} />
+                    <FilterBuilder fields={FIELDS} rows={all} value={filter} onChange={setFilter} views={VIEWS} />
                   </>
                 }
               />
@@ -195,21 +278,29 @@ export function SuppliersList() {
                 title="Geen leveranciers voor deze filters"
                 className="py-14"
                 action={
-                  <Button size="sm" onClick={() => setQuery({ weergave: null, zoek: null })}>Filters wissen</Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setFilter(emptyGroup())
+                      setQuery({ zoek: null })
+                    }}
+                  >
+                    Filters wissen
+                  </Button>
                 }
               >
                 Pas de zoekterm of de filters aan, of wis ze.
               </EmptyState>
             )
             : (
-              <Table label="Leveranciers" minWidth={920} className="mt-1">
+              <Table label="Leveranciers" minWidth={1080}>
                 <THead>
                   <Th width={40}>
                     <RowCheckbox
                       label="Alle leveranciers kiezen"
-                      checked={allOn}
-                      indeterminate={!allOn && rows.some((r) => selected.has(r.id))}
-                      onChange={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())}
+                      checked={selection.all}
+                      indeterminate={selection.some}
+                      onChange={selection.setAll}
                     />
                   </Th>
                   <Th sort={sortOf("name")} onSort={() => toggleSort("name")}>Leverancier</Th>
@@ -218,25 +309,22 @@ export function SuppliersList() {
                   <Th align="right" sort={sortOf("late")} onSort={() => toggleSort("late")}>Te laat</Th>
                   <Th align="right" sort={sortOf("lead")} onSort={() => toggleSort("lead")}>Levertijd</Th>
                   <Th align="right" sort={sortOf("onTime")} onSort={() => toggleSort("onTime")}>Op tijd</Th>
+                  <Th align="right">Klachten</Th>
+                  <Th align="right">Controles</Th>
                   <Th>Bestellingen via</Th>
                   <Th>Portaal</Th>
                 </THead>
                 <TBody>
                   {rows.map((r) => {
                     const slow = r.leadDays > r.promiseDays
+                    const q = supplierQuality(r.id, ps)
                     return (
-                      <Tr key={r.id} selected={selected.has(r.id)} onOpen={() => navigate(paths.supplier(r.id))}>
+                      <Tr key={r.id} selected={selection.has(r.id)} onOpen={() => navigate(paths.supplier(r.id))}>
                         <Td>
                           <RowCheckbox
                             label={`${r.name} kiezen`}
-                            checked={selected.has(r.id)}
-                            onChange={(on) =>
-                              setSelected((cur) => {
-                                const next = new Set(cur)
-                                if (on) next.add(r.id)
-                                else next.delete(r.id)
-                                return next
-                              })}
+                            checked={selection.has(r.id)}
+                            onChange={(on) => selection.toggle(r.id, on)}
                           />
                         </Td>
                         <Td header className="py-1.5">
@@ -279,6 +367,30 @@ export function SuppliersList() {
                         >
                           {r.onTime === null ? "—" : `${Math.round(r.onTime * 100)}%`}
                         </Td>
+                        <Td
+                          figure
+                          align="right"
+                          className={q.sold === 0 ? "text-ink-3" : q.over ? "font-medium text-warn-ink" : undefined}
+                        >
+                          <span
+                            title={q.sold === 0
+                              ? undefined
+                              : `${q.complaints} op ${q.sold.toLocaleString("nl-NL")} verkocht in 90 dagen, grens ${
+                                percent(COMPLAINT_THRESHOLD)
+                              }`}
+                          >
+                            {q.sold === 0 ? "—" : percent(q.rate, 1)}
+                          </span>
+                        </Td>
+                        <Td figure align="right" className={q.judged === 0 ? "text-ink-3" : undefined}>
+                          {q.judged === 0
+                            ? "—"
+                            : (
+                              <span className={q.passed < q.judged ? "text-warn-ink" : undefined}>
+                                {q.passed} van {q.judged}
+                              </span>
+                            )}
+                        </Td>
                         <Td muted>{VIA[r.via]}{r.auto && ", automatisch"}</Td>
                         <Td>
                           <Status tone={PORTAL[r.portal].tone}>{PORTAL[r.portal].label}</Status>
@@ -293,13 +405,11 @@ export function SuppliersList() {
       )}
 
       <InviteDialog open={dialog === "invite"} onClose={() => setDialog(null)} />
+      <SupplierFormDialog open={dialog === "new"} onClose={() => setDialog(null)} />
       <MailDialog
         open={dialog === "mail"}
-        onClose={() => {
-          setDialog(null)
-          setSelected(new Set())
-        }}
-        to={picked.map((r) => ({ name: r.name, email: r.email }))}
+        onClose={() => setDialog(null)}
+        to={mailTo.map((r) => ({ name: r.name, email: r.email }))}
       />
     </Page>
   )

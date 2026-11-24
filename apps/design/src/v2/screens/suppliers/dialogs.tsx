@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { getSupplierState, PORTAL_SCOPES, setSupplierState } from "../../fixtures/suppliers.ts"
-import type { SupplierState } from "../../fixtures/suppliers.ts"
+import type { SupplierRow, SupplierState } from "../../fixtures/suppliers.ts"
+import { navigate, paths } from "../../router.tsx"
 import { Button } from "../../ui/button.tsx"
 import { Checkbox } from "../../ui/checkbox.tsx"
 import { Dialog } from "../../ui/dialog.tsx"
@@ -109,6 +110,160 @@ export function InviteDialog({ open, onClose }: { readonly open: boolean; readon
             />
           ))}
         </fieldset>
+      </div>
+    </Dialog>
+  )
+}
+
+const slug = (name: string) =>
+  name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(
+    /^-|-$/g,
+    ""
+  )
+
+/**
+ * Nieuwe leverancier, or one edited (`/app`'s `supplier-form-dialog.tsx`): the name, where orders go
+ * by mail, a phone, what they make and the lead time they promise. A new one is added without a
+ * portal; inviting them is its own step on their page. Undo takes it back.
+ */
+export function SupplierFormDialog({ open, onClose, row }: {
+  readonly open: boolean
+  readonly onClose: () => void
+  /** The supplier to edit; absent, a new one. */
+  readonly row?: SupplierRow
+}) {
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [phone, setPhone] = useState("")
+  const [supplies, setSupplies] = useState("")
+  const [days, setDays] = useState("")
+  const [tried, setTried] = useState(false)
+  useEffect(() => {
+    if (open) {
+      setName(row?.name ?? "")
+      setEmail(row?.email ?? "")
+      setPhone(row?.phone ?? "")
+      setSupplies(row === undefined || row.supplies === "—" ? "" : row.supplies)
+      setDays(row === undefined ? "5" : String(row.promiseDays))
+      setTried(false)
+    }
+  }, [open, row])
+  const lead = Number(days.trim())
+  const errors = {
+    name: name.trim() === "" ? "Naam is verplicht" : undefined,
+    email: email.trim() === ""
+      ? "E-mailadres is verplicht"
+      : !EMAIL.test(email.trim())
+      ? "Dit is geen e-mailadres"
+      : undefined,
+    days: days.trim() === "" || !Number.isInteger(lead) || lead < 0 || lead > 30
+      ? "Een heel aantal dagen, van 0 tot 30"
+      : undefined
+  }
+  const save = () => {
+    setTried(true)
+    if (errors.name !== undefined || errors.email !== undefined || errors.days !== undefined) return
+    const fields = {
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      supplies: supplies.trim() === "" ? "—" : supplies.trim(),
+      promiseDays: lead
+    }
+    if (row === undefined) {
+      const taken = new Set(getSupplierState().created.map((x) => x.id))
+      const base = slug(fields.name) || "leverancier"
+      const id = taken.has(base) ? `${base}-${taken.size + 1}` : base
+      const before = getSupplierState()
+      setSupplierState((st) => ({
+        ...st,
+        created: [...st.created, {
+          id,
+          name: fields.name,
+          email: fields.email,
+          ...(fields.phone === "" ? {} : { phone: fields.phone }),
+          country: "—",
+          status: "actief",
+          apiConnected: false,
+          leadDays: 0,
+          promiseDays: fields.promiseDays,
+          since: "vandaag",
+          supplies: fields.supplies
+        }]
+      }))
+      navigate(paths.supplier(id))
+      toast({
+        title: `${fields.name} toegevoegd`,
+        body: "Bestellingen gaan per e-mail tot je ze uitnodigt voor het portaal.",
+        tone: "good",
+        action: {
+          label: "Ongedaan maken",
+          onClick: () => {
+            setSupplierState(() => before)
+            navigate(paths.suppliers)
+          }
+        }
+      })
+    } else {
+      withUndo(`${fields.name} bijgewerkt`, undefined, (st) => ({
+        ...st,
+        edits: { ...st.edits, [row.id]: { ...st.edits[row.id], ...fields } }
+      }))
+    }
+    onClose()
+  }
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={row === undefined ? "Nieuwe leverancier" : `${row.name} bewerken`}
+      description={row === undefined
+        ? "Voeg een partij toe die je producten maakt of verstuurt. Een uitnodiging voor het portaal stuur je daarna."
+        : "Wijzigingen gelden voor nieuwe bestellingen. Wat al onderweg is, blijft zoals het ging."}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Annuleren</Button>
+          <Button variant="primary" onClick={save}>{row === undefined ? "Toevoegen" : "Opslaan"}</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4 pb-1">
+        <Field label="Naam" error={tried ? errors.name : undefined}>
+          {(control) => <Input {...control} value={name} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <Field
+          label="E-mailadres voor bestellingen"
+          hint="Hier komen de bestellingen binnen zolang ze niet in het portaal werken."
+          error={tried ? errors.email : undefined}
+        >
+          {(control) => <Input {...control} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />}
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Telefoon" optional>
+            {(control) => <Input {...control} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
+          </Field>
+          <Field label="Levertijd" hint="Wat ze beloven, 0 tot 30" error={tried ? errors.days : undefined}>
+            {(control) => (
+              <Input
+                {...control}
+                inputMode="numeric"
+                suffix="dagen"
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+              />
+            )}
+          </Field>
+        </div>
+        <Field label="Wat ze leveren" optional>
+          {(control) => (
+            <Input
+              {...control}
+              value={supplies}
+              placeholder="Bijvoorbeeld: jassen en tassen"
+              onChange={(e) => setSupplies(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
     </Dialog>
   )

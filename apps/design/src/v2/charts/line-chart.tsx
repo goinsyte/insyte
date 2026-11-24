@@ -1,5 +1,6 @@
 import { useState } from "react"
 import type { PointerEvent } from "react"
+import { cx } from "../ui/cx.ts"
 import { formatAxis, formatChange, formatValue } from "./format.ts"
 import { NotePin } from "./parts.tsx"
 import { axis, useWidth } from "./scale.ts"
@@ -13,10 +14,12 @@ const BOTTOM = 26
  * A line: this period in ink, the period before dashed in comparison grey, three ruled values and the
  * days under it. Hover (or arrow keys when focused) reads one day out against the day before.
  */
-export function LineChart({ data, note, height = 200 }: {
+export function LineChart({ data, note, height = 200, onPick }: {
   readonly data: LineData
   readonly note?: Note
   readonly height?: number
+  /** A point opens what is behind it: a click, or Enter on the point the arrows reached. */
+  readonly onPick?: (index: number) => void
 }) {
   const [ref, width] = useWidth<HTMLDivElement>()
   const [active, setActive] = useState<number | null>(null)
@@ -57,12 +60,17 @@ export function LineChart({ data, note, height = 200 }: {
           role="img"
           aria-label={summary}
           tabIndex={0}
-          className="block touch-none outline-none focus-visible:outline-2 focus-visible:outline-accent"
+          className={cx(
+            "block touch-none outline-none focus-visible:outline-2 focus-visible:outline-accent",
+            onPick !== undefined && "cursor-pointer"
+          )}
           onPointerMove={onMove}
           onPointerLeave={() => setActive(null)}
+          onClick={onPick === undefined ? undefined : () => onPick(active ?? shown)}
           onKeyDown={(event) => {
             if (event.key === "ArrowRight") setActive(Math.min(n - 1, (active ?? shown) + 1))
             if (event.key === "ArrowLeft") setActive(Math.max(0, (active ?? shown) - 1))
+            if (event.key === "Enter" && onPick !== undefined) onPick(active ?? shown)
           }}
           onBlur={() => setActive(null)}
         >

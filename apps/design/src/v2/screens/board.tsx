@@ -1,35 +1,43 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { BlockView } from "../charts/block-view.tsx"
 import { formatValue } from "../charts/format.ts"
-import { BLOCKS, BOARD_TEMPLATES, BOARDS, ordersOn, PERIOD, revenueOf, WEEK_DAYS } from "../fixtures/analytics.ts"
+import { BLOCKS, BOARD_TEMPLATES, BOARDS, PERIOD } from "../fixtures/analytics.ts"
 import type { Block, BlockId, BlockKind, Board, BoardTemplate, Placement, Width } from "../fixtures/analytics.ts"
-import { customer, euro, ORDER_STATUS } from "../fixtures/records.ts"
 import { DEMO_NOW, ME, TODAY } from "../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../ui/access.tsx"
 import { Avatar } from "../ui/avatar.tsx"
-import { Status } from "../ui/badge.tsx"
 import { Button, ButtonLink, IconButton } from "../ui/button.tsx"
 import { RadioGroup } from "../ui/checkbox.tsx"
 import { cx } from "../ui/cx.ts"
-import { AlertDialog, Sheet } from "../ui/dialog.tsx"
-import { ArrowLeft, BarChart3, Check, Clock, Edit, List, Plus, RotateCcw, Trash, X } from "../ui/icons.tsx"
+import { AlertDialog } from "../ui/dialog.tsx"
+import { ArrowLeft, BarChart3, Check, Edit, Plus, RotateCcw, Trash, X } from "../ui/icons.tsx"
 import { Field, Input } from "../ui/input.tsx"
 import { Page, PageHead } from "../ui/page.tsx"
+import { PeriodPicker } from "../ui/period.tsx"
 import { Skeleton } from "../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../ui/states.tsx"
-import { Table, TBody, Td, Th, THead, Tr } from "../ui/table.tsx"
 import { toast } from "../ui/toast.tsx"
 import { Segmented } from "../ui/toggle.tsx"
 import { dataState, setView, useView } from "../view.ts"
+import { Ask } from "./analyse/ask.tsx"
+import { ExplainDrawer } from "./analyse/drawer.tsx"
+import { Findings } from "./analyse/findings.tsx"
+import { blocksOf, contextOf } from "./analyse/model.ts"
+import { periodQuery, TODAY_DATE, usePeriod } from "./analyse/period.ts"
 
 /**
  * An Analyse board: the answer to "make it your own, but keep it consistent".
  *
  * What a person may change: which blocks, their order, and their width (one of four). What nobody
- * changes: the blocks' anatomy, the chart style, the colours, the height of a row, the period. The
- * period and comparison belong to the board, so every block on it agrees about "this week". So a
- * board can be anything and still look like Insyte.
+ * changes: the blocks' anatomy, the chart style, the colours, the height of a row. The period and
+ * the comparison are chosen once for the whole board (in the address, `?periode=…&vergelijk=…`), so
+ * every block, finding and answer on it agrees about the same days. So a board can be anything and
+ * still look like Insyte.
+ *
+ * Every figure, point, bar and ranked row opens the explanation behind it (`?uitleg=…`): the drivers,
+ * how it splits and the orders it counts. Above the blocks, what Magnus found in the period, each
+ * with the proposal that acts on it, and a field to ask about the numbers.
  */
 
 const SPAN: Record<Width, string> = {
@@ -173,8 +181,15 @@ function BoardView({ board, custom, canEdit }: {
   const [adding, setAdding] = useState(fresh && canEdit && board.placements.length === 0)
   const [confirm, setConfirm] = useState(false)
   const [remove, setRemove] = useState(false)
-  const dayParam = useQuery("dag")
-  const day = dayParam === null ? null : Math.min(6, Math.max(0, Number.parseInt(dayParam, 10) || 0))
+  const period = usePeriod()
+  // The period is rebuilt from the address on every render; its days and comparison are what count.
+  const [from, to, compare] = [period.range.from.getTime(), period.range.to.getTime(), period.compare]
+  const ctx = useMemo(
+    () => contextOf({ preset: "", range: { from: new Date(from), to: new Date(to) }, compare }),
+    [from, to, compare]
+  )
+  const blocks = blocksOf(ctx)
+  const explaining = useExplainKey()
 
   const update = (next: ReadonlyArray<Placement>) => {
     setPlacements(next)
@@ -188,7 +203,7 @@ function BoardView({ board, custom, canEdit }: {
     if (item !== undefined) next.splice(j, 0, item)
     update(next)
   }
-  const onBoard = new Set(placements.map((p) => p.block))
+  const onBoard: ReadonlySet<BlockId> = new Set(placements.map((p) => p.block))
   const available = (Object.values(BLOCKS) as ReadonlyArray<Block>).filter((block) => !onBoard.has(block.id as BlockId))
 
   return (
@@ -202,10 +217,6 @@ function BoardView({ board, custom, canEdit }: {
                 <Avatar name={board.owner} size={16} />
                 Van {board.owner}
               </span>
-              <span className="flex items-center gap-1.5">
-                <Clock size={13} />
-                <span className="text-ink-2">{PERIOD.label}</span> tegen {PERIOD.compare}
-              </span>
               <Link to={paths.live} className="hover:text-ink">
                 Vandaag tot {DEMO_NOW.clock}:{" "}
                 <span className="figure text-ink-2">{formatValue(TODAY.revenue, "euro")}</span> uit{" "}
@@ -213,7 +224,13 @@ function BoardView({ board, custom, canEdit }: {
               </Link>
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {!editing && (
+              <span className="flex items-center gap-2">
+                <PeriodPicker value={period} onChange={(next) => setQuery(periodQuery(next))} today={TODAY_DATE} />
+                {ctx.cmpLabel !== "" && <span className="figure text-xs text-ink-3">tegen {ctx.cmpLabel}</span>}
+              </span>
+            )}
             {editing
               ? (
                 <>
@@ -328,9 +345,31 @@ function BoardView({ board, custom, canEdit }: {
           </section>
         )}
 
-        <div className="grid grid-cols-12 gap-y-14 md:gap-x-10 xl:gap-x-12">
+        {!editing && ctx.empty && (
+          <EmptyState
+            glyph={BarChart3}
+            size="sm"
+            title={`Nog geen cijfers voor ${ctx.label}`}
+            action={
+              <Button size="sm" onClick={() => setQuery({ periode: null, van: null, tot: null })}>
+                Naar vorige week
+              </Button>
+            }
+          >
+            Northwind verkoopt sinds 3 februari 2025. Kies een periode vanaf die dag.
+          </EmptyState>
+        )}
+
+        {!editing && !ctx.empty && placements.length > 0 && (
+          <>
+            <Ask key={`${ctx.label}:${ctx.cmpLabel}`} ctx={ctx} onExplain={explainIt} />
+            <Findings ctx={ctx} onBoard={onBoard} onExplain={explainIt} canEdit={canEdit} />
+          </>
+        )}
+
+        <div className={cx("grid grid-cols-12 gap-y-14 md:gap-x-10 xl:gap-x-12", ctx.empty && !editing && "hidden")}>
           {placements.map((placement, i) => {
-            const block: Block = BLOCKS[placement.block]
+            const block: Block = blocks[placement.block]
             return (
               <div
                 key={placement.block}
@@ -345,139 +384,82 @@ function BoardView({ board, custom, canEdit }: {
                   block={block}
                   size={placement.block === board.lead ? "lead" : "normal"}
                   compareLabel="was"
-                  onAsk={(title) => navigate(paths.newChat(title))}
-                  actions={!editing && DAY_BLOCKS.has(placement.block)
-                    ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon={<List />}
-                        onClick={() => setQuery({ dag: String(block.kind === "line" ? block.data.focus ?? 4 : 4) })}
-                      >
-                        Per bestelling
-                      </Button>
-                    )
-                    : editing && (
-                      <span className="flex shrink-0 items-center gap-0.5">
-                        <span className="mr-1 hidden sm:inline-flex">
-                          <Segmented
-                            size="sm"
-                            label={`Breedte van ${block.title}`}
-                            value={placement.width}
-                            options={WIDTHS}
-                            onChange={(width) => update(placements.map((p, k) => (k === i ? { ...p, width } : p)))}
-                          />
-                        </span>
-                        <IconButton label="Naar voren" size="sm" disabled={i === 0} onClick={() => move(i, -1)}>
-                          <ArrowLeft />
-                        </IconButton>
-                        <IconButton
-                          label="Naar achteren"
+                  compare={ctx.cmp !== null}
+                  keyLabels={KEY_LABELS[ctx.compare]}
+                  onAsk={(title) => navigate(paths.newChat(`${title} (${ctx.label})`))}
+                  {...(editing || !PICKABLE.has(block.kind)
+                    ? {}
+                    : {
+                      onPick: (index: number) =>
+                        explainIt(`${block.kind === "figures" ? "f" : "i"}.${block.id}.${index}`)
+                    })}
+                  actions={editing && (
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      <span className="mr-1 hidden sm:inline-flex">
+                        <Segmented
                           size="sm"
-                          disabled={i === placements.length - 1}
-                          onClick={() => move(i, 1)}
-                        >
-                          <ArrowLeft className="rotate-180" />
-                        </IconButton>
-                        <IconButton
-                          label={`${block.title} weghalen`}
-                          size="sm"
-                          onClick={() => update(placements.filter((_, k) => k !== i))}
-                        >
-                          <X />
-                        </IconButton>
+                          label={`Breedte van ${block.title}`}
+                          value={placement.width}
+                          options={WIDTHS}
+                          onChange={(width) => update(placements.map((p, k) => (k === i ? { ...p, width } : p)))}
+                        />
                       </span>
-                    )}
+                      <IconButton label="Naar voren" size="sm" disabled={i === 0} onClick={() => move(i, -1)}>
+                        <ArrowLeft />
+                      </IconButton>
+                      <IconButton
+                        label="Naar achteren"
+                        size="sm"
+                        disabled={i === placements.length - 1}
+                        onClick={() => move(i, 1)}
+                      >
+                        <ArrowLeft className="rotate-180" />
+                      </IconButton>
+                      <IconButton
+                        label={`${block.title} weghalen`}
+                        size="sm"
+                        onClick={() => update(placements.filter((_, k) => k !== i))}
+                      >
+                        <X />
+                      </IconButton>
+                    </span>
+                  )}
                 />
               </div>
             )
           })}
         </div>
-        <Breakdown day={day} onClose={() => setQuery({ dag: null })} />
+        <ExplainDrawer ctx={ctx} explainKey={explaining} onClose={() => setQuery({ uitleg: null, dag: null })} />
       </div>
     </div>
   )
 }
 
-/* ── "Per bestelling": a day of the week taken apart down to its orders ─────────────────────────── */
+/** Opens the explanation behind a figure, a point, a bar or a row, in the address. */
+const explainIt = (key: string) => setQuery({ uitleg: key, dag: null })
 
-/** The blocks whose points are days, which the breakdown can open. */
-const DAY_BLOCKS: ReadonlySet<BlockId> = new Set<BlockId>(["omzetPerDag", "bestellingenPerDag"])
+/* ── what opens an explanation ──────────────────────────────────────────────────────────────────── */
 
-const DAY_OPTIONS = WEEK_DAYS.map((name, i) => ({ value: String(i), label: name.slice(0, 2) }))
+/** The forms whose figures, points, bars and rows open an explanation; a funnel and a table do not. */
+const PICKABLE: ReadonlySet<BlockKind> = new Set<BlockKind>(["figures", "line", "bar", "rank"])
+
+/** The key's names for the period before, by what the board compares with. */
+const KEY_LABELS = {
+  periode: { current: "Deze periode", compare: "Periode ervoor" },
+  jaar: { current: "Deze periode", compare: "Vorig jaar" },
+  geen: { current: "Deze periode", compare: "" }
+} as const
 
 /**
- * One day's orders behind a point of "Omzet per dag": every order from the shared records, so the
- * count and the revenue (excl. btw) are exactly the point on the chart. The day is in the address
- * (`?dag=4`), so a breakdown can be linked.
+ * The explanation the address names: `?uitleg=i.omzetPerDag.4`. An older link to one day's orders
+ * (`?dag=4`, Monday 0) opens that day of "Omzet per dag".
  */
-function Breakdown({ day, onClose }: { readonly day: number | null; readonly onClose: () => void }) {
-  const orders = day === null ? [] : ordersOn(day)
-  const name = day === null ? "" : `${WEEK_DAYS[day] ?? ""} ${16 + day} nov`
-  return (
-    <Sheet
-      open={day !== null}
-      onClose={onClose}
-      title={`Bestellingen op ${name}`}
-      meta={
-        <span>
-          <span className="figure">{orders.length}</span> bestellingen ·{" "}
-          <span className="figure">{formatValue(revenueOf(orders), "euro")}</span> omzet excl. btw
-        </span>
-      }
-      footer={
-        <ButtonLink to={`${paths.orders}?datum=2026-11-${16 + (day ?? 0)}`} size="sm">
-          In Bestellingen openen
-        </ButtonLink>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        <Segmented
-          size="sm"
-          label="Dag"
-          value={String(day ?? 0)}
-          options={DAY_OPTIONS}
-          onChange={(next) => setQuery({ dag: next })}
-        />
-        <Table label={`Bestellingen op ${name}`} minWidth={400}>
-          <THead>
-            <Th>Bestelling</Th>
-            <Th>Klant</Th>
-            <Th align="right">Bedrag</Th>
-            <Th>Status</Th>
-          </THead>
-          <TBody>
-            {orders.map((order) => {
-              const status = ORDER_STATUS[order.status]
-              const time = `${String(order.placedAt.getHours()).padStart(2, "0")}:${
-                String(order.placedAt.getMinutes()).padStart(2, "0")
-              }`
-              return (
-                <Tr key={order.number}>
-                  <Td header>
-                    <Link to={paths.order(order.number)} className="figure text-ink hover:underline">
-                      #{order.number}
-                    </Link>
-                    <span className="figure ml-2 text-xs text-ink-3">{time}</span>
-                  </Td>
-                  <Td>
-                    <span className="block max-w-[9rem] truncate">{customer(order.customerId)?.name ?? "Gast"}</span>
-                  </Td>
-                  <Td figure>{euro(order.total)}</Td>
-                  <Td>
-                    <Status tone={status.tone}>{status.label}</Status>
-                  </Td>
-                </Tr>
-              )
-            })}
-          </TBody>
-        </Table>
-        <p className="text-2xs text-ink-3">
-          Bedragen incl. btw, zoals de klant betaalde; de omzet hierboven is zonder btw.
-        </p>
-      </div>
-    </Sheet>
-  )
+function useExplainKey(): string | null {
+  const key = useQuery("uitleg")
+  const day = useQuery("dag")
+  if (key !== null) return key
+  if (day === null) return null
+  return `i.omzetPerDag.${Math.min(6, Math.max(0, Number.parseInt(day, 10) || 0))}`
 }
 
 /* ── the states ─────────────────────────────────────────────────────────────────────────────────── */

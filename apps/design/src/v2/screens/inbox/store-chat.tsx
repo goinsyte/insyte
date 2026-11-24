@@ -1,7 +1,7 @@
 import { useId, useState } from "react"
 import { AGENTS } from "../../fixtures/agents.ts"
 import { STORE_CHATS } from "../../fixtures/inbox.ts"
-import type { StoreChat, StoreLine } from "../../fixtures/inbox.ts"
+import type { PersonKey, StoreChat, StoreLine } from "../../fixtures/inbox.ts"
 import { customer } from "../../fixtures/records.ts"
 import { PEOPLE } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, useQuery } from "../../router.tsx"
@@ -9,16 +9,34 @@ import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { AgentAvatar, Avatar } from "../../ui/avatar.tsx"
 import { Button, IconButton } from "../../ui/button.tsx"
 import { cx } from "../../ui/cx.ts"
-import { Bot, CheckCircle, ChevronLeft, MessageSquare, Send, Ticket as TicketGlyph } from "../../ui/icons.tsx"
+import {
+  Bot,
+  CheckCircle,
+  ChevronLeft,
+  MessageSquare,
+  RotateCcw,
+  Send,
+  Ticket as TicketGlyph,
+  UserCheck
+} from "../../ui/icons.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 
+import { undoable } from "../../ui/acts.ts"
 import { SEND_WINDOW_S } from "../../ui/proposal.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dataState, setView, useView } from "../../view.ts"
 import { Heading, MY_KEY, Panes } from "./parts.tsx"
-import { addStoreLine, createTicket, dropStoreLine, nowClock, setStoreChatClosed, useInboxState } from "./store.ts"
+import {
+  addStoreLine,
+  createTicket,
+  dropStoreLine,
+  nowClock,
+  setStoreChatClosed,
+  setStoreChatOwner,
+  useInboxState
+} from "./store.ts"
 
 const AGENT = AGENTS.find((a) => a.id === "waar-is-mijn-bestelling")
 
@@ -34,7 +52,9 @@ export function StoreChatScreen() {
   const access = useAccess("support")
   const s = useInboxState()
   const id = useQuery("chat")
-  const isClosed = (c: StoreChat) => c.state === "afgehandeld" || s.closedStoreChats.includes(c.id)
+  /** Settled: closed by a person, settled by the agent, or given back to the agent to carry on. */
+  const isClosed = (c: StoreChat) =>
+    c.state === "afgehandeld" || s.closedStoreChats.includes(c.id) || s.storeChatOwner[c.id] === "agent"
   const open = STORE_CHATS.filter((c) => !isClosed(c))
   const done = STORE_CHATS.filter(isClosed)
   const active = STORE_CHATS.find((c) => c.id === id)
@@ -173,6 +193,7 @@ export function StoreChatScreen() {
         c={active}
         lines={[...active.lines, ...(s.storeLines[active.id] ?? [])]}
         closed={isClosed(active)}
+        owner={s.storeChatOwner[active.id]}
         edit={access.edit}
       />
     )
@@ -216,10 +237,12 @@ function LineView({ line, visitor }: { readonly line: StoreLine; readonly visito
   )
 }
 
-function ChatView({ c, lines, closed, edit }: {
+function ChatView({ c, lines, closed, owner, edit }: {
   readonly c: StoreChat
   readonly lines: ReadonlyArray<StoreLine>
   readonly closed: boolean
+  /** Who answers it now: a person who took it over, or the agent it was given back to. */
+  readonly owner: PersonKey | "agent" | undefined
   readonly edit: boolean
 }) {
   const [text, setText] = useState("")
@@ -231,6 +254,7 @@ function ChatView({ c, lines, closed, edit }: {
     const body = text.trim()
     if (body === "") return
     addStoreLine(c.id, { from: "team", who: MY_KEY, at: nowClock(), text: body })
+    if (owner === undefined) setStoreChatOwner(c.id, MY_KEY)
     setText("")
     toast({
       title: `Wordt over ${SEND_WINDOW_S} s verstuurd`,
@@ -246,6 +270,25 @@ function ChatView({ c, lines, closed, edit }: {
       body: "Vraagt de bezoeker weer iets, dan neemt de agent het op.",
       action: { label: "Ongedaan maken", onClick: () => setStoreChatClosed(c.id, false) }
     })
+  }
+  const agentName = AGENT?.name ?? "De agent"
+  const takeOver = () => {
+    const before = owner
+    setStoreChatOwner(c.id, MY_KEY)
+    toast({
+      title: "Je hebt het gesprek overgenomen",
+      body: `${agentName} antwoordt niet meer tot je het teruggeeft.`,
+      action: { label: "Ongedaan maken", onClick: () => setStoreChatOwner(c.id, before) }
+    })
+  }
+  const giveBack = () => {
+    const before = owner
+    setStoreChatOwner(c.id, "agent")
+    undoable(
+      `Teruggegeven aan ${agentName}`,
+      () => setStoreChatOwner(c.id, before),
+      `${agentName} antwoordt weer op nieuwe berichten.`
+    )
   }
   const makeTicket = () => {
     const number = createTicket({
@@ -304,9 +347,15 @@ function ChatView({ c, lines, closed, edit }: {
 
         <div className="pane-scroll min-h-0 flex-1">
           <div className="flex flex-col gap-5 px-4 pt-3 pb-6 sm:px-6">
-            <p className="max-w-[62ch] text-sm text-pretty text-ink-2">
-              <span className="font-medium text-ink">{closed ? "Afgehandeld" : "Overgedragen"}:</span> {c.summary}
-            </p>
+            <AgentBand
+              agent={agentName}
+              summary={c.summary}
+              closed={closed}
+              owner={owner}
+              edit={edit}
+              onTakeOver={takeOver}
+              onGiveBack={giveBack}
+            />
             <ol aria-label="Gesprek" className="flex flex-col gap-4">
               {lines.map((line, i) => <LineView key={i} line={line} visitor={c.visitor} />)}
             </ol>
@@ -319,6 +368,13 @@ function ChatView({ c, lines, closed, edit }: {
         <div className="shrink-0 px-4 pb-4 sm:px-6">
           {!edit
             ? <ReadOnlyNotice area="support" />
+            : owner === "agent"
+            ? (
+              <p className="flex items-center justify-between gap-3 rounded-md bg-well px-3 py-2.5 text-sm text-ink-2">
+                {agentName} voert dit gesprek weer.
+                <Button size="sm" icon={<UserCheck />} onClick={takeOver}>Overnemen</Button>
+              </p>
+            )
             : closed
             ? <p className="rounded-md bg-well px-3 py-2.5 text-sm text-ink-2">Dit gesprek is gesloten.</p>
             : (
@@ -356,6 +412,60 @@ function ChatView({ c, lines, closed, edit }: {
       >
         <Visitor c={c} />
       </aside>
+    </div>
+  )
+}
+
+/**
+ * Who has the chat: the agent's reason for handing it over and the person's "Overnemen", then, once
+ * a person answers, a way to give it back so the agent picks up the visitor's next question.
+ */
+function AgentBand({ agent, summary, closed, owner, edit, onTakeOver, onGiveBack }: {
+  readonly agent: string
+  readonly summary: string
+  readonly closed: boolean
+  readonly owner: string | undefined
+  readonly edit: boolean
+  readonly onTakeOver: () => void
+  readonly onGiveBack: () => void
+}) {
+  if (closed && owner !== "agent") {
+    return (
+      <p className="max-w-[62ch] text-sm text-pretty text-ink-2">
+        <span className="font-medium text-ink">Afgehandeld:</span> {summary}
+      </p>
+    )
+  }
+  const mine = owner !== undefined && owner !== "agent"
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <p className="max-w-[62ch] text-sm text-pretty text-ink-2">
+        {owner === "agent"
+          ? (
+            <>
+              <span className="font-medium text-ink">Teruggegeven aan {agent}.</span> {summary}
+            </>
+          )
+          : mine
+          ? (
+            <>
+              <span className="font-medium text-ink">Jij hebt het overgenomen, {PEOPLE.elena.name.split(" ")[0]}.</span>
+              {" "}
+              {summary}
+            </>
+          )
+          : (
+            <>
+              <span className="font-medium text-ink">{agent} heeft dit overgedragen:</span> {summary}
+            </>
+          )}
+      </p>
+      {edit && owner === undefined && (
+        <Button size="sm" variant="primary" icon={<UserCheck />} onClick={onTakeOver}>Overnemen</Button>
+      )}
+      {edit && mine && (
+        <Button size="sm" variant="ghost" icon={<RotateCcw />} onClick={onGiveBack}>Teruggeven aan {agent}</Button>
+      )}
     </div>
   )
 }

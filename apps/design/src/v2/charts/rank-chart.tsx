@@ -8,7 +8,12 @@ import type { BarData, Note } from "./types.ts"
  * thin ink tick across the track (a rule, not a handle: no fill, no ring). The same colour rule as the upright bars, so a ranked list and a bar
  * chart side by side read as one thing.
  */
-export function RankChart({ data, note }: { readonly data: BarData; readonly note?: Note }) {
+export function RankChart({ data, note, onPick }: {
+  readonly data: BarData
+  readonly note?: Note
+  /** A row opens what is behind it. */
+  readonly onPick?: (index: number) => void
+}) {
   const max = Math.max(...data.items.flatMap((item) => [item.value, item.compare ?? 0]))
   const total = data.items.reduce((sum, item) => sum + item.value, 0)
   const focus = data.focus ?? note?.at
@@ -19,7 +24,13 @@ export function RankChart({ data, note }: { readonly data: BarData; readonly not
         const isFocus = i === focus
         const share = total === 0 ? 0 : Math.round((item.value / total) * 100)
         return (
-          <li key={item.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+          <li
+            key={item.label}
+            className={cx(
+              "relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1",
+              onPick !== undefined && "-mx-2 rounded-md px-2 py-1 hover:bg-hover"
+            )}
+          >
             <span
               className={cx(
                 "flex min-w-0 items-center gap-1.5 truncate text-xs",
@@ -51,6 +62,17 @@ export function RankChart({ data, note }: { readonly data: BarData; readonly not
                 />
               )}
             </span>
+            {onPick !== undefined && (
+              <button
+                type="button"
+                onClick={() => onPick(i)}
+                className="absolute inset-0 rounded-md focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <span className="sr-only">
+                  {item.label}: {formatValue(item.value, data.format)}, uitleggen
+                </span>
+              </button>
+            )}
           </li>
         )
       })}

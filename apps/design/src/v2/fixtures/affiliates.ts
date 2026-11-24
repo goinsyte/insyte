@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react"
 import type { View } from "../view.ts"
+import { RESOURCES } from "./affiliate-portal.ts"
+import type { Resource } from "./affiliate-portal.ts"
 
 /**
  * Affiliates: the partner programme from the brand's side, from `mock-data/affiliates.ts`,
@@ -244,9 +246,21 @@ export type AffiliateState = {
   readonly approved: ReadonlyArray<string>
   readonly invites: ReadonlyArray<Invite>
   readonly revoked: ReadonlyArray<string>
+  /** Material the brand uploaded for its affiliates, and what it took down. */
+  readonly uploaded: ReadonlyArray<Resource>
+  readonly removed: ReadonlyArray<string>
 }
 
-const EMPTY: AffiliateState = { decisions: {}, paused: [], tiers: {}, approved: [], invites: [], revoked: [] }
+const EMPTY: AffiliateState = {
+  decisions: {},
+  paused: [],
+  tiers: {},
+  approved: [],
+  invites: [],
+  revoked: [],
+  uploaded: [],
+  removed: []
+}
 let state: AffiliateState = EMPTY
 const listeners = new Set<() => void>()
 
@@ -332,6 +346,12 @@ export function inviteRows(view: View, s: AffiliateState = state): ReadonlyArray
   return [...s.invites, ...INVITES].filter((i) => !s.revoked.includes(i.id))
 }
 
+/** What the affiliates can download in their portal: logos, photos, guides. Newest first. */
+export function resourceRows(view: View, s: AffiliateState = state): ReadonlyArray<Resource> {
+  const base = view.staat === "leeg" ? [] : RESOURCES
+  return [...s.uploaded, ...base].filter((r) => !s.removed.includes(r.id))
+}
+
 /** The counts the menu and the page both show. */
 export function affiliateCounts(view: View, s: AffiliateState = state) {
   const payouts = payoutRows(view, s)
@@ -340,6 +360,7 @@ export function affiliateCounts(view: View, s: AffiliateState = state) {
     aanmeldingen: applicationRows(view, s).filter((a) => a.status === "in-afwachting").length,
     uitbetalingen: payouts.filter((p) => !p.approved && p.approvable > 0).length,
     teKeuren: payouts.filter((p) => !p.approved).reduce((n, p) => n + p.approvable, 0),
-    uitnodigingen: inviteRows(view, s).length
+    uitnodigingen: inviteRows(view, s).length,
+    materiaal: resourceRows(view, s).length
   }
 }

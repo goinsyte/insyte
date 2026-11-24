@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import type { DragEvent } from "react"
 import {
   channelLabel,
+  CHANNELS,
   LONG_WAIT,
   PRIORITY,
   STATUS_ORDER,
@@ -15,12 +16,12 @@ import { PEOPLE } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
 import { Avatar } from "../../ui/avatar.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
 import { Button } from "../../ui/button.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
 import { cx } from "../../ui/cx.ts"
 import { DropdownItem, DropdownLabel, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
-import { AddFilter, FilterChip, ListToolbar, SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import type { FilterField } from "../../ui/filters.tsx"
+import { FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
 import {
   AlertTriangle,
   CheckCircle,
@@ -38,7 +39,10 @@ import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented } from "../../ui/toggle.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { dataState, setView, useView } from "../../view.ts"
+import { filterRows, manyField, rule, useListFilter, where } from "../orders/list-filter.ts"
+import type { Address, ListField } from "../orders/list-filter.ts"
 import { inView, isView, VIEWS } from "./inbox.tsx"
 import type { ViewId } from "./inbox.tsx"
 import { NewTicketDialog } from "./new-ticket.tsx"
@@ -53,13 +57,79 @@ const COLUMN_LABEL: Readonly<Record<TicketStatus, string>> = {
   klaar: "Klaar · vandaag"
 }
 
-const FIELDS: ReadonlyArray<FilterField> = [
-  { key: "prioriteit", label: "Prioriteit", options: ["Hoog", "Gemiddeld", "Laag"] },
-  { key: "kanaal", label: "Kanaal", options: ["E-mail", "WhatsApp", "Instagram", "Winkelchat"] }
+const STATUS_FIELD: ListField<Ticket> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: STATUS_ORDER.map((st) => TICKET_STATUS[st].label),
+  get: (t) => TICKET_STATUS[t.status].label
+}
+const PRIORITY_FIELD: ListField<Ticket> = {
+  key: "prioriteit",
+  label: "Prioriteit",
+  type: "option",
+  options: Object.values(PRIORITY).map((p) => p.label),
+  get: (t) => PRIORITY[t.priority].label
+}
+const CHANNEL_FIELD: ListField<Ticket> = {
+  key: "kanaal",
+  label: "Kanaal",
+  type: "option",
+  options: CHANNELS.map((c) => c.label),
+  get: (t) => channelLabel(t.channel)
+}
+const ASSIGNEE_FIELD: ListField<Ticket> = {
+  key: "toegewezen",
+  label: "Toegewezen aan",
+  type: "option",
+  get: (t) => (t.assignee === null ? "" : PEOPLE[t.assignee].name)
+}
+const WAIT_FIELD: ListField<Ticket> = {
+  key: "wacht",
+  label: "Wacht, in minuten",
+  type: "number",
+  get: (t) => waitedMinutes(t)
+}
+
+/** The fields, with the labels the tickets carry now as the label field's options. */
+const fieldsFor = (labels: ReadonlyArray<string>): ReadonlyArray<ListField<Ticket>> => [
+  STATUS_FIELD,
+  PRIORITY_FIELD,
+  CHANNEL_FIELD,
+  ASSIGNEE_FIELD,
+  manyField<Ticket>("label", "Label", labels, (t) => t.labels),
+  WAIT_FIELD,
+  { key: "klant", label: "Klant", type: "text", get: customerName },
+  { key: "onderwerp", label: "Onderwerp", type: "text", get: (t) => t.subject }
 ]
 
-const priorityOf = (label: string | null) =>
-  (Object.keys(PRIORITY) as ReadonlyArray<Priority>).find((p) => PRIORITY[p].label === label)
+/** Start's status counts link here (`?status=wacht`); priority and channel by their word. */
+const ADDRESS: Address = {
+  params: [
+    {
+      param: "status",
+      field: "status",
+      values: Object.fromEntries(STATUS_ORDER.map((st) => [st, TICKET_STATUS[st].label]))
+    },
+    { param: "prioriteit", field: "prioriteit" },
+    { param: "kanaal", field: "kanaal" }
+  ]
+}
+
+const VIEWS_KEY = "tickets"
+seedViews(VIEWS_KEY, [
+  { name: "Hoge prioriteit", pinned: false, filter: where("and", rule(PRIORITY_FIELD, "any", ["Hoog"])) },
+  {
+    name: "Wacht op de klant",
+    pinned: false,
+    filter: where("and", rule(STATUS_FIELD, "any", [TICKET_STATUS.wacht.label]))
+  },
+  {
+    name: "WhatsApp en Instagram",
+    pinned: false,
+    filter: where("and", rule(CHANNEL_FIELD, "any", ["WhatsApp", "Instagram"]))
+  }
+])
 
 /**
  * The tickets as work: a board with a column per status (drag a card, or move it from its menu) or
@@ -75,26 +145,31 @@ export function TicketsScreen() {
   const mode = useQuery("weergave-als") === "lijst" ? "lijst" : "bord"
   const weergave = useQuery("weergave")
   const current: ViewId = isView(weergave) && weergave !== "klaar" ? weergave : "open"
-  const prioriteit = useQuery("prioriteit")
-  const kanaal = useQuery("kanaal")
   const nieuw = useQuery("nieuw")
   const [template, setTemplate] = useState<string | undefined>(undefined)
   const [column, setColumn] = useState<TicketStatus>("nieuw")
   const [q, setQ] = useState("")
+  const labelKey = [...new Set(tickets.flatMap((t) => t.labels))].toSorted((a, b) => a.localeCompare(b, "nl")).join(
+    "\n"
+  )
+  const fields = useMemo(() => fieldsFor(labelKey === "" ? [] : labelKey.split("\n")), [labelKey])
+  const [filter, setFilter] = useListFilter(VIEWS_KEY, fields, ADDRESS)
 
+  const base = useMemo(
+    () =>
+      tickets
+        .filter((t) => (t.place ?? "inbox") === "inbox")
+        .filter((t) => t.status === "klaar" || inView(t, current))
+        .filter((t) => current === "open" || t.status !== "klaar"),
+    [tickets, current]
+  )
   const shown = useMemo(() => {
-    const p = priorityOf(prioriteit)
     const term = q.trim().toLowerCase()
-    return tickets
-      .filter((t) => t.status === "klaar" || inView(t, current))
-      .filter((t) => current === "open" || t.status !== "klaar")
-      .filter((t) => p === undefined || t.priority === p)
-      .filter((t) => kanaal === null || channelLabel(t.channel) === kanaal)
-      .filter((t) =>
-        term === "" || t.subject.toLowerCase().includes(term) || customerName(t).toLowerCase().includes(term) ||
-        t.number.includes(term.replace("#", ""))
-      )
-  }, [tickets, current, prioriteit, kanaal, q])
+    return filterRows(base, filter, fields, "2026-11-23").filter((t) =>
+      term === "" || t.subject.toLowerCase().includes(term) || customerName(t).toLowerCase().includes(term) ||
+      t.number.includes(term.replace("#", ""))
+    )
+  }, [base, filter, fields, q])
   const openCount = shown.filter((t) => t.status !== "klaar").length
 
   if (!access.view) {
@@ -111,10 +186,6 @@ export function TicketsScreen() {
     setColumn(status)
     setQuery({ nieuw: "1" })
   }
-  const active = new Set([
-    ...(prioriteit === null ? [] : [`prioriteit:${prioriteit}`]),
-    ...(kanaal === null ? [] : [`kanaal:${kanaal}`])
-  ])
 
   return (
     <Page width="full" className="max-w-[1400px]">
@@ -181,38 +252,24 @@ export function TicketsScreen() {
       {!access.edit && <ReadOnlyNotice area="support" />}
 
       {state === "ready" && (
-        <ListToolbar
-          start={
-            <>
-              <SearchField
-                value={q}
-                onChange={setQ}
-                label="Tickets zoeken"
-                placeholder="Tickets zoeken"
-                className="w-full sm:w-64"
-              />
-              <AddFilter
-                fields={FIELDS}
-                active={active}
-                onAdd={(field, value) => setQuery({ [field]: active.has(`${field}:${value}`) ? null : value })}
-              />
-              {prioriteit !== null && (
-                <FilterChip
-                  field="Prioriteit"
-                  value={prioriteit}
-                  onRemove={() => setQuery({ prioriteit: null })}
+        <div className="flex flex-col gap-3">
+          <SavedViews list={VIEWS_KEY} value={filter} onPick={setFilter} allLabel="Alle tickets" />
+          <ListToolbar
+            start={
+              <>
+                <SearchField
+                  value={q}
+                  onChange={setQ}
+                  label="Tickets zoeken"
+                  placeholder="Tickets zoeken"
+                  className="w-full sm:w-64"
                 />
-              )}
-              {kanaal !== null && (
-                <FilterChip
-                  field="Kanaal"
-                  value={kanaal}
-                  onRemove={() => setQuery({ kanaal: null })}
-                />
-              )}
-            </>
-          }
-        />
+                <FilterRules fields={fields} rows={base} value={filter} onChange={setFilter} />
+                <FilterBuilder fields={fields} rows={base} value={filter} onChange={setFilter} views={VIEWS_KEY} />
+              </>
+            }
+          />
+        </div>
       )}
 
       {state === "loading"
@@ -414,6 +471,57 @@ function BoardSkeleton() {
 
 /* ── table ─────────────────────────────────────────────────────────────────────────────────────── */
 
+/** Several tickets in one step, with one undo for all. */
+function bulk(list: ReadonlyArray<Ticket>, label: string, change: { status?: TicketStatus; priority?: Priority }) {
+  const before = list.map((t) => ({ number: t.number, status: t.status, priority: t.priority }))
+  for (const t of list) patchTicket(t.number, change)
+  toast({
+    title: `${list.length} ${list.length === 1 ? "ticket" : "tickets"} ${label}`,
+    action: {
+      label: "Ongedaan maken",
+      onClick: () => {
+        for (const b of before) patchTicket(b.number, { status: b.status, priority: b.priority })
+      }
+    }
+  })
+}
+
+const SUPPORT = { area: "support", level: 2 } as const
+
+/** One list for the bar, the Acties menu and the keys; each skips the tickets it would not change. */
+const ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
+  {
+    id: "klaar",
+    label: "Markeren als klaar",
+    icon: <CheckCircle />,
+    bar: true,
+    shortcut: "k",
+    needs: SUPPORT,
+    applies: (t) => t.status !== "klaar",
+    run: (list) => bulk(list, "klaar", { status: "klaar" })
+  },
+  {
+    id: "bezig",
+    label: "Bezig",
+    icon: <Clock />,
+    bar: true,
+    shortcut: "b",
+    needs: SUPPORT,
+    applies: (t) => t.status !== "bezig",
+    run: (list) => bulk(list, "naar bezig", { status: "bezig" })
+  },
+  {
+    id: "hoog",
+    label: "Prioriteit hoog",
+    icon: <AlertTriangle />,
+    bar: true,
+    shortcut: "h",
+    needs: SUPPORT,
+    applies: (t) => t.priority !== "hoog",
+    run: (list) => bulk(list, "op prioriteit hoog", { priority: "hoog" })
+  }
+]
+
 function TicketTable({ tickets, edit }: { readonly tickets: ReadonlyArray<Ticket>; readonly edit: boolean }) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [sort, setSort] = useState<"asc" | "desc">("desc")
@@ -423,38 +531,16 @@ function TicketTable({ tickets, edit }: { readonly tickets: ReadonlyArray<Ticket
       : (waitedMinutes(a) ?? 10_000) - (waitedMinutes(b) ?? 10_000)
   )
   const chosen = rows.filter((t) => picked.has(t.number))
-  const bulk = (label: string, change: { status?: TicketStatus; priority?: Priority }) => {
-    const before = chosen.map((t) => ({ number: t.number, status: t.status, priority: t.priority }))
-    for (const t of chosen) patchTicket(t.number, change)
-    setPicked(new Set())
-    toast({
-      title: `${chosen.length} ${chosen.length === 1 ? "ticket" : "tickets"} ${label}`,
-      action: {
-        label: "Ongedaan maken",
-        onClick: () => {
-          for (const b of before) patchTicket(b.number, { status: b.status, priority: b.priority })
-        }
-      }
-    })
-  }
+
   return (
     <div className="flex flex-col gap-3">
       {edit && chosen.length > 0 && (
         <SelectionBar
-          count={chosen.length}
+          rows={chosen}
+          actions={ACTIONS}
           noun={["ticket", "tickets"]}
           onClear={() => setPicked(new Set())}
-        >
-          <SelectionAction icon={<CheckCircle />} onClick={() => bulk("klaar", { status: "klaar" })}>
-            Markeren als klaar
-          </SelectionAction>
-          <SelectionAction icon={<Clock />} onClick={() => bulk("naar bezig", { status: "bezig" })}>
-            Bezig
-          </SelectionAction>
-          <SelectionAction icon={<AlertTriangle />} onClick={() => bulk("op prioriteit hoog", { priority: "hoog" })}>
-            Prioriteit hoog
-          </SelectionAction>
-        </SelectionBar>
+        />
       )}
       {rows.length === 0
         ? <EmptyState size="sm" title="Geen tickets voor deze filters">Pas de filters aan of wis ze.</EmptyState>

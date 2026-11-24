@@ -1,13 +1,15 @@
+import { useSyncExternalStore } from "react"
+
 /**
  * The notifications in the demo: what happened that is about Elena, newest first. Fictional, like
  * the rest of the workspace; the people and records are the ones the other fixtures use. The bell
- * shows them (`shell/bar-actions.tsx`), and so does the full page (`screens/notifications`).
+ * shows the ones in the inbox (`shell/bar-actions.tsx`), the full page all of them
+ * (`screens/notifications`).
  *
- * Read or unread is one fact for both. The bell's "Alles gelezen" is the demo store's `notesRead`
- * (`demo.ts`), which every reader ANDs in; a single note read or unread on the page is an override
- * kept here, and `unread` is a getter over the seed and that override, so `unreadNotes()`, the bell's
- * dot and the page's filter can never disagree. When per-note read state moves into `demo.ts`, the
- * getter goes and `unread` becomes the seed again.
+ * What happened to a note (read, set aside till later, cleared, its act done) is one fact for both,
+ * kept here as marks over the seed. The bell's "Alles gelezen" is the demo store's `notesRead`
+ * (`demo.ts`), which every reader ORs in; `unread` is a getter over the seed and the marks (unread
+ * and in the inbox), so `unreadNotes()`, the bell's dot and the page can never disagree.
  */
 
 /** What a notification is about: the page's filters. */
@@ -34,8 +36,26 @@ export type NoteFixture = {
   /** The record it is about, as the page names it: "Ticket #5142". */
   readonly record?: string
   readonly href?: string
-  /** Unread as far as this note goes: its seed or the page's override (the bell's "Alles gelezen" is `notesRead`). */
+  /** What the record says, read in the preview beside the list. */
+  readonly facts?: ReadonlyArray<readonly [string, string]>
+  /** The one thing to do about it, done from the preview; "Openen" is always the way out. */
+  readonly act?: NoteAct
+  /** Where an answer to a mention lands: "ticket #5142". */
+  readonly reply?: string
+  /** The preview's way to the record: "Ticket openen". */
+  readonly open?: string
+  /** Unread and in the inbox: the seed under the marks (the bell's "Alles gelezen" is `notesRead`). */
   readonly unread: boolean
+}
+
+export type NoteAct = {
+  readonly label: string
+  /** What it says once done: "Goedgekeurd". */
+  readonly done: string
+  /** It takes a moment (a reconnect, a submission): the button spins first. */
+  readonly slow?: boolean
+  /** The proposal it decides on Start and Goedkeuringen (`fixtures/home.ts`). */
+  readonly proposal?: string
 }
 
 type Seed = Omit<NoteFixture, "unread"> & { readonly unread: boolean }
@@ -50,6 +70,15 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "vandaag",
     record: "Voorstel · omruiling naar maat M",
     href: "/v2/magnus/goedkeuringen",
+    facts: [
+      ["Voorstel", "Omruiling naar maat M"],
+      ["Klant", "Astrid Berg"],
+      ["Retour", "#R-881 · Aurora Hooded Fleece in S"],
+      ["Voorraad M", "34 stuks"],
+      ["Termijn", "vandaag 18:00"]
+    ],
+    act: { label: "Goedkeuren", done: "Goedgekeurd", proposal: "omruil-5321" },
+    open: "Voorstel openen",
     unread: true
   },
   {
@@ -62,6 +91,15 @@ const SEEDS: ReadonlyArray<Seed> = [
     quote: "Kun jij de terugbetaling goedkeuren? Ik zit er nu in en wil de klant vandaag nog antwoord geven.",
     record: "Ticket #5142",
     href: "/v2/inbox/5142",
+    facts: [
+      ["Ticket", "#5142 · Geld terug voor een sale-artikel"],
+      ["Klant", "Liam O’Connor · 7 bestellingen"],
+      ["Bestelling", "#5297 · Heartland Henley"],
+      ["Bedrag", "€ 45,40"]
+    ],
+    act: { label: "Terugbetaling goedkeuren", done: "Goedgekeurd" },
+    reply: "ticket #5142",
+    open: "Ticket openen",
     unread: true
   },
   {
@@ -73,6 +111,15 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "vandaag",
     record: "Chargeback #CB-2291 · Klarna · € 129,00",
     href: "/v2/chargebacks/cb-2291",
+    facts: [
+      ["Zaak", "#CB-2291 · Klarna"],
+      ["Bedrag", "€ 129,00"],
+      ["Bestelling", "#5318"],
+      ["Bewijs", "Pakket staat klaar: track & trace, bezorgfoto, mails"],
+      ["Termijn", "morgen 12:00"]
+    ],
+    act: { label: "Bewijs indienen", done: "Ingediend bij Klarna", slow: true },
+    open: "Chargeback openen",
     unread: true
   },
   {
@@ -84,6 +131,13 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "vandaag",
     record: "Winkel · Northwind UK",
     href: "/v2/instellingen/winkels",
+    facts: [
+      ["Winkel", "Northwind UK · northwind-uk.myshopify.com"],
+      ["Status", "Ontkoppeld"],
+      ["Laatst gesynchroniseerd", "vandaag 09:10"]
+    ],
+    act: { label: "Opnieuw koppelen", done: "Weer gekoppeld", slow: true },
+    open: "Winkels openen",
     unread: false
   },
   {
@@ -95,6 +149,8 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "vandaag",
     record: "Bord · Weekoverzicht",
     href: "/v2/analyse/week",
+    facts: [["Bord", "Weekoverzicht"], ["Week", "16–22 nov"], ["Volgende keer", "maandag 30 nov 08:00"]],
+    open: "Bord openen",
     unread: false
   },
   {
@@ -106,6 +162,13 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "gisteren",
     record: "Leverancier · Kestrel Goods",
     href: "/v2/leveranciers/kestrel-goods",
+    facts: [
+      ["Leverancier", "Kestrel Goods"],
+      ["Bestellingen", "6 vertraagd · oudste 8 dagen onderweg"],
+      ["Laatste mail", "gisteren 10:15 · geen antwoord"]
+    ],
+    act: { label: "Tweede mail versturen", done: "Verstuurd", proposal: "mail-kestrel" },
+    open: "Leverancier openen",
     unread: false
   },
   {
@@ -117,6 +180,8 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "gisteren",
     record: "Agent · Waar is mijn bestelling",
     href: "/v2/magnus/agents/waar-is-mijn-bestelling",
+    facts: [["Zelf beantwoord", "38 tickets"], ["Overgedragen", "2"], ["Gemiddelde reactie", "1 min 12 s"]],
+    open: "Agent openen",
     unread: false
   },
   {
@@ -128,6 +193,13 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "gisteren",
     record: "Ticket #5148",
     href: "/v2/inbox/5148",
+    facts: [
+      ["Ticket", "#5148 · Ruilen voor een M"],
+      ["Klant", "Astrid Berg"],
+      ["Bestelling", "#5296 · Aurora Hooded Fleece"]
+    ],
+    reply: "ticket #5148",
+    open: "Ticket openen",
     unread: false
   },
   {
@@ -139,6 +211,8 @@ const SEEDS: ReadonlyArray<Seed> = [
     day: "eerder",
     record: "Instellingen · Limieten",
     href: "/v2/instellingen/ai/limieten",
+    facts: [["Verbruik", "62% van de maandlimiet"], ["Vernieuwt", "1 dec"]],
+    open: "Limieten openen",
     unread: false
   },
   {
@@ -151,34 +225,82 @@ const SEEDS: ReadonlyArray<Seed> = [
     quote: "De maattabel is aangepast: de S valt kleiner uit dan Allure opgaf. Kijk jij of de productpagina nu klopt?",
     record: "Product · Aurora Hooded Fleece",
     href: "/v2/producten/aurora-hooded-fleece",
+    facts: [["Product", "Aurora Hooded Fleece"], ["Leverancier", "Allure Apparel"]],
+    reply: "de notities van de Aurora Hooded Fleece",
+    open: "Product openen",
     unread: false
   }
 ]
 
-/* ── read state: the page's overrides, under the bell's "Alles gelezen" ──────────────────────────── */
+/* ── what happened to a note: the marks over the seed ─────────────────────────────────────────── */
 
-let overrides: Readonly<Record<string, boolean>> = {}
+/** Where a note is: in the inbox, set aside till later, or cleared (still on the page, under Gewist). */
+export type NoteBox = "inbox" | "later" | "gewist"
 
-/** Set one note read (true) or unread (false) on the page; `null` drops the override. */
-export function setNoteOverride(id: string, read: boolean | null) {
-  const rest = Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== id))
-  overrides = read === null ? rest : { ...rest, [id]: read }
+export type NoteMark = {
+  readonly read?: boolean
+  readonly box?: NoteBox
+  /** When a note set aside comes back, as people say it: "morgen 09:00". */
+  readonly until?: string
+  /** Its act is done. */
+  readonly done?: boolean
 }
 
-/** All overrides at once: after the bell's "Alles gelezen" is taken back for one note. */
-export function setNoteOverrides(next: Readonly<Record<string, boolean>>) {
-  overrides = next
+let marks: Readonly<Record<string, NoteMark>> = {}
+const listeners = new Set<() => void>()
+const emit = () => {
+  for (const listener of listeners) listener()
 }
+const subscribe = (listener: () => void) => {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** The marks; a component re-renders when they change. */
+export const useNoteMarks = () => useSyncExternalStore(subscribe, () => marks)
+
+/** Change several notes at once. The answer puts them back as they were: the Undo. */
+export function markNotes(ids: ReadonlyArray<string>, patch: NoteMark): () => void {
+  const before = Object.fromEntries(ids.map((id) => [id, marks[id]]))
+  marks = { ...marks, ...Object.fromEntries(ids.map((id) => [id, { ...marks[id], ...patch }])) }
+  emit()
+  return () => {
+    const back = { ...marks }
+    for (const [id, mark] of Object.entries(before)) {
+      if (mark === undefined) delete back[id]
+      else back[id] = mark
+    }
+    marks = back
+    emit()
+  }
+}
+
+const SEED_UNREAD = new Set(SEEDS.filter((s) => s.unread).map((s) => s.id))
+
+/** Read as far as this note goes (the bell's "Alles gelezen" is ORed in by the reader). */
+export const isRead = (id: string) => marks[id]?.read ?? !SEED_UNREAD.has(id)
+export const boxOf = (id: string): NoteBox => marks[id]?.box ?? "inbox"
 
 export const NOTIFICATIONS: ReadonlyArray<NoteFixture> = SEEDS.map((seed) =>
   Object.defineProperty({ ...seed }, "unread", {
     enumerable: true,
-    get: () => (overrides[seed.id] === undefined ? seed.unread : !overrides[seed.id])
+    get: () => boxOf(seed.id) === "inbox" && !isRead(seed.id)
   }) as NoteFixture
 )
 
-/** Whether a note started out unread, before anyone read it: the seed. */
-export const seededUnread = (id: string) => SEEDS.find((s) => s.id === id)?.unread ?? false
+/** What the bell shows: the inbox only; set aside and cleared notes live on the page. */
+export const bellNotes = () => NOTIFICATIONS.filter((n) => boxOf(n.id) === "inbox")
+
+/** The bell's tabs: what is addressed to you (a mention, an assignment) and what an agent asked. */
+export const noteAbout = (n: NoteFixture) =>
+  n.kind === "agent" ? "agent" as const : n.kind === "systeem" ? undefined : "me" as const
+
+/** "Later": when a set-aside note comes back. Today is Monday 23 November, 13:50. */
+export const SNOOZE = [
+  { id: "middag", label: "Vanmiddag", hint: "15:00", until: "vandaag 15:00" },
+  { id: "morgen", label: "Morgen", hint: "di 09:00", until: "morgen 09:00" },
+  { id: "week", label: "Volgende week", hint: "ma 30 nov 09:00", until: "ma 30 nov 09:00" }
+] as const
 
 /**
  * The busy week (`?staat=druk`): the same kinds of notes, many more of them and with long names, all

@@ -1,8 +1,8 @@
 import { AREAS } from "../areas.ts"
+import { findChat } from "../ask/thread.ts"
 import { getDemo, openStoreChats } from "../demo.ts"
 import { AGENTS } from "../fixtures/agents.ts"
 import { BOARDS } from "../fixtures/analytics.ts"
-import { CHATS } from "../fixtures/assistant.ts"
 import { PEOPLE, RECORDS } from "../fixtures/workspace.ts"
 import { paths } from "../router.tsx"
 import type { Route } from "../router.tsx"
@@ -58,7 +58,32 @@ const person = (who: keyof typeof PEOPLE, meta: string, peek?: ReadonlyArray<str
   peek: peek ?? [PEOPLE[who].role]
 })
 
+/** Chats started beside a page this visit (the ⌘J drawer), by the werkdraad item they were about. */
+const besides = new Map<string, Array<string>>()
+
+/** Remember that a chat began beside the page whose werkdraad asks about `about`. */
+export function noteChatAbout(chatId: string, about: string) {
+  besides.set(about, [chatId, ...(besides.get(about) ?? [])])
+}
+
+/**
+ * The werkdraad for a screen: what it is written as, followed by the chats with Magnus started
+ * beside it this visit, newest first, so a conversation about this order is one click from it.
+ */
 export function threadFor(route: Route): Thread {
+  const base = writtenThread(route)
+  const ids = base.ask === null ? undefined : besides.get(base.ask)
+  if (ids === undefined) return base
+  const chats = ids.flatMap((id) => {
+    const chat = findChat(id)
+    return chat === undefined
+      ? []
+      : [{ kind: "chat" as const, label: chat.title, href: paths.chat(id), meta: "vandaag" }]
+  })
+  return { ...base, items: [...base.items, ...chats] }
+}
+
+function writtenThread(route: Route): Thread {
   switch (route.name) {
     case "home":
       return {
@@ -78,7 +103,7 @@ export function threadFor(route: Route): Thread {
         ask: null
       }
     case "chat": {
-      const chat = CHATS.find((c) => c.id === route.chatId)
+      const chat = findChat(route.chatId)
       const title = chat === undefined ? "Chat" : getDemo().chatTitles[chat.id] ?? chat.title
       if (chat?.id !== "terugbetalingen") return { items: [{ kind: "chat", label: title }], ask: null }
       return {

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { ASSISTANT } from "../../assistant.ts"
 import { CASE_STATUS, CHANNEL_LABEL, orderCases, useCases } from "../../fixtures/chargebacks.ts"
 import { APPROVALS } from "../../fixtures/home.ts"
 import {
@@ -7,7 +8,9 @@ import {
   btwOf,
   busyName,
   changeDesk,
+  checkoutNote,
   countryName,
+  customerValue,
   deskOrder,
   historyOf,
   isClosed,
@@ -32,7 +35,7 @@ import {
   VIA_LABEL
 } from "../../fixtures/order-desk.ts"
 import type { HistoryLine, Leg } from "../../fixtures/order-desk.ts"
-import { customer, customerOrders, product, supplier } from "../../fixtures/records.ts"
+import { customer, product, supplier } from "../../fixtures/records.ts"
 import type { Order } from "../../fixtures/records.ts"
 import { orderReturns, STATUS as RETURN_STATUS, useReturnsState } from "../../fixtures/returns.ts"
 import { ME } from "../../fixtures/workspace.ts"
@@ -51,16 +54,20 @@ import {
   CreditCard,
   Edit,
   FileText,
+  Mail,
   MapPin,
   MoreHorizontal,
+  Printer,
   Returns,
   ShoppingBag,
   TagGlyph,
   Truck,
   XCircle
 } from "../../ui/icons.tsx"
+import { MagnusMark } from "../../ui/magnus-mark.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { Proposal } from "../../ui/proposal.tsx"
 import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Stepper } from "../../ui/stepper.tsx"
@@ -68,9 +75,10 @@ import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
 import type { TimelineItem } from "../../ui/timeline.tsx"
 import { dataState, useView } from "../../view.ts"
+import { fileSupplierTickets } from "../suppliers/tickets.ts"
 import { WaitingProposal } from "../waiting-proposal.tsx"
 import { AddressDialog, NoteDialog, RefundDialog, StartReturnDialog, TagDialog } from "./dialogs.tsx"
-import { ForwardDialog, LegStatus } from "./forwarding.tsx"
+import { ForwardDialog, LegStatus, MailCustomerDialog } from "./forwarding.tsx"
 import { copyText, Fact, LoadError, RecordSkeleton, refundLimit, undoable } from "./parts.tsx"
 
 /*
@@ -123,6 +131,7 @@ export function OrderRecord({ number }: { readonly number: string }) {
   const order = deskOrder(number, desk)
   const [dialog, setDialog] = useState<DialogId>(null)
   const [forwardLegs, setForwardLegs] = useState<ReadonlyArray<Leg>>([])
+  const [mailing, setMailing] = useState<Leg | null>(null)
   const addressOpen = useQuery("adres") === "1" && access.edit
 
   if (!access.view) {
@@ -189,6 +198,20 @@ export function OrderRecord({ number }: { readonly number: string }) {
   const canRefund = access.edit && !closed && left > 0 && !isConcept(order) && reviewing === undefined
   const canCancel = access.edit && !closed && !shipped(order.status)
   const sendable = legs.filter((l) => l.state === "te-versturen" || l.state === "fout")
+  const lead = suppliersOf(order)[0]
+  const advice = desk.advice[order.number]
+  // The advice (`/app`'s AI recommendation) stands on a late order no story or proposal covers yet.
+  const advise = access.edit && order.status === "vertraagd" && late === undefined && proposal === undefined &&
+    lead !== undefined && advice === undefined
+  const value = customerValue(order.customerId, desk)
+  const said = checkoutNote(order)
+  const canHandle = access.edit && !closed && !shipped(order.status) && !isConcept(order)
+  const handle = () => {
+    const before = changeDesk((d) =>
+      setStatus(d, [order.number], "verzonden", () => `Als afgehandeld gemarkeerd door ${ME.name}`)
+    )
+    undoable(`#${order.number} als afgehandeld gemarkeerd`, () => restoreDesk(before))
+  }
 
   const refund = (amount: number) => {
     const full = amount >= left
@@ -258,6 +281,11 @@ export function OrderRecord({ number }: { readonly number: string }) {
             Label toevoegen
           </DropdownItem>
         )}
+        {canHandle && (
+          <DropdownItem glyph={Truck} onSelect={handle}>
+            Als afgehandeld markeren
+          </DropdownItem>
+        )}
         {access.edit && !shipped(order.status) && !closed && (
           <DropdownItem
             glyph={MapPin}
@@ -276,6 +304,9 @@ export function OrderRecord({ number }: { readonly number: string }) {
         )}
         <DropdownItem glyph={Copy} onSelect={() => copyText(`#${order.number}`, "Bestelnummer")}>
           Nummer kopiëren
+        </DropdownItem>
+        <DropdownItem glyph={Printer} onSelect={() => window.print()}>
+          Afdrukken
         </DropdownItem>
         {canCancel && (
           <>
@@ -306,18 +337,85 @@ export function OrderRecord({ number }: { readonly number: string }) {
       {!access.edit && <ReadOnlyNotice area="orders" />}
 
       {late !== undefined && <Notice tone="warn" title={late.title}>{late.body}</Notice>}
-      {order.status === "vertraagd" && late === undefined && (
+      {order.status === "vertraagd" && late === undefined && (proposal !== undefined || !advise) && (
         <Notice
           tone="warn"
           title={`Niet bezorgd op ${promised.getDate()} nov, zoals beloofd`}
-          action={proposal === undefined && suppliersOf(order)[0] !== undefined
-            ? <ButtonLink size="sm" to={paths.supplier(suppliersOf(order)[0] ?? "")}>Leverancier openen</ButtonLink>
+          action={proposal === undefined && lead !== undefined
+            ? (
+              advice?.ticket === undefined
+                ? <ButtonLink size="sm" to={paths.supplier(lead)}>Leverancier openen</ButtonLink>
+                : <ButtonLink size="sm" to={paths.ticket(advice.ticket)}>Ticket #{advice.ticket} openen</ButtonLink>
+            )
             : undefined}
         >
-          De leverancier verwerkt deze bestelling trager dan normaal. Vraag {supplierName(suppliersOf(order)[0] ?? "")}
-          {" "}
-          om de verwachte overdrachtsdatum.
+          {advice?.ticket === undefined
+            ? `De leverancier verwerkt deze bestelling trager dan normaal. Vraag ${
+              supplierName(lead ?? "")
+            } om de verwachte overdrachtsdatum.`
+            : `Je vroeg ${supplierName(lead ?? "")} om de overdrachtsdatum in ticket #${advice.ticket}.`}
         </Notice>
+      )}
+      {advise && lead !== undefined && (
+        <section aria-label="Advies over deze bestelling" className="grid gap-x-3 sm:grid-cols-[28px_minmax(0,1fr)]">
+          <span className="hidden pt-0.5 sm:flex">
+            <MagnusMark size={22} />
+          </span>
+          <Proposal
+            from={
+              <>
+                <span className="truncate font-medium text-ink-2">{ASSISTANT}</span>
+                <span className="shrink-0">· levering</span>
+              </>
+            }
+            title={`${supplierName(lead)} om de overdrachtsdatum vragen`}
+            body={`De leverancier verwerkt #${order.number} trager dan normaal: ${
+              supplier(lead)?.leadDays.toLocaleString("nl-NL") ?? "?"
+            } dagen gemiddeld tegen een belofte van ${supplier(lead)?.promiseDays ?? 5}. Een ticket voor ${
+              supplierName(lead)
+            } vraagt om de datum en het track & trace-nummer.`}
+            read={["Levertijd van de leverancier", "Beloofde bezorgdag", "Geschiedenis van de bestelling"]}
+            where={`Een ticket op het bord, aan ${supplierName(lead)}`}
+            draft={`Kunt u de verwachte overdrachtsdatum en het track & trace-nummer van #${order.number} sturen? De klant verwachtte het pakket op ${promised.getDate()} nov.`}
+            state="open"
+            doneBy={ME.name.split(" ")[0] ?? ME.name}
+            primary={proposal === undefined}
+            onChange={(next) => {
+              if (next === "discarded") {
+                const before = changeDesk((d) => ({
+                  ...d,
+                  advice: { ...d.advice, [order.number]: { state: "discarded" } }
+                }))
+                undoable("Advies genegeerd", () =>
+                  restoreDesk(before))
+                return
+              }
+              const [ticketNo] = fileSupplierTickets([{
+                supplierId: lead,
+                subject: `Overdrachtsdatum bevestigen met ${supplierName(lead)} voor #${order.number}`,
+                note: `${
+                  supplierName(lead)
+                } verwerkt #${order.number} trager dan normaal. Vraag om de overdrachtsdatum en het track & trace-nummer en laat het ${name} weten zodra je het hebt.`,
+                priority: "hoog",
+                customerId: order.customerId,
+                order: order.number
+              }])
+              changeDesk((d) =>
+                addEvent(
+                  {
+                    ...d,
+                    advice: {
+                      ...d.advice,
+                      [order.number]: { state: "done", ...(ticketNo === undefined ? {} : { ticket: ticketNo }) }
+                    }
+                  },
+                  order.number,
+                  `Ticket #${ticketNo ?? ""} opgesteld voor ${supplierName(lead)} door ${ME.name}`
+                )
+              )
+            }}
+          />
+        </section>
       )}
       {cases.filter((c) => c.status === "wacht-op-bewijs").map((c) => (
         <Notice
@@ -458,6 +556,16 @@ export function OrderRecord({ number }: { readonly number: string }) {
                         )}
                       </div>
                       <LegStatus leg={leg} />
+                      {access.edit && leg.state === "fout" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={<Mail />}
+                          onClick={() => setMailing(leg)}
+                        >
+                          Klant mailen
+                        </Button>
+                      )}
                       {access.edit && (leg.state === "te-versturen" || leg.state === "fout") && (
                         <Button
                           size="sm"
@@ -511,9 +619,9 @@ export function OrderRecord({ number }: { readonly number: string }) {
               <Link to={paths.customer(order.customerId)} className="font-medium hover:underline">{name}</Link>
               <span className="block truncate text-ink-3">{who?.email}</span>
               <span className="block text-ink-3">
-                {customerOrders(order.customerId).length === 1
-                  ? "Eerste bestelling"
-                  : `${customerOrders(order.customerId).length} bestellingen`}
+                {value.orders <= 1 ? "Eerste bestelling" : `${value.orders.toLocaleString("nl-NL")} bestellingen`}
+                {" · "}
+                <span className="figure">{money(value.value)}</span> CLV
               </span>
             </Fact>
             <Fact label="Verzendadres">
@@ -543,6 +651,12 @@ export function OrderRecord({ number }: { readonly number: string }) {
                   : `Betaald ${stamp(new Date(order.placedAt.getTime() + 60_000))}`}
               </span>
             </Fact>
+            {said !== undefined && (
+              <Fact label="Opmerking van de klant">
+                <span className="block text-pretty">“{said}”</span>
+                <span className="block text-ink-3">Bij het afrekenen</span>
+              </Fact>
+            )}
             {(ownTags(order).length > 0 || access.edit) && (
               <Fact label="Labels">
                 <span className="flex flex-wrap items-center gap-1.5 pt-0.5">
@@ -620,6 +734,7 @@ export function OrderRecord({ number }: { readonly number: string }) {
         onClose={() => setQuery({ adres: null })}
       />
       <ForwardDialog legs={dialog === "forward" ? forwardLegs : null} onClose={() => setDialog(null)} />
+      <MailCustomerDialog leg={mailing} onClose={() => setMailing(null)} />
     </Page>
   )
 }

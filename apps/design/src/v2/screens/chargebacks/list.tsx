@@ -7,32 +7,42 @@ import {
   CHANNEL_LABEL,
   dueSoon,
   isOpenCase,
+  recovered,
   restoreCases,
   timeLeft,
   useCases,
-  waitingOnEvidence
+  waitingOnEvidence,
+  winRecord
 } from "../../fixtures/chargebacks.ts"
 import type { Chargeback } from "../../fixtures/chargebacks.ts"
 import { money, stamp } from "../../fixtures/order-desk.ts"
 import { customer } from "../../fixtures/records.ts"
-import { ME } from "../../fixtures/workspace.ts"
+import { DEMO_NOW, ME } from "../../fixtures/workspace.ts"
 import { Link, navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Denied, ReadOnlyNotice, useAccess } from "../../ui/access.tsx"
-import { exportCsv, undoable } from "../../ui/acts.ts"
+import { copyAndSay, exportCsv, undoable } from "../../ui/acts.ts"
 import { Status } from "../../ui/badge.tsx"
-import { ButtonLink } from "../../ui/button.tsx"
+import type { RowAction } from "../../ui/bulk.tsx"
+import { Button, ButtonLink } from "../../ui/button.tsx"
 import { RowCheckbox } from "../../ui/checkbox.tsx"
 import { LoadError, TableSkeleton } from "../../ui/data.tsx"
 import { AlertDialog } from "../../ui/dialog.tsx"
-import { SelectionAction, SelectionBar } from "../../ui/filters.tsx"
-import { CreditCard, Download, XCircle } from "../../ui/icons.tsx"
+import { countRules, emptyGroup, sameFilter } from "../../ui/filter-model.ts"
+import { FilterBuilder, FilterRules, ListToolbar, SavedViews, SelectionBar } from "../../ui/filters.tsx"
+import { Copy, CreditCard, Download, FileText, Plus, Send, XCircle } from "../../ui/icons.tsx"
+import { SearchField } from "../../ui/input.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
-import { Tabs } from "../../ui/tabs.tsx"
+import { toast } from "../../ui/toast.tsx"
+import { seedViews } from "../../ui/views.ts"
 import { dataState, useView } from "../../view.ts"
+import { filterRows, isoDay, rule, useListFilter, where } from "../orders/list-filter.ts"
+import type { Address, ListField } from "../orders/list-filter.ts"
+import { buildPack } from "./evidence.ts"
+import { NewCaseDialog } from "./new-case.tsx"
 
 /*
  * Chargebacks (`/app`'s `_admin/chargebacks/index.tsx`): the disputes PayPal, Klarna and Stripe opened,
@@ -40,21 +50,85 @@ import { dataState, useView } from "../../view.ts"
  * thing a person has to do is look at it and send it.
  */
 
-type View = "open" | "gesloten" | "alle"
-const VIEW_LABEL: Readonly<Record<View, string>> = { open: "Open", gesloten: "Afgesloten", alle: "Alle" }
-const inView = (c: Chargeback, v: View) => (v === "alle" ? true : v === "open" ? isOpenCase(c) : !isOpenCase(c))
+const STATUS_FIELD: ListField<Chargeback> = {
+  key: "status",
+  label: "Status",
+  type: "option",
+  options: Object.values(CASE_STATUS).map((x) => x.label),
+  get: (c) => CASE_STATUS[c.status].label
+}
+const AMOUNT_FIELD: ListField<Chargeback> = { key: "bedrag", label: "Bedrag", type: "number", get: (c) => c.amount }
+
+const FIELDS: ReadonlyArray<ListField<Chargeback>> = [
+  STATUS_FIELD,
+  {
+    key: "aanbieder",
+    label: "Aanbieder",
+    type: "option",
+    options: Object.values(CHANNEL_LABEL),
+    get: (c) => CHANNEL_LABEL[c.channel]
+  },
+  { key: "reden", label: "Reden", type: "option", get: (c) => c.reason },
+  {
+    key: "bewijs",
+    label: "Bewijs",
+    type: "option",
+    options: ["Verzameld", "Ontbreekt"],
+    get: (c) => (c.files.length > 0 ? "Verzameld" : "Ontbreekt")
+  },
+  AMOUNT_FIELD,
+  { key: "deadline", label: "Deadline", type: "date", get: (c) => isoDay(c.dueAt) },
+  { key: "geopend", label: "Geopend", type: "date", get: (c) => isoDay(c.openedAt) },
+  { key: "klant", label: "Klant", type: "text", get: (c) => customer(c.customerId)?.name ?? "" }
+]
+
+const OPEN = where(
+  "and",
+  rule(STATUS_FIELD, "any", [CASE_STATUS["wacht-op-bewijs"].label, CASE_STATUS.ingediend.label])
+)
+const CLOSED = where("and", rule(STATUS_FIELD, "any", [CASE_STATUS.gewonnen.label, CASE_STATUS.verloren.label]))
+
+/** The menu's "Open zaken" (no address) and "Afgesloten" (`?weergave=gesloten`); everything is `?weergave=alle`. */
+const ADDRESS: Address = { cuts: { param: "weergave", filters: { open: OPEN, gesloten: CLOSED }, fallback: "open" } }
+
+const VIEWS = "chargebacks"
+seedViews(VIEWS, [
+  { name: "Open", pinned: true, filter: OPEN },
+  { name: "Afgesloten", pinned: false, filter: CLOSED },
+  { name: "Boven € 100", pinned: false, filter: where("and", rule(AMOUNT_FIELD, "gt", "100")) }
+])
 
 /** "morgen 12:00" or "za 29 nov 23:59". */
 export const dueText = (due: number) => stamp(new Date(due))
+
+/** The cases as a few lines for the team: number, provider, order, customer, amount and where it stands. */
+const summary = (list: ReadonlyArray<Chargeback>) =>
+  [
+    `Chargebacks, ${list.length === 1 ? "1 zaak" : `${list.length} zaken`}, ${
+      money(list.reduce((n, c) => n + c.amount, 0))
+    } betwist:`,
+    ...list.map((c) =>
+      `- ${c.id} · ${CHANNEL_LABEL[c.channel]} · #${c.orderNumber} · ${customer(c.customerId)?.name ?? ""} · ${
+        money(c.amount)
+      } · ${CASE_STATUS[c.status].label.toLowerCase()}${
+        isOpenCase(c) && c.status === "wacht-op-bewijs" ? `, ${timeLeft(c.dueAt)}` : ""
+      }`
+    )
+  ].join("\n")
+
+const waiting = (c: Chargeback) => c.status === "wacht-op-bewijs"
 
 export function ChargebacksList() {
   const view = useView()
   const access = useAccess("chargebacks")
   const state = dataState(view)
   const s = useCases()
-  const tab = (useQuery("weergave") ?? "open") as View
+  const q = useQuery("q") ?? ""
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [accepting, setAccepting] = useState<ReadonlyArray<Chargeback> | null>(null)
+  const [submitting, setSubmitting] = useState<ReadonlyArray<Chargeback> | null>(null)
+  const nieuw = useQuery("nieuw") === "1"
+  const [filter, setFilter] = useListFilter(VIEWS, FIELDS, ADDRESS, () => setSelected(new Set()))
 
   if (!access.view) {
     return (
@@ -70,18 +144,140 @@ export function ChargebacksList() {
   const soon = dueSoon(s)
   const disputed = open.reduce((sum, c) => sum + c.amount, 0)
   const ready = evidence.filter((c) => c.draftedBy !== undefined)
-  const rows = all.filter((c) => inView(c, tab ?? "open")).toSorted((
-    a,
-    b
-  ) => (isOpenCase(a) === isOpenCase(b)
-    ? (tab === "gesloten" ? b.dueAt - a.dueAt : a.dueAt - b.dueAt)
-    : isOpenCase(a)
-    ? -1
-    : 1)
-  )
+  const needle = q.trim().toLowerCase().replace(/^#/, "")
+  // Open first, soonest deadline first; the closed ones latest first.
+  const rows = filterRows(all, filter, FIELDS, DEMO_NOW.date.getTime())
+    .filter((c) =>
+      needle === "" ||
+      `${c.id} ${c.orderNumber} ${customer(c.customerId)?.name ?? ""}`.toLowerCase().includes(needle)
+    )
+    .toSorted((a, b) =>
+      isOpenCase(a) === isOpenCase(b)
+        ? (isOpenCase(a) ? a.dueAt - b.dueAt : b.dueAt - a.dueAt)
+        : isOpenCase(a)
+        ? -1
+        : 1
+    )
   const picked = rows.filter((c) => selected.has(c.id))
-  const acceptable = picked.filter((c) => c.status === "wacht-op-bewijs")
+  // The open ones are the list as it starts, not a filter to clear.
+  const filtered = countRules(filter) > 0 && !sameFilter(filter, OPEN)
+  const record = winRecord(s)
 
+  const buildAll = (list: ReadonlyArray<Chargeback>) => {
+    let left = list.length
+    for (const c of list) {
+      buildPack(c.id, (done, total) => {
+        if (done <= total) return
+        left -= 1
+        if (left === 0) {
+          toast({
+            title: list.length === 1
+              ? `Bewijspakket voor ${c.id} staat klaar`
+              : `${list.length} bewijspakketten staan klaar`,
+            body: "Kijk ze na en dien ze in; er is nog niets verstuurd.",
+            tone: "good"
+          })
+        }
+      })
+    }
+    toast({
+      title: list.length === 1
+        ? `Pakket voor ${list[0]?.id ?? ""} wordt samengesteld`
+        : `${list.length} pakketten worden samengesteld`,
+      body: "De Chargeback-assistent haalt de documenten op."
+    })
+    setSelected(new Set())
+  }
+  const submitAll = (list: ReadonlyArray<Chargeback>) => {
+    for (const c of list) {
+      changeCase(c.id, (cur) => ({
+        status: "ingediend",
+        events: [...cur.events, {
+          at: casesNow(),
+          who: ME.name,
+          text: `Bewijs ingediend bij ${CHANNEL_LABEL[cur.channel]}: ${cur.files.length} documenten en het verweer`
+        }]
+      }))
+    }
+    setSubmitting(null)
+    setSelected(new Set())
+    toast({
+      title: list.length === 1 ? `${list[0]?.id ?? ""} ingediend` : `${list.length} zaken ingediend`,
+      body: "De uitspraak komt meestal binnen 30 dagen.",
+      tone: "good"
+    })
+  }
+  /** One list for the bar, the Acties menu and the keys; each says which ticked cases it fits. */
+  const actions: ReadonlyArray<RowAction<Chargeback>> = [
+    {
+      id: "pakket",
+      label: "Bewijspakket samenstellen",
+      icon: <FileText />,
+      bar: true,
+      shortcut: "b",
+      needs: { area: "chargebacks", level: 2 },
+      applies: (c) => waiting(c) && c.files.length === 0,
+      run: buildAll
+    },
+    {
+      id: "indienen",
+      label: "Indienen bij aanbieder",
+      icon: <Send />,
+      bar: true,
+      shortcut: "i",
+      needs: { area: "chargebacks", level: 3 },
+      applies: (c) => waiting(c) && c.files.length > 0 && c.statement.trim() !== "",
+      run: setSubmitting
+    },
+    {
+      id: "nummers",
+      label: "Zaaknummers kopiëren",
+      icon: <Copy />,
+      group: "Delen",
+      shortcut: "c",
+      run: (list) => copyAndSay(list.map((c) => c.id).join(", "), list.length === 1 ? "Zaaknummer" : "Zaaknummers")
+    },
+    {
+      id: "samenvatting",
+      label: "Samenvatting kopiëren",
+      icon: <Copy />,
+      group: "Delen",
+      shortcut: "s",
+      run: (list) => copyAndSay(summary(list), "Samenvatting")
+    },
+    {
+      id: "exporteren",
+      label: "Exporteren",
+      icon: <Download />,
+      group: "Delen",
+      shortcut: "e",
+      run: (list) =>
+        exportCsv(
+          "chargebacks",
+          ["Zaak", "Aanbieder", "Bestelling", "Klant", "Reden", "Bedrag", "Status", "Deadline"],
+          list.map((c) => [
+            c.id,
+            CHANNEL_LABEL[c.channel],
+            `#${c.orderNumber}`,
+            customer(c.customerId)?.name ?? "",
+            c.reason,
+            c.amount.toLocaleString("nl-NL", { minimumFractionDigits: 2 }),
+            CASE_STATUS[c.status].label,
+            dueText(c.dueAt)
+          ])
+        )
+    },
+    {
+      id: "accepteren",
+      label: "Accepteren als verloren",
+      icon: <XCircle />,
+      group: "Delen",
+      tone: "danger",
+      needs: { area: "chargebacks", level: 3 },
+      applies: waiting,
+      run: setAccepting
+    }
+  ]
   const head = (
     <PageHead
       title="Chargebacks"
@@ -95,6 +291,9 @@ export function ChargebacksList() {
         : state === "empty"
         ? "0 chargebacks"
         : undefined}
+      actions={access.edit && (
+        <Button icon={<Plus />} onClick={() => setQuery({ nieuw: "1" })}>Nieuwe chargeback</Button>
+      )}
     />
   )
 
@@ -134,6 +333,13 @@ export function ChargebacksList() {
     <Page>
       {head}
       {!access.edit && <ReadOnlyNotice area="chargebacks" />}
+      <NewCaseDialog open={nieuw} onClose={() => setQuery({ nieuw: null })} />
+      {record.decided > 0 && (
+        <p className="text-sm text-ink-2">
+          <span className="figure">{record.won}</span> van <span className="figure">{record.decided}</span>{" "}
+          beslechte zaken gewonnen · <span className="figure">{money(recovered(s))}</span> behouden
+        </p>
+      )}
       {ready.map((c) => (
         <Notice
           key={c.id}
@@ -147,69 +353,64 @@ export function ChargebacksList() {
         </Notice>
       ))}
       <div className="flex flex-col gap-3">
-        <Tabs
-          label="Weergaven"
-          value={tab}
-          onChange={(v) => {
-            setSelected(new Set())
-            setQuery({ weergave: v === "open" ? null : v })
-          }}
-          tabs={(Object.keys(VIEW_LABEL) as ReadonlyArray<View>).map((v) => ({
-            value: v,
-            label: VIEW_LABEL[v],
-            count: all.filter((c) => inView(c, v)).length
-          }))}
-        />
-        {picked.length > 0 && (
-          <SelectionBar
-            count={picked.length}
-            noun={["zaak", "zaken"]}
-            onClear={() => setSelected(new Set())}
-          >
-            {access.manage && acceptable.length > 0 && (
-              <SelectionAction
-                icon={<XCircle />}
-                tone="danger"
-                onClick={() => setAccepting(acceptable)}
-              >
-                Accepteren als verloren
-              </SelectionAction>
-            )}
-            <SelectionAction
-              icon={<Download />}
-              onClick={() =>
-                exportCsv(
-                  "chargebacks",
-                  ["Zaak", "Aanbieder", "Bestelling", "Klant", "Reden", "Bedrag", "Status", "Deadline"],
-                  picked.map((c) => [
-                    c.id,
-                    CHANNEL_LABEL[c.channel],
-                    `#${c.orderNumber}`,
-                    customer(c.customerId)?.name ?? "",
-                    c.reason,
-                    c.amount.toLocaleString("nl-NL", { minimumFractionDigits: 2 }),
-                    CASE_STATUS[c.status].label,
-                    dueText(c.dueAt)
-                  ])
-                )}
-            >
-              Exporteren
-            </SelectionAction>
-          </SelectionBar>
-        )}
+        <SavedViews list={VIEWS} value={filter} onPick={setFilter} allLabel="Alle chargebacks" />
+        {picked.length > 0
+          ? (
+            <SelectionBar
+              rows={picked}
+              actions={actions}
+              noun={["zaak", "zaken"]}
+              onClear={() => setSelected(new Set())}
+            />
+          )
+          : (
+            <ListToolbar
+              start={
+                <>
+                  <div className="w-full sm:w-64">
+                    <SearchField
+                      label="Chargebacks zoeken"
+                      value={q}
+                      onChange={(v) => setQuery({ q: v === "" ? null : v })}
+                      placeholder="Zoek op zaak, bestelling of klant"
+                    />
+                  </div>
+                  <FilterRules fields={FIELDS} rows={all} value={filter} onChange={setFilter} />
+                  <FilterBuilder fields={FIELDS} rows={all} value={filter} onChange={setFilter} views={VIEWS} />
+                </>
+              }
+            />
+          )}
         {rows.length === 0
           ? (
             <EmptyState
               size="sm"
               glyph={CreditCard}
-              title={tab === "open" ? "Geen open chargebacks" : "Nog niets afgesloten"}
+              title={q !== "" || filtered
+                ? "Geen chargebacks voor deze filters"
+                : countRules(filter) > 0
+                ? "Geen open chargebacks"
+                : "Geen chargebacks"}
               className="py-14"
+              action={q !== "" || filtered
+                ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setFilter(emptyGroup())
+                      setQuery({ q: null })
+                    }}
+                  >
+                    Filters wissen
+                  </Button>
+                )
+                : undefined}
             >
               Een chargeback komt hier binnen zodra een aanbieder er een opent.
             </EmptyState>
           )
           : (
-            <Table label={VIEW_LABEL[tab]} minWidth={820}>
+            <Table label="Chargebacks" minWidth={820}>
               <THead>
                 <Th width={40}>
                   <RowCheckbox
@@ -335,6 +536,19 @@ export function ChargebacksList() {
         } gaat terug naar de klant en de zaak sluit als verloren. Na de verzendtijd van 30 seconden kan dit niet ongedaan worden gemaakt.`}
         confirmLabel="Accepteren als verloren"
         cancelLabel="Niet accepteren"
+      />
+      <AlertDialog
+        open={submitting !== null}
+        onCancel={() => setSubmitting(null)}
+        onConfirm={() => submitAll(submitting ?? [])}
+        title={(submitting?.length ?? 0) === 1
+          ? `${submitting?.[0]?.id ?? ""} indienen bij ${CHANNEL_LABEL[submitting?.[0]?.channel ?? "klarna"]}?`
+          : `${submitting?.length ?? 0} zaken indienen?`}
+        body={`Elke aanbieder beoordeelt wat je stuurt zoals het is; je kunt daarna niets meer toevoegen. ${
+          (submitting ?? []).map((c) => `${c.id} naar ${CHANNEL_LABEL[c.channel]}`).join(", ")
+        }.`}
+        confirmLabel={(submitting?.length ?? 0) === 1 ? "Indienen" : `${submitting?.length ?? 0} zaken indienen`}
+        cancelLabel="Nog niet"
       />
     </Page>
   )

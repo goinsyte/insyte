@@ -4,9 +4,10 @@ import { myWork, openProposals, openStoreChats, scheduledRuns, unreadNotes, useD
 import { AGENTS } from "../fixtures/agents.ts"
 import { BOARDS } from "../fixtures/analytics.ts"
 import { CHATS } from "../fixtures/assistant.ts"
-import { RECORDS, TODAY } from "../fixtures/workspace.ts"
-import { AREA_PREFIXES, paths } from "../router.tsx"
+import { TODAY } from "../fixtures/workspace.ts"
+import { AREA_PREFIXES, Link, paths } from "../router.tsx"
 import type { AreaRoute, Route } from "../router.tsx"
+import { cx } from "../ui/cx.ts"
 import {
   BadgePercent,
   BarChart3,
@@ -14,11 +15,11 @@ import {
   ChevronsLeft,
   Clock,
   Database,
-  Factory,
   GraduationCap,
   History,
   Home,
   LayoutGrid,
+  LayoutList,
   MessageSquare,
   Package,
   PiggyBank,
@@ -29,10 +30,15 @@ import {
   Sparkle,
   Store,
   Users,
-  Workflow
+  Workflow,
+  X
 } from "../ui/icons.tsx"
+import { toast } from "../ui/toast.tsx"
 import { MenuButton, MenuFoot, MenuGroup, MenuItem, MenuList } from "./nav.tsx"
+import { KIND_GLYPH } from "./palette.tsx"
 import { sectionLabel } from "./sections.ts"
+import { openOverlay, repin, unpin, useShellState } from "./shell-state.ts"
+import type { Shortcut } from "./shell-state.ts"
 
 /**
  * The menu (sub-panel): what lives inside the current area. Its title is the area, its rows the
@@ -192,6 +198,7 @@ function AnalysePanel({ route }: { readonly route: Route }) {
 
 function StartPanel({ pathname }: { readonly pathname: string }) {
   const demo = useDemo()
+  const { pins, recent } = useShellState()
   return (
     <>
       <MenuList>
@@ -204,12 +211,60 @@ function StartPanel({ pathname }: { readonly pathname: string }) {
           active={pathname.startsWith(paths.notifications)}
         />
       </MenuList>
-      <MenuGroup title="Bladwijzers">
-        <MenuItem to={RECORDS.aurora.href} glyph={Package} label={RECORDS.aurora.label} active={false} />
-        <MenuItem to={RECORDS.kestrel.href} glyph={Factory} label={RECORDS.kestrel.label} active={false} />
-        <MenuItem to={paths.board("retouren")} glyph={BarChart3} label="Bord Retouren" active={false} />
-      </MenuGroup>
+      {pins.length > 0 && (
+        <MenuGroup title="Vastgezet">
+          {pins.map((p) => <PinRow key={p.href} item={p} active={pathname === p.href} />)}
+        </MenuGroup>
+      )}
+      {recent.length > 0 && (
+        <MenuGroup title="Recent">
+          {recent.slice(0, 5).map((r) => (
+            <MenuItem
+              key={r.href}
+              to={r.href}
+              glyph={KIND_GLYPH[r.kind] ?? LayoutGrid}
+              label={r.label}
+              active={pathname === r.href}
+            />
+          ))}
+        </MenuGroup>
+      )}
     </>
+  )
+}
+
+/** A pinned record in the menu, with a way to unpin it that comes back with the undo. */
+function PinRow({ item, active }: { readonly item: Shortcut; readonly active: boolean }) {
+  const G = KIND_GLYPH[item.kind] ?? LayoutGrid
+  return (
+    <li className="group relative">
+      <Link
+        to={item.href}
+        aria-current={active ? "page" : undefined}
+        className={cx(
+          "flex h-(--menu-row) items-center gap-2.5 rounded-sm pr-8 pl-2 text-sm transition-colors pointer-coarse:h-11",
+          active ? "bg-selected font-medium text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+        )}
+      >
+        <G size={16} strokeWidth={active ? 2 : 1.75} />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      </Link>
+      <button
+        type="button"
+        aria-label={`${item.label} losmaken`}
+        title="Losmaken"
+        onClick={() => {
+          const at = unpin(item.href)
+          toast({
+            title: `${item.label} losgemaakt`,
+            action: { label: "Ongedaan maken", onClick: () => repin(item, at) }
+          })
+        }}
+        className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-xs text-ink-3 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-line hover:text-ink pointer-coarse:opacity-100"
+      >
+        <X size={13} />
+      </button>
+    </li>
   )
 }
 
@@ -267,7 +322,17 @@ function MorePanel({ route }: { readonly route: Route }) {
         <MenuItem to={paths.brand} glyph={Sparkle} label="Merk" active={route.name === "brand"} />
       </MenuGroup>
       <MenuFoot>
-        <MenuButton to={paths.settings("koppelingen")} glyph={Workflow} label="Koppelingen" />
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => openOverlay("customise")}
+            className="flex h-8 w-full items-center justify-center gap-2 rounded-sm text-xs font-medium text-ink-3 hover:bg-hover hover:text-ink pointer-coarse:h-11"
+          >
+            <LayoutList size={14} />
+            Zijbalk aanpassen
+          </button>
+          <MenuButton to={paths.settings("koppelingen")} glyph={Workflow} label="Koppelingen" />
+        </div>
       </MenuFoot>
     </>
   )
