@@ -44,8 +44,9 @@
         "src/brand/routes/**/*.tsx",
       ],
       // The fixtures are a port's data, moved whole: a mock-data module keeps exports nothing reads
-      // (`todaysFocus`, `settingsNav`), as it did in `apps/console/src/lib`, which was ignored too.
-      "ignore": ["src/app/fixtures/**"],
+      // (`todaysFocus`, `settingsNav`), as it did in `apps/console/src/lib`, which was ignored too. Version 2's
+      // fixtures are the same kind of module.
+      "ignore": ["src/app/fixtures/**", "src/v2/fixtures/**"],
     },
     "packages/integrations/better-auth": {
       // Never imported: there so a declaration can name the two-factor plugin's types, which reach into zod.

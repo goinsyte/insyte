@@ -1,0 +1,553 @@
+/*
+ * Version 2's token set: every colour, face, type step, radius, shadow and motion value `/v2` draws
+ * with, and nothing else. Read off the product owner's screens of 21 November 2026 (the Magnus chat and
+ * the agent page), then tuned for contrast and for the charts those screens did not have yet.
+ *
+ * It is deliberately NOT `@insyte/tokens`: `/v2` is a second visual language beside the current
+ * product, and the two never share a page (`src/main.tsx`). Each block below clears Tailwind's own
+ * defaults first (`initial`), so a utility outside this set (`bg-blue-500`, `rounded-3xl`, `text-7xl`)
+ * does not exist here and cannot creep in. If a value is missing, it is added here, by name.
+ *
+ * The world in one breath: a white work surface on a light-grey desk, a grey menu, a graphite icon
+ * rail, ink-dark buttons and hairlines, all of it pure neutral. Colour only means something: one
+ * accent (Insyte's own teal, or the one a customer picks: focus, selection, the highlighted data
+ * point), three signals that always
+ * come with a word, and the multicolour gradient for Magnus and the agents alone.
+ *
+ * Two attributes switch the world, on the root or on any element (the kit previews themes side by
+ * side that way): `data-accent="teal" | "petrol" | "pruim" | "grafiet"` and
+ * `data-theme="light" | "dark"`. Nothing else in `/v2` names a hue.
+ */
+
+@theme {
+  /* ── colour ─────────────────────────────────────────────────────────────────────────────── */
+  --color-*: initial;
+
+  /*
+   * The neutral base: every surface, line and ink is pure grey (chroma 0), so the only hue on a
+   * product surface is the accent the customer chose (`data-accent`, below) and the fixed signals.
+   * These are the light values; `[data-theme="dark"]` at the foot of this file re-points them.
+   */
+
+  /* Surfaces, from the outside in. */
+  --color-desk: oklch(0.948 0 0); /* behind the app frame on wide screens */
+  --color-canvas: oklch(1 0 0); /* the work surface */
+  --color-panel: oklch(0.977 0 0); /* the menu (sub-panel) */
+  --color-bar: var(--color-panel); /* the main bar: the menu's surface (owner, 23 nov), the work below stays canvas */
+  --color-well: oklch(0.966 0 0); /* a sunken field inside a card: instructions, chart plates */
+  --color-hover: oklch(0.952 0 0); /* a row or control under the pointer */
+  --color-selected: oklch(0.936 0 0); /* the current row in the menu */
+  --color-scrim: oklch(0.2 0 0 / 0.32); /* behind a dialog or a drawer */
+  --color-knob: oklch(1 0 0); /* a switch's thumb */
+
+  /* Lines. A hairline separates data and frames a card; nothing else gets a border. */
+  --color-line: oklch(0.918 0 0);
+  --color-line-strong: oklch(0.858 0 0);
+
+  /* Ink. ink-3 holds 4.5:1 on canvas, panel, well and selected; ink-4 is never text, only marks and disabled glyphs. */
+  --color-ink: oklch(0.225 0 0);
+  --color-ink-2: oklch(0.42 0 0);
+  --color-ink-3: oklch(0.52 0 0);
+  --color-ink-4: oklch(0.72 0 0);
+  --color-on-ink: oklch(0.985 0 0); /* text on an ink button */
+  --color-avatar: oklch(0.42 0 0); /* a person's initials disc: graphite */
+  --color-avatar-ink: oklch(0.985 0 0);
+
+  /* The rail and the store switcher: one dark L in graphite, no blue in it. It stays dark in both modes. */
+  --color-rail: oklch(0.205 0 0);
+  --color-rail-2: oklch(0.285 0 0); /* hover */
+  --color-rail-ink: oklch(0.76 0 0); /* glyphs at rest */
+  --color-rail-fg: oklch(0.985 0 0); /* a name or glyph under the pointer, the store's name */
+  --color-rail-line: oklch(0.32 0 0);
+  /* The tile a brand mark stands on in the dark L (the Varianten panel's Logo): white in both modes,
+     because the marks are drawn for a light ground. */
+  --color-mark-ground: oklch(1 0 0);
+
+  /* The accent: the one hue a customer picks (`data-accent`). Focus ring, selection, links, a switch
+     that is on, a checked box, the current step, the one data point a chart is about. Never a fill for
+     a whole region and never a button: buttons are ink. These are the house teal's light values, the
+     default; the composed values at the foot of this file are what the page actually uses. */
+  --color-accent: oklch(0.52 0.086 196);
+  --color-accent-ink: oklch(0.47 0.082 196);
+  --color-accent-tint: oklch(0.955 0.009 196);
+  --color-on-accent: oklch(0.99 0 0);
+
+  /* Signals. Fixed across accent themes, and always paired with a word or a sign. */
+  --color-good: oklch(0.6 0.14 155);
+  --color-good-ink: oklch(0.47 0.11 155);
+  --color-good-tint: oklch(0.962 0.03 155);
+  --color-warn: oklch(0.74 0.15 75);
+  --color-warn-ink: oklch(0.5 0.11 65);
+  --color-warn-tint: oklch(0.968 0.035 85);
+  --color-bad: oklch(0.6 0.2 25);
+  --color-bad-ink: oklch(0.485 0.18 25);
+  --color-bad-tint: oklch(0.962 0.025 25);
+
+  /* Magnus. Fixed across accent themes: the stops of the gradient, and one solid ink for words that
+     belong to the assistant (text is never painted with the gradient itself). */
+  --color-ai-coral: oklch(0.7 0.19 30);
+  --color-ai-amber: oklch(0.8 0.15 70);
+  --color-ai-magenta: oklch(0.64 0.23 350);
+  --color-ai-violet: oklch(0.58 0.2 290);
+  --color-ai-sky: oklch(0.7 0.13 235);
+  /* The assistant's words are ink like any other; the gradient mark beside them carries who speaks. */
+  --color-ai-ink: var(--color-ink);
+
+  /* Data. A chart draws the current period in ink, what it compares with in comparison grey, and at
+     most one thing in the accent (or the gradient when Magnus found it). Three series at most. */
+  --color-series-1: var(--color-ink);
+  --color-series-2: oklch(0.55 0 0);
+  --color-series-3: oklch(0.78 0 0);
+  --color-compare: oklch(0.8 0 0);
+  --color-grid: oklch(0.935 0 0);
+
+  /* ── type ───────────────────────────────────────────────────────────────────────────────── */
+  --font-*: initial;
+  --font-sans: "Mona Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  /* One family for everything, figures included: no monospace anywhere. Figures are the same face
+     with its proportional numerals (`.figure`); columns of figures align right. */
+
+  /* Fixed pixel steps, ~1.15 apart: a tool read at one DPI all day does not need fluid type. */
+  --text-*: initial;
+  --text-2xs: 11px;
+  --text-2xs--line-height: 14px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 21px;
+  --text-md: 16px;
+  --text-md--line-height: 22px;
+  --text-md--letter-spacing: -0.005em;
+  --text-lg: 18px;
+  --text-lg--line-height: 24px;
+  --text-lg--letter-spacing: -0.01em;
+  --text-xl: 22px;
+  --text-xl--line-height: 28px;
+  --text-xl--letter-spacing: -0.015em;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 34px;
+  --text-2xl--letter-spacing: -0.02em;
+  /* Display steps, for the kit's cover and chapter openers only: never inside a working screen. */
+  --text-3xl: 36px;
+  --text-3xl--line-height: 40px;
+  --text-3xl--letter-spacing: -0.02em;
+  --text-4xl: 52px;
+  --text-4xl--line-height: 54px;
+  --text-4xl--letter-spacing: -0.025em;
+
+  /* ── shape ──────────────────────────────────────────────────────────────────────────────── */
+  --radius-*: initial;
+  --radius-xs: 4px; /* chips inside text, badges */
+  --radius-sm: 6px; /* buttons, inputs, menu rows */
+  --radius-md: 8px; /* rail tiles, small cards */
+  --radius-lg: 12px; /* cards, the composer */
+  --radius-xl: 16px; /* the app frame */
+  --radius-full: 9999px;
+
+  /* ── depth ──────────────────────────────────────────────────────────────────────────────── */
+  /* Flat by default. A card sits on a hairline; a shadow is for what floats above the page. */
+  --shadow-*: initial;
+  --shadow-xs: 0 1px 2px var(--shade-1);
+  --shadow-sm: 0 1px 2px var(--shade-1), 0 2px 8px -2px var(--shade-2);
+  --shadow-pop: 0 2px 6px var(--shade-2), 0 12px 32px -8px var(--shade-3);
+
+  /* ── motion ─────────────────────────────────────────────────────────────────────────────── */
+  --ease-*: initial;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --default-transition-duration: 160ms;
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-rise: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-slide-in: slide-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-shimmer: shimmer 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  --animate-sweep: sweep 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  /* A sheet arrives from the edge it lives on. */
+  @keyframes slide-in {
+    from {
+      opacity: 0.6;
+      transform: translateX(24px);
+    }
+  }
+
+  /* Work of unknown length: a third of the track sweeps across it. */
+  @keyframes sweep {
+    from {
+      left: -33%;
+    }
+    to {
+      left: 100%;
+    }
+  }
+
+  /* A skeleton breathes: a slow sweep of the hover grey over the well. */
+  @keyframes shimmer {
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -50% 0;
+    }
+  }
+}
+
+/* What is not a Tailwind namespace: the gradient, the durations by name and the shell's measures. */
+:root {
+  --gradient-ai: linear-gradient(
+    150deg,
+    var(--color-ai-amber),
+    var(--color-ai-coral) 30%,
+    var(--color-ai-magenta) 55%,
+    var(--color-ai-violet) 80%,
+    var(--color-ai-sky)
+  );
+
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  --rail-width: 52px;
+  --panel-width: 236px;
+  --bar-height: 44px;
+
+  /* Density: the heights a row of data is read at. These are the kit's own values (Td h-11, Th h-9,
+     ListRow py-2, MenuItem and DropdownItem h-8); `[data-density]` below moves them together, and
+     the kit's rows read them directly; the defaults are the heights they always had. */
+  --row-height: 44px;
+  --row-head: 36px;
+  --row-pad: 8px;
+  --menu-row: 32px;
+}
+
+/* ── themes ──────────────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * Accent themes: the ONE place an accent is defined. A theme is a block below that sets a hue, a
+ * chroma factor and a depth; the whole scale (accent, accent-ink, accent-tint, in light and dark) is
+ * derived from it by the composed rule further down. The mode (light or dark) sets the base
+ * lightness, so any accent works in either mode; `--accent-depth` moves a theme from that base toward
+ * the contrast side (darker on light, lighter on dark) by the mode's `--depth-shift`, so a deep plum
+ * stays deep and a theme with no hue carries itself on lightness alone. When the brand palette is
+ * decided, its colours become these blocks (and their names the list in `ui/theme.ts`); no component
+ * names a hue. Every pair is checked for contrast (see the kit's Kleur section): accent-ink holds
+ * 4.5:1 as text on canvas, panel, well and its own tint, the accent holds 3:1 as a focus ring on
+ * every surface, and on-accent holds 4.5:1 on the accent.
+ *
+ *   teal     196  Insyte's house accent and the default: calm blue-green, not blue, not violet
+ *   petrol   222  a deep, muted blue-green (Lagune)
+ *   pruim    342  a deep plum (Koraal)
+ *   grafiet   —   no hue at all: a dark-grey accent, for a workspace that wants none
+ *
+ * Not themes: red and coral (they are the error colour), green (it is "good"), indigo and violet
+ * (Magnus's gradient and the stock AI look), and yellow or lime (too light to be text or a ring).
+ */
+/* The wash follows the accent's own hue and chroma unless a theme says otherwise (a light fill such as
+   yellow keeps its colour in the wash while its ink goes dark). Reset on every themed element, so a
+   preview inside a yellow page does not inherit the yellow wash. */
+:root,
+[data-accent] {
+  --accent-tint-h: var(--accent-h);
+  --accent-tint-k: var(--accent-c);
+}
+:root,
+[data-accent="teal"] {
+  --accent-h: 196;
+  --accent-c: 0.43;
+  --accent-depth: 0;
+}
+[data-accent="petrol"] {
+  --accent-h: 222;
+  --accent-c: 0.37;
+  --accent-depth: 0.6;
+}
+[data-accent="pruim"] {
+  --accent-h: 342;
+  --accent-c: 0.68;
+  --accent-depth: 0.6;
+}
+[data-accent="grafiet"] {
+  --accent-h: 0;
+  --accent-c: 0;
+  --accent-depth: 1;
+}
+
+/*
+ * The palette directions' own accents (`brand/directions.ts`), for the Varianten panel: the same
+ * three numbers, read off each direction's fill. A negative depth lifts a theme toward the light side.
+ * Left out on purpose: Spectrum's indigo and violet, Primair's blue, Drukinkt's cyan (no blue or
+ * violet in the chrome). The light fills (geel, markeer, limoen) take their ink as the accent and
+ * keep the light colour for the wash only, because a yellow can be neither text nor a ring.
+ *
+ *   magenta  357  Spectrum, Drukinkt
+ *   groen    152  Primair
+ *   geel      75  Primair (oker; the wash is yellow, 92)
+ *   markeer   95  Markeerstift (olijf; the wash is marker yellow, 102)
+ *   koraal    33  Koraal
+ *   roos       5  Koraal
+ *   limoen   130  Lagune (olijf; the wash is lime, 125)
+ *   zwart     —   Drukinkt's black ink
+ */
+[data-accent="magenta"] {
+  --accent-h: 357;
+  --accent-c: 1.1;
+  --accent-depth: -0.3125;
+}
+[data-accent="groen"] {
+  --accent-h: 152;
+  --accent-c: 0.65;
+  --accent-depth: 0;
+}
+[data-accent="geel"] {
+  --accent-h: 75;
+  --accent-c: 0.58;
+  --accent-depth: -0.1875;
+  --accent-tint-h: 92;
+  --accent-tint-k: 2.25;
+}
+[data-accent="markeer"] {
+  --accent-h: 95;
+  --accent-c: 0.53;
+  --accent-depth: -0.1875;
+  --accent-tint-h: 102;
+  --accent-tint-k: 3;
+}
+[data-accent="koraal"] {
+  --accent-h: 33;
+  --accent-c: 0.85;
+  --accent-depth: -0.3125;
+}
+[data-accent="roos"] {
+  --accent-h: 5;
+  --accent-c: 0.85;
+  --accent-depth: -0.1875;
+}
+[data-accent="limoen"] {
+  --accent-h: 130;
+  --accent-c: 0.58;
+  --accent-depth: -0.1875;
+  --accent-tint-h: 125;
+  --accent-tint-k: 3;
+}
+[data-accent="zwart"] {
+  --accent-h: 0;
+  --accent-c: 0;
+  --accent-depth: 1.75;
+}
+
+/* The light mode's lightness for the accent family (and the shadows' strength). */
+:root,
+[data-theme="light"] {
+  --accent-l: 0.52;
+  --accent-ink-l: 0.47;
+  --accent-tint-l: 0.955;
+  --accent-chroma: 0.2;
+  --accent-ink-chroma: 0.19;
+  --accent-tint-chroma: 0.02;
+  --depth-shift: -0.16;
+  --depth-tint-shift: -0.015;
+  --shade-1: oklch(0.2 0 0 / 0.05);
+  --shade-2: oklch(0.2 0 0 / 0.06);
+  --shade-3: oklch(0.2 0 0 / 0.18);
+}
+
+/*
+ * The composed accent. Declared on every element that sets a theme attribute, not only on the root,
+ * because a custom property that reads another is resolved where it is declared: a preview wrapper
+ * with `data-accent="petrol"` must recompute these from its own hue.
+ */
+:root,
+[data-accent],
+[data-theme] {
+  --color-accent: oklch(
+    calc(var(--accent-l) + var(--accent-depth) * var(--depth-shift)) calc(var(--accent-chroma) * var(--accent-c)) var(--accent-h)
+  );
+  --color-accent-ink: oklch(
+    calc(var(--accent-ink-l) + var(--accent-depth) * var(--depth-shift)) calc(var(--accent-ink-chroma) * var(--accent-c))
+      var(--accent-h)
+  );
+  --color-accent-tint: oklch(
+    calc(var(--accent-tint-l) + var(--accent-depth) * var(--depth-tint-shift))
+      calc(var(--accent-tint-chroma) * var(--accent-tint-k)) var(--accent-tint-h)
+  );
+  --color-bar: var(--color-panel);
+  --color-series-1: var(--color-ink);
+}
+
+/*
+ * Dark mode, on the same token names. The work surface goes to a deep graphite, the rail stays the
+ * darkest thing on the page so the L still reads, ink inverts (a primary button is light with dark
+ * text), and the signals lift so their words keep 4.5:1. The AI gradient does not change.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-desk: oklch(0.155 0 0);
+  --color-canvas: oklch(0.2 0 0);
+  --color-panel: oklch(0.185 0 0);
+  --color-well: oklch(0.235 0 0);
+  --color-hover: oklch(0.255 0 0);
+  --color-selected: oklch(0.28 0 0);
+  --color-scrim: oklch(0 0 0 / 0.55);
+  --color-knob: oklch(0.93 0 0);
+  --color-line: oklch(0.285 0 0);
+  --color-line-strong: oklch(0.36 0 0);
+  --color-ink: oklch(0.95 0 0);
+  --color-ink-2: oklch(0.8 0 0);
+  --color-ink-3: oklch(0.7 0 0);
+  --color-ink-4: oklch(0.5 0 0);
+  --color-on-ink: oklch(0.2 0 0);
+  --color-avatar: oklch(0.42 0 0);
+  --color-avatar-ink: oklch(0.985 0 0);
+  --color-rail: oklch(0.14 0 0);
+  --color-rail-2: oklch(0.235 0 0);
+  --color-rail-ink: oklch(0.72 0 0);
+  --color-rail-line: oklch(0.26 0 0);
+  --color-good: oklch(0.68 0.14 155);
+  --color-good-ink: oklch(0.78 0.12 155);
+  --color-good-tint: oklch(0.29 0.045 155);
+  --color-warn: oklch(0.78 0.14 75);
+  --color-warn-ink: oklch(0.82 0.12 80);
+  --color-warn-tint: oklch(0.3 0.045 75);
+  --color-bad: oklch(0.66 0.19 25);
+  --color-bad-ink: oklch(0.76 0.14 25);
+  --color-bad-tint: oklch(0.3 0.06 25);
+  --color-ai-ink: var(--color-ink);
+  --color-series-2: oklch(0.66 0 0);
+  --color-series-3: oklch(0.42 0 0);
+  --color-compare: oklch(0.48 0 0);
+  --color-grid: oklch(0.26 0 0);
+  --color-on-accent: oklch(0.17 0 0);
+  --accent-l: 0.7;
+  --accent-ink-l: 0.78;
+  --accent-tint-l: 0.3;
+  --accent-chroma: 0.15;
+  --accent-ink-chroma: 0.1;
+  --accent-tint-chroma: 0.06;
+  --depth-shift: 0.12;
+  --depth-tint-shift: 0.02;
+  --shade-1: oklch(0 0 0 / 0.3);
+  --shade-2: oklch(0 0 0 / 0.3);
+  --shade-3: oklch(0 0 0 / 0.55);
+}
+
+/* ── variants ────────────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * The Varianten panel (`shell/variants.tsx`, state in `variants.ts`): attributes on `<html>` that
+ * re-point the tokens above, so the founder can compare versions of his own direction on every
+ * screen at once. Without an attribute every value above stands; each block only overrides.
+ *
+ *   data-direction  spectrum | primair | markeerstift | koraal | lagune | drukinkt
+ *                   the AI gradient's stops (and so Magnus's mark, the composer ring, the agents)
+ *   data-rail       licht | kleur      the icon rail and the store switcher: neutral grey, or the accent
+ *   data-bar        inhoud             the main bar takes the work surface instead of the menu's
+ *   data-density    compact | ruim     the row heights (applied in `v2.css`)
+ */
+
+/* The six directions' gradients, from each direction's hues (`brand/directions.ts`). The stops keep
+   their names (amber, coral, magenta, violet, sky); in a direction they hold that direction's hues
+   in the same order round the gradient. Blue and violet are allowed here, in the gradient only. */
+:root[data-direction="spectrum"] {
+  --color-ai-amber: oklch(0.76 0.16 58);
+  --color-ai-coral: oklch(0.64 0.23 357);
+  --color-ai-magenta: oklch(0.57 0.22 302);
+  --color-ai-violet: oklch(0.63 0.17 256);
+  --color-ai-sky: oklch(0.82 0.095 232);
+}
+:root[data-direction="primair"] {
+  --color-ai-amber: oklch(0.86 0.165 88);
+  --color-ai-coral: oklch(0.64 0.21 27);
+  --color-ai-magenta: oklch(0.66 0.16 152);
+  --color-ai-violet: oklch(0.6 0.19 258);
+  --color-ai-sky: oklch(0.72 0.14 250);
+}
+:root[data-direction="markeerstift"] {
+  --color-ai-amber: oklch(0.9 0.175 102);
+  --color-ai-coral: oklch(0.82 0.165 85);
+  --color-ai-magenta: oklch(0.9 0.175 102);
+  --color-ai-violet: oklch(0.82 0.165 85);
+  --color-ai-sky: oklch(0.9 0.175 102);
+}
+:root[data-direction="koraal"] {
+  --color-ai-amber: oklch(0.83 0.115 68);
+  --color-ai-coral: oklch(0.69 0.175 33);
+  --color-ai-magenta: oklch(0.74 0.13 8);
+  --color-ai-violet: oklch(0.37 0.12 342);
+  --color-ai-sky: oklch(0.76 0.145 50);
+}
+:root[data-direction="lagune"] {
+  --color-ai-amber: oklch(0.89 0.17 125);
+  --color-ai-coral: oklch(0.84 0.105 172);
+  --color-ai-magenta: oklch(0.63 0.12 196);
+  --color-ai-violet: oklch(0.38 0.075 222);
+  --color-ai-sky: oklch(0.84 0.105 172);
+}
+:root[data-direction="drukinkt"] {
+  --color-ai-amber: oklch(0.93 0.18 104);
+  --color-ai-coral: oklch(0.62 0.245 356);
+  --color-ai-magenta: oklch(0.67 0.19 292);
+  --color-ai-violet: oklch(0.72 0.135 228);
+  --color-ai-sky: oklch(0.72 0.135 228);
+}
+
+/* The icon rail in neutral grey: a light L, the current tile still the white one. */
+:root[data-rail="licht"] {
+  --color-rail: oklch(0.925 0 0);
+  --color-rail-2: oklch(0.885 0 0);
+  --color-rail-ink: oklch(0.43 0 0);
+  --color-rail-fg: oklch(0.225 0 0);
+  --color-rail-line: oklch(0.86 0 0);
+}
+:root[data-rail="licht"][data-theme="dark"] {
+  --color-rail: oklch(0.27 0 0);
+  --color-rail-2: oklch(0.33 0 0);
+  --color-rail-ink: oklch(0.78 0 0);
+  --color-rail-fg: oklch(0.985 0 0);
+  --color-rail-line: oklch(0.35 0 0);
+}
+
+/* The icon rail in the accent: a deep shade of the theme's hue (a theme without a hue stays graphite). */
+:root[data-rail="kleur"] {
+  --color-rail: oklch(0.31 calc(0.13 * var(--accent-c)) var(--accent-h));
+  --color-rail-2: oklch(0.38 calc(0.13 * var(--accent-c)) var(--accent-h));
+  --color-rail-ink: oklch(0.84 calc(0.04 * var(--accent-c)) var(--accent-h));
+  --color-rail-fg: oklch(0.985 0 0);
+  --color-rail-line: oklch(0.42 calc(0.1 * var(--accent-c)) var(--accent-h));
+}
+:root[data-rail="kleur"][data-theme="dark"] {
+  --color-rail: oklch(0.24 calc(0.1 * var(--accent-c)) var(--accent-h));
+  --color-rail-2: oklch(0.31 calc(0.1 * var(--accent-c)) var(--accent-h));
+  --color-rail-line: oklch(0.34 calc(0.08 * var(--accent-c)) var(--accent-h));
+}
+
+/* The main bar on the work surface's white instead of the menu's grey; its hairline still parts it. */
+:root[data-bar="inhoud"],
+:root[data-bar="inhoud"] :where([data-accent], [data-theme]) {
+  --color-bar: var(--color-canvas);
+}
+
+/* Density: compact and ruim around the kit's own row heights. Compact only shrinks on a fine
+   pointer: a finger keeps the rows it had. */
+@media (pointer: fine) {
+  :root[data-density="compact"] {
+    --row-height: 36px;
+    --row-head: 30px;
+    --row-pad: 5px;
+    --menu-row: 28px;
+  }
+}
+:root[data-density="ruim"] {
+  --row-height: 52px;
+  --row-head: 40px;
+  --row-pad: 12px;
+  --menu-row: 36px;
+}

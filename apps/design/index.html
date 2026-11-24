@@ -67,7 +67,8 @@
          * because one page never loaded it — the generated token kit (`/brand/tokens`, the old
          * `tokens.html`) — and loading it there would change what the kit paints.
          */
-        if (!under("/brand/tokens")) {
+        // `/v2` draws in its own faces, self-hosted through its stylesheet (`src/v2/v2.css`).
+        if (!under("/brand/tokens") && !under("/v2")) {
           document.write(
             '<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap" />'
           );

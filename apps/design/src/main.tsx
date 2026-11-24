@@ -14,27 +14,30 @@
 const productOnly = import.meta.env.VITE_PRODUCT_ONLY === true
 
 /*
- * Product-only (every build, see `vite.config.ts`): the app is the one section, and any other path
- * goes to it. The literal condition lets the bundler drop the other branch, so the site, the brand
+ * Product-only (every build, see `vite.config.ts`): the app and its version 2 (`/v2`, the founder's
+ * new shell) are the sections, and any other path goes to the app. The literal condition lets the bundler drop the other branch, so the site, the brand
  * book and the front door are not in `dist/` at all, not merely unlinked.
  */
 const sections = productOnly
-  ? import.meta.glob(["./app/main.tsx"])
+  ? import.meta.glob(["./app/main.tsx", "./v2/main.tsx"])
   : import.meta.glob([
     "./app/main.tsx",
     "./site/main.tsx",
     "./brand/main.tsx",
     "./brand/tokens.tsx",
-    "./home/main.tsx"
+    "./home/main.tsx",
+    "./v2/main.tsx"
   ])
 
 const path = window.location.pathname
 const under = (prefix: string) => path === prefix || path.startsWith(`${prefix}/`)
 
-if (productOnly && !under("/app")) window.location.replace("/app/dashboard")
+if (productOnly && !under("/app") && !under("/v2")) window.location.replace("/app/dashboard")
 
-const section = productOnly || under("/app")
+const section = under("/app") || (productOnly && !under("/v2"))
   ? "./app/main.tsx"
+  : under("/v2")
+  ? "./v2/main.tsx"
   : under("/site")
   ? "./site/main.tsx"
   : under("/brand/tokens")
@@ -55,7 +58,11 @@ const heads: Record<string, readonly [title: string, description?: string]> = {
     "Design system — Insyte",
     "Colour, shape, type and motion, read from the tokens at build time rather than described beside them."
   ],
-  "./home/main.tsx": ["Insyte · referentie"]
+  "./home/main.tsx": ["Insyte · referentie"],
+  "./v2/main.tsx": [
+    "Insyte · versie 2",
+    "Een tweede versie van het product: de shell met werkdraad, Magnus, agents en Analyse."
+  ]
 }
 
 const [title, description] = heads[section] ?? []
