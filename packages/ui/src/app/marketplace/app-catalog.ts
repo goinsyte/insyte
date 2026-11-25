@@ -105,6 +105,15 @@ export const FEATURES_FOR: Record<string, Array<string>> = byApp((a) => [...a.fe
 
 export const PERMISSIONS_FOR: Record<string, Array<string>> = byApp((a) => a.scopes.map((s) => s.label))
 
+/** What installing an app does, said under its detail; none for one that cannot be installed yet. */
+export const INSTALL_NOTE_FOR: Record<string, string> = byApp((a) =>
+  a.install.kind === "connect"
+    ? `Je keurt de koppeling goed op de pagina van ${a.name}.`
+    : a.install.kind === "key"
+    ? `Je krijgt een API-sleutel om in ${a.name} te plakken.`
+    : undefined
+)
+
 /** A scope's label → its id, as the server stores what is taken back. */
 export const scopeIdsOf = (appId: string, labels: ReadonlyArray<string>) =>
   (CATALOG_BY_ID[appId]?.scopes ?? []).filter((s) => labels.includes(s.label)).map((s) => s.id)

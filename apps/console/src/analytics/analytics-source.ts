@@ -115,6 +115,8 @@ const round1 = (n: number) => Math.round(n * 10) / 10
 const pct = (a: number, b: number) => (b === 0 ? 0 : ((a - b) / b) * 100)
 const plural = (n: number, one: string, many: string) => `${int(n)} ${n === 1 ? one : many}`
 const sign = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "")
+/** A change that reads as 0,0 is no rise or fall, and is not narrated as one. */
+const flat = (v: number) => dec1(Math.abs(v)) === "0,0"
 const major = (minor: number) => minor / 100
 const asNumber = (v: unknown) => (typeof v === "number" ? v : 0)
 const asString = (v: unknown) => (typeof v === "string" ? v : null)
@@ -156,13 +158,16 @@ export interface Pair {
   readonly b: string
 }
 
-/** The member's saved months where the pickers still offer them; else this month against the one before. */
+/**
+ * The member's saved months where the pickers still offer them; else this month against the one before. Never a month
+ * against itself: a pair saved so (when the pickers offered one month only) compares A with the month before it.
+ */
 export const pairFor = (frame: Frame, periods: AnalyticsPeriods): Pair => {
   const ids = periods.months.map((m) => m.month)
   const saved = frame.prefs.sections.analytics?.value as { a?: unknown; b?: unknown } | undefined
   const a = typeof saved?.a === "string" && ids.includes(saved.a) ? saved.a : periods.current
-  const before = ids[ids.indexOf(periods.current) - 1] ?? periods.current
-  const b = typeof saved?.b === "string" && ids.includes(saved.b) ? saved.b : before
+  const before = (m: string) => ids[ids.indexOf(m) - 1] ?? ids[ids.indexOf(m) + 1] ?? m
+  const b = typeof saved?.b === "string" && ids.includes(saved.b) && saved.b !== a ? saved.b : before(a)
   return { a, b }
 }
 
@@ -172,9 +177,10 @@ export function useAnalyticsPair(frame: Frame, periods: AnalyticsPeriods) {
   const [saved, save] = usePrefSection<Pair>(frame, "analytics", fallback)
   const ids = new Set(periods.months.map((m) => m.month))
   const kept = saved as Partial<Pair> | null
-  const pair = kept?.a !== undefined && kept.b !== undefined && ids.has(kept.a) && ids.has(kept.b) ?
-    { a: kept.a, b: kept.b } :
-    fallback
+  const pair =
+    kept?.a !== undefined && kept.b !== undefined && ids.has(kept.a) && ids.has(kept.b) && kept.a !== kept.b ?
+      { a: kept.a, b: kept.b } :
+      fallback
   return [pair, save] as const
 }
 
@@ -300,8 +306,10 @@ function write(f: Finding, A: PeriodLabels, B: PeriodLabels, money: (n: number) 
       return {
         headline: fresh ?
           `De omzet kwam op ${m("a")}; in ${B.short} kwam er nog niets binnen.` :
+          flat(change) ?
+          `De omzet bleef gelijk op ${m("a")}, net als in ${B.short}.` :
           `De omzet ${up ? "steeg" : "daalde"} ${dec1(Math.abs(change))}% naar ${m("a")}, vooral door ${why}.`,
-        figure: fresh ? m("a") : `${sign(change)}${dec1(Math.abs(change))}%`,
+        figure: fresh ? m("a") : flat(change) ? "0,0%" : `${sign(change)}${dec1(Math.abs(change))}%`,
         explain: `In ${A.label} kwam ${m("a")} binnen uit ${
           plural(asNumber(x["ordersA"]), "betaalde bestelling", "betaalde bestellingen")
         } van gemiddeld ${m("aovA")}, tegenover ${m("b")} uit ${int(asNumber(x["ordersB"]))} van gemiddeld ${
@@ -350,7 +358,9 @@ function write(f: Finding, A: PeriodLabels, B: PeriodLabels, money: (n: number) 
       return {
         headline: `${onTime} kwam op tijd aan${
           compared ?
-            `, ${dec1(Math.abs(pts))} pp ${pts >= 0 ? "meer" : "minder"} dan in ${B.short}` :
+            (flat(pts)
+              ? `, evenveel als in ${B.short}`
+              : `, ${dec1(Math.abs(pts))} pp ${pts >= 0 ? "meer" : "minder"} dan in ${B.short}`) :
             `; in ${B.short} werd niets bezorgd`
         }${grew ? `; ${where} liep het meest uit` : ""}.`,
         figure: onTime,
@@ -523,6 +533,8 @@ function explained(e: Explanation, money: (n: number) => string): Read {
         } op ${key.day} ${A.abbr} ${money(major(e.a))} op${
           e.b === 0 ?
             "." :
+            flat(change) ?
+            `, evenveel als op dezelfde dag in ${B.label}.` :
             `, ${dec1(Math.abs(change))}% ${change >= 0 ? "meer" : "minder"} dan op dezelfde dag in ${B.label}.`
         }`,
         drivers: e.drivers.map((d) =>

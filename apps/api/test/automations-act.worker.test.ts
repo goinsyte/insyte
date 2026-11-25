@@ -226,6 +226,61 @@ describe("automations that act", () => {
     expect(activity.rows.filter((r) => r.action === "order.refunded")).toHaveLength(2)
   }, 240_000)
 
+  it("refunds an order in its own currency within a limit in the workspace's, at the ECB rate", async () => {
+    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    const store = await importedStore("act-fx")
+    // The workspace counts in dollars now; the store sells in euros.
+    ok(
+      await rpc("Workspaces.saveRegional", {
+        language: "nl-NL",
+        currencyDisplay: "USD",
+        dateFormat: "DD MMM YYYY",
+        timeFormat: "24h",
+        weekStart: "mon",
+        timezone: "Europe/Amsterdam"
+      }, store.cookie)
+    )
+    const flow = async (name: string, amount: string) => {
+      const { automation } = ok(await rpc("Automations.create", { name }, store.cookie))
+      const id = automation!.automation.id
+      const nodes = [step("t", "trigger.shipping_delay"), step("r", "action.refund", { amount, reason: "" })]
+      ok(await rpc("Automations.saveDraft", { id, name, nodes: nodes as Json }, store.cookie))
+      ok(await rpc("Automations.publish", { id, note: "" }, store.cookie))
+      return id
+    }
+    const small = await flow("Klein terug", "5,00")
+    const large = await flow("Groot terug", "95,00")
+    const orderId = ok(await rpc("Forwarding.list", { view: "to_forward" }, store.cookie)).rows[0]!.orderId
+    const key = await keyOf(store.cookie, "Fx", false)
+
+    await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
+    const runOn = async (id: string) => {
+      const response = await startBy(key, id, orderId)
+      expect(response.status).toBe(200)
+      const runId = (await response.json() as Json).id as string
+      return await until(() => rpc("Runs.get", { id: runId }, store.cookie).then(ok), (d) => d.run.finishedAt !== null)
+    }
+    const done = await runOn(small)
+    expect(done.run.status).toBe("succeeded")
+    expect(done.steps.find((s: Json) => s.nodeId === "r")!.explanation).toBe(
+      "€ 5,00 terugbetaald; Shopify verwerkt het."
+    )
+
+    // $ 100 is € 100 / the euro's rate into the dollar, rounded down; € 95 is more.
+    const rates = (await (await call("http://api.test/api/__dev/fx")).json() as {
+      rates: Array<{ day: string; base: string; quote: string; rate: string }>
+    }).rates.filter((r) => r.base === "EUR" && r.quote === "USD").toSorted((a, b) => b.day.localeCompare(a.day))
+    const limitCents = Math.floor(10_000 / Number(rates[0]!.rate) + 1e-6)
+    const euros = (limitCents / 100).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const refused = await runOn(large)
+    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
+    expect(refused.run).toMatchObject({
+      status: "failed",
+      reason:
+        `“Terugbetalen”: € 95,00 is meer dan de flow per bestelling mag terugbetalen (€ ${euros}, $ 100,00 tegen de ECB-koers). Doe het zelf, of vraag eerst goedkeuring.`
+    })
+  }, 240_000)
+
   it("refunds no more than the flow's owner, its publisher or its starter may, and only in their stores", async () => {
     const store = await importedStore("act-rights")
     const roleWith = async (
@@ -493,6 +548,13 @@ describe("automations that act", () => {
         step("e", "action.check_eta"),
         mailTo("Ongelezen")
       ])
+      const unsubscribing = await flow("Met uitschrijflink", store.cookie, store.cookie, [
+        delayed,
+        step("m", "action.send_email", {
+          subject: `Uitschrijven {{order.number}} · ${run}`,
+          body: "Hoi {{customer.first_name}}.\n\nGeen mail meer? Schrijf je uit via {uitschrijf_link}"
+        })
+      ])
       const capped = await flow("Honderd per uur", store.cookie, store.cookie, [
         delayed,
         step("f", "condition.filter", { expression: "{{order.total}} > 99999999" }),
@@ -607,6 +669,31 @@ describe("automations that act", () => {
         explanation: expect.stringMatching(/^Mail “Ouder #1002/)
       })
 
+      // A mail asking for the unsubscribe link while Sjablonen holds none: skipped with why, the run not failed, the
+      // owner told once per version; once the link is saved, it mails.
+      const noLink =
+        "De mail vraagt om de uitschrijflink, maar die staat nog niet bij Instellingen › Sjablonen; de klant is niet gemaild."
+      for (let i = 0; i < 2; i++) {
+        const skipped = await finished(await started(admin, unsubscribing))
+        expect(skipped.run.status).toBe("succeeded")
+        expect(mailOf(skipped)).toMatchObject({ status: "skipped", explanation: noLink })
+      }
+      await relay(store.workspace)
+      const told = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
+      expect(told.filter((n) => JSON.stringify(n).includes("Instellingen › Sjablonen"))).toHaveLength(1)
+      const links = ok(await rpc("WorkspaceSettings.get", { section: "links" }, store.cookie))
+      ok(
+        await rpc("WorkspaceSettings.save", {
+          section: "links",
+          value: { review: "", unsubscribe: `https://act-${run}.example/uit`, restock: "" } as never,
+          baseVersion: links.version
+        }, store.cookie)
+      )
+      expect(mailOf(await finished(await started(admin, unsubscribing)))).toMatchObject({
+        status: "ok",
+        explanation: expect.stringMatching(/^Mail “Uitschrijven #1002/)
+      })
+
       // Every Workflow done; the one stopped in Runs ends terminated.
       for (const instance of await workflows.get()) await instance.waitForStatus("complete").catch(() => undefined)
       await pastUndo(store.workspace)
@@ -617,11 +704,16 @@ describe("automations that act", () => {
         .map((m) => m.subject ?? "")
         // The recorded shop's shoppers are every test's: this test's mails by their words.
         .filter((subject) =>
-          /^(Zonder|Elders|Teruggezet|Goedgekeurd|Ouder|Ongelezen|Nooit) /.test(subject) &&
+          /^(Zonder|Elders|Teruggezet|Goedgekeurd|Ouder|Ongelezen|Nooit|Uitschrijven) /.test(subject) &&
           subject.endsWith(` · ${run}`)
         )
         .toSorted()
-      expect(captured).toEqual([`Goedgekeurd #1002 · ${run}`, `Ouder #1002 · ${run}`, `Zonder #1002 · ${run}`])
+      expect(captured).toEqual([
+        `Goedgekeurd #1002 · ${run}`,
+        `Ouder #1002 · ${run}`,
+        `Uitschrijven #1002 · ${run}`,
+        `Zonder #1002 · ${run}`
+      ])
 
       // A flow that mails runs at most 100 times an hour, whatever its setting: the 101st start is skipped with why.
       for (let i = 0; i < 100; i++) expect((await startBy(admin, capped, order.id)).status).toBe(200)

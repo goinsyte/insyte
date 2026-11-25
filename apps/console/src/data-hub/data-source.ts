@@ -20,6 +20,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { DATA, dataWrites, importRowsAtom, NO_ROWS } from "../data/data.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 import { orderOf } from "../orders/orders-source.ts"
@@ -153,7 +154,7 @@ export function useConsoleDataSource(input: {
     commit: useAtomSet(dataWrites.commit, { mode: "promiseExit" }),
     remove: useAtomSet(dataWrites.remove, { mode: "promiseExit" }),
     request: useAtomSet(dataWrites.request, { mode: "promiseExit" }),
-    undo: useAtomSet(dataWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(dataWrites.undo)
   }
   const canImport = useGate("data", 2)
   const canExport = useGate("data.export")

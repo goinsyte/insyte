@@ -1,13 +1,17 @@
+import { Invalid } from "@insyte/domain/Errors"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import {
   buttonColorOf,
+  contactOf,
   fillLinks,
+  lacksUnsubscribe,
   linksOf,
   logoFileOf,
   logoPath,
   type Look,
   NO_LOOK,
+  NO_UNSUBSCRIBE,
   parcelStatusOf,
   type ShipStatusId,
   type Worded,
@@ -57,16 +61,36 @@ export const parcelWording = Effect.fn("CustomerFacing.parcelWording")(function*
   return wordingFor(stored, parcelStatusOf(parcel.tracked, parcel.shopify, parcel.stage), parcel.carrier)
 })
 
-/** Sjablonen' links, to put in the team's words (an empty link takes what only led up to it out). */
-export const linkFiller = Effect.fn("CustomerFacing.linkFiller")(function*(sql: SqlClient.SqlClient) {
+/**
+ * Sjablonen' links, to put in the team's words (`texts`: all of one mail): an empty link takes what only led up to it
+ * out, except the unsubscribe link, whose mail is refused while it is empty (`lacksUnsubscribe`).
+ */
+export const linkFiller = Effect.fn("CustomerFacing.linkFiller")(function*(
+  sql: SqlClient.SqlClient,
+  texts: ReadonlyArray<string>
+) {
   const links = linksOf(yield* section(sql, "links"))
+  if (lacksUnsubscribe(texts, links)) return yield* new Invalid({ fields: NO_UNSUBSCRIBE })
   return (text: string) => text.includes("_link}") ? fillLinks(text, links) : text
 })
 
-/** The team's words with Sjablonen' links in. */
+/** Whether these words (all of one mail) ask for the unsubscribe link while Sjablonen holds none. */
+export const unsubscribeMissing = Effect.fn("CustomerFacing.unsubscribeMissing")(function*(
+  sql: SqlClient.SqlClient,
+  texts: ReadonlyArray<string>
+) {
+  return lacksUnsubscribe(texts, linksOf(yield* section(sql, "links")))
+})
+
+/** The team's words with Sjablonen' links in; refused where they ask for an unsubscribe link none is saved for. */
 export const withLinks = Effect.fn("CustomerFacing.withLinks")(function*(sql: SqlClient.SqlClient, text: string) {
   if (!text.includes("_link}")) return text
-  return (yield* linkFiller(sql))(text)
+  return (yield* linkFiller(sql, [text]))(text)
+})
+
+/** Huisstijl's name, website and support address, as the returns portal shows them. */
+export const contact = Effect.fn("CustomerFacing.contact")(function*(sql: SqlClient.SqlClient) {
+  return contactOf(yield* section(sql, "brand"))
 })
 
 /**

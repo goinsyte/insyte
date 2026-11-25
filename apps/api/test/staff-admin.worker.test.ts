@@ -314,7 +314,13 @@ describe("the staff admin", () => {
       expect(end.body.session.endedAt).not.toBeNull()
       expect((await read(session, "Team.get")).body.error.code).toBe("session_ended")
       expect(ok(await rpc("Support.status", undefined, owner.cookie)).session).toBeNull()
-      expect((await logbook(owner.cookie))[0]).toMatchObject({ after: "Meekijken beëindigd" })
+      expect((await logbook(owner.cookie))[0]).toMatchObject({ after: "Meekijken beëindigd", before: null })
+      // Every support line, whoever at Insyte read, is one choice in the Wie filter, and that choice finds them all.
+      const actors = ok(await rpc("Audit.facets", undefined, owner.cookie)).actors
+      expect(actors.filter((a) => a.name === "Insyte-support")).toEqual([{ key: "insyte:*", name: "Insyte-support" }])
+      const theirs = ok(await rpc("Audit.list", { category: "settings", actor: "insyte:*" }, owner.cookie)).lines
+      expect(theirs.length).toBeGreaterThan(3)
+      expect(theirs.every((l) => l.actor.name === "Insyte-support")).toBe(true)
       const ends = (await trail(workspace)).filter((l) => l.sessionId === session && l.action === "session.end")
       expect(ends).toHaveLength(1)
     })

@@ -10,6 +10,7 @@ import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { ASK, askListAtom, type AskPlace, askStream, askThreadAtom, askWrites } from "../data/ask.ts"
 import { frameAtom } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { needsOf, queueAtom } from "../data/queue.ts"
 import { viewStoreAtom } from "../data/store-view.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
@@ -167,7 +168,7 @@ export function useConsoleAskSource(place: AskPlace = "page"): AskSource {
   const storeId = useAtomValue(viewStoreAtom) ?? undefined
   const send = useAtomSet(askStream(place), { mode: "promiseExit" })
   const remove = useAtomSet(askWrites.remove, { mode: "promiseExit" })
-  const undo = useAtomSet(askWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(askWrites.undo)
   const [pending, setPending] = useState<Pending | null>(null)
   const busy = pending !== null && pending.settled === null
 

@@ -5,6 +5,7 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import type { ProductDraft } from "@insyte/ui/app/products/detail-source"
 import { Exit } from "effect"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { PRODUCTS, productWrites } from "../data/products.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -64,7 +65,7 @@ export function useProductCommands() {
     reprice: useAtomSet(productWrites.reprice, { mode: "promiseExit" }),
     sync: useAtomSet(productWrites.sync, { mode: "promiseExit" }),
     create: useAtomSet(productWrites.create, { mode: "promiseExit" }),
-    undo: useAtomSet(productWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(productWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {

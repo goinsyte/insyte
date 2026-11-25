@@ -28,7 +28,6 @@ import {
   type SaveSection,
   type SettingsSectionId,
   ShippingValue,
-  VAT_CURRENCIES,
   type VatStore,
   VatValue
 } from "../domain/Settings.ts"
@@ -70,34 +69,44 @@ const RETENTION_START: RetentionValue = {
   }))
 }
 
+/**
+ * Huisstijl before it is saved. Its sender is the name the returns portal already shows, the one store's, else the
+ * workspace's, so saving the page for its colour alone does not rename the store to the shopper.
+ */
 const brandDefaults = (sql: SqlClient.SqlClient) =>
   Effect.map(
-    sql<{ name: string }>`select name from workspaces where id = app_workspace_id()`,
+    sql<{ name: string; stores: ReadonlyArray<string> }>`
+      select w.name, coalesce((select array_agg(s.name order by s.created_at) from (
+               select name, created_at from stores where status <> 'disconnected' order by created_at limit 2
+             ) s), '{}') as stores
+      from workspaces w where w.id = app_workspace_id()`,
     (rows): BrandValue => ({
       logoFileId: null,
       color: "#1F3A5F",
       font: "Systeem",
-      sender: rows[0]?.name ?? "",
+      sender: rows[0]?.stores.length === 1 ? rows[0].stores[0]! : rows[0]?.name ?? "",
       website: "",
       support: "",
       widget: "right"
     })
   )
 
-/** Every store with its saved settings, or what a new one starts from: its Shopify currency, VAT counted both ways. */
+/**
+ * Every store with its saved settings, or what a new one starts from (VAT counted both ways), and always the currency
+ * it sells in as Shopify has it now: a currency saved here once (the page used to offer a choice) no longer counts.
+ */
 const vatOf = (raw: unknown, stores: ReadonlyArray<{ id: string; currency: string | null }>): VatValue => {
   const saved = decodeOr(VatValue, raw, { stores: [], oss: false, ossNumber: "" })
   return {
-    stores: stores.map((s) =>
-      saved.stores.find((v) => v.storeId === s.id) ?? {
+    stores: stores.map((s) => {
+      const own = saved.stores.find((v) => v.storeId === s.id)
+      return {
         storeId: s.id,
-        currency: (VAT_CURRENCIES as ReadonlyArray<string>).includes(s.currency ?? "")
-          ? (s.currency as VatValue["stores"][number]["currency"])
-          : "EUR",
-        vatOnShipping: true,
-        refundInclVat: true
+        currency: s.currency?.trim() ?? null,
+        vatOnShipping: own?.vatOnShipping ?? true,
+        refundInclVat: own?.refundInclVat ?? true
       }
-    ),
+    }),
     oss: saved.oss,
     ossNumber: saved.ossNumber
   }
@@ -202,7 +211,8 @@ export interface FieldChange {
   readonly after: unknown
 }
 
-const changes = (section: SettingsSectionId, before: unknown, after: unknown): Array<FieldChange> => {
+/** What a save changed, field by field, as `writeSection` logs it: each a field the Logboek's catalogue names. */
+export const changes = (section: SettingsSectionId, before: unknown, after: unknown): Array<FieldChange> => {
   const out: Array<FieldChange> = []
   const field = (name: string, a: unknown, b: unknown, key?: string) => {
     if (JSON.stringify(a) !== JSON.stringify(b)) {
@@ -225,7 +235,7 @@ const changes = (section: SettingsSectionId, before: unknown, after: unknown): A
       const prev = (a as VatValue).stores
       for (const s of (b as VatValue).stores) {
         const o = prev.find((x) => x.storeId === s.storeId)
-        field("currency", o?.currency, s.currency, s.storeId)
+        // The currency is Shopify's, not a setting of this page: no line of its own.
         field("vatOnShipping", o?.vatOnShipping, s.vatOnShipping, s.storeId)
         field("refundInclVat", o?.refundInclVat, s.refundInclVat, s.storeId)
       }
@@ -272,7 +282,7 @@ const check = (sql: SqlClient.SqlClient, section: SettingsSectionId, value: unkn
         return checkSenders(value, domain, yield* mailboxesOf(sql)) as Checked<unknown>
       }
       case "vat":
-        return checkVat(value, (yield* storesOf(sql)).map((s) => s.id)) as Checked<unknown>
+        return checkVat(value, yield* storesOf(sql)) as Checked<unknown>
       case "retention":
         return checkRetention(value) as Checked<unknown>
     }
@@ -312,13 +322,21 @@ export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function
     yield* sql`update files set published_at = coalesce(published_at, now())
                where id = ${logo} and kind = 'logo' and deleted_at is null`
   }
+  // Btw's fields are per store: the line names the store as it was called then.
+  const stores = section === "vat" ? new Map((yield* storesOf(sql)).map((s) => [s.id, s.name])) : undefined
   for (const c of changes(section, before, next)) {
+    const of = c.key === undefined ? undefined : stores?.get(c.key)
     yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
       action: `settings.${section}.${c.field}`,
       subjectType: "workspace_settings",
       subjectId: section,
       section,
-      diff: { ...(c.key === undefined ? {} : { key: c.key }), before: c.before, after: c.after }
+      diff: {
+        ...(c.key === undefined ? {} : { key: c.key }),
+        ...(of === undefined ? {} : { of }),
+        before: c.before,
+        after: c.after
+      }
     })
   }
   return before

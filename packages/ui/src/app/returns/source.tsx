@@ -132,6 +132,11 @@ export interface ReturnSettingsSource {
   gate: TeamGate
   /** What a product rule can name. */
   products: ReadonlyArray<{ id: string; title: string }>
+  /**
+   * What the shopper pays the exchange fee in: the stores' own currency (Shopify's), as its code; `null` when the stores
+   * sell in more than one, so the amount holds in each one's; absent, the design's euro.
+   */
+  currency?: string | null | undefined
   portalHref?: ((handle: string) => string) | undefined
   /** The portal's address as the team writes it in their shipping mails; absent, the design's. */
   portalAddress?: ((handle: string) => string) | undefined

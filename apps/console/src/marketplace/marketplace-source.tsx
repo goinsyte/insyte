@@ -14,6 +14,7 @@ import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { KEYS } from "../data/developer.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { MARKETING, marketingWrites } from "../data/marketing.ts"
 import { catalogAtom, installsAtom, MARKETPLACE, marketplaceWrites, recommendedAtom } from "../data/marketplace.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -103,7 +104,7 @@ export function useConsoleMarketplace(): { source: MarketplaceSource; overlay: R
     setScopes: useAtomSet(marketplaceWrites.setScopes, { mode: "promiseExit" }),
     open: useAtomSet(marketplaceWrites.open, { mode: "promiseExit" }),
     feedback: useAtomSet(marketplaceWrites.feedback, { mode: "promiseExit" }),
-    undo: useAtomSet(marketplaceWrites.undo, { mode: "promiseExit" }),
+    undo: useAtomSetInTurn(marketplaceWrites.undo),
     beginConnect: useAtomSet(marketingWrites.beginConnect, { mode: "promiseExit" }),
     disconnect: useAtomSet(marketingWrites.disconnect, { mode: "promiseExit" })
   }

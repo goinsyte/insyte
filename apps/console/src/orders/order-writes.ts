@@ -14,6 +14,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { ORDERS, orderTagsAtom, orderWrites } from "../data/orders.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
@@ -161,7 +162,7 @@ export function useOrderCommands() {
     emailCustomer: useAtomSet(orderWrites.emailCustomer, { mode: "promiseExit" }),
     sendTrackingUpdate: useAtomSet(orderWrites.sendTrackingUpdate, { mode: "promiseExit" }),
     createDraft: useAtomSet(orderWrites.createDraft, { mode: "promiseExit" }),
-    undo: useAtomSet(orderWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(orderWrites.undo)
   }
 
   const undo = (token: string) =>

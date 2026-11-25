@@ -12,6 +12,7 @@ import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { emailCustomer } from "@insyte/modules/orders/use-cases/customer-mail"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { PendingEvents, type Relay } from "@insyte/modules/shared/domain/Outbox"
+import { unsubscribeMissing } from "@insyte/modules/shared/use-cases/CustomerFacing"
 import * as Outbox from "@insyte/modules/shared/use-cases/Outbox"
 import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
 import { fromMinor, toMinor } from "@insyte/modules/stores/domain/Mirror"
@@ -47,6 +48,13 @@ const money = (minor: number, currency: string) => {
   const text = amount.toLocaleString("nl-NL", { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return `${SYMBOL[currency.toUpperCase()] ?? currency.toUpperCase()} ${text}`
 }
+
+/**
+ * `limitMinor` in `from` (the workspace's currency) as an amount in `to` (the order's), at `rate` (1 `to` = rate
+ * `from`), rounded down: a flow never refunds more than it may.
+ */
+export const limitIn = (limitMinor: number, from: string, to: string, rate: number) =>
+  from === to ? limitMinor : Math.floor((limitMinor / toMinor("1", from) / rate) * toMinor("1", to) + 1e-6)
 
 const fail = (explanation: string, terminal = true) => Effect.fail(new StepFailed({ explanation, terminal }))
 
@@ -144,6 +152,50 @@ const uncheckedMail = Effect.fn("AutomationActs.uncheckedMail")(function*(sql: S
     output: { unchecked: true },
     explanation:
       "Deze versie is gepubliceerd voordat Insyte e-mails uit flows controleerde; de klant is niet gemaild. Publiceer de flow opnieuw."
+  } satisfies Did
+})
+
+/** Why a mail step that asks for the unsubscribe link while none is saved did not mail. */
+const NO_UNSUBSCRIBE_LINK =
+  "De mail vraagt om de uitschrijflink, maar die staat nog niet bij Instellingen › Sjablonen; de klant is niet gemaild."
+
+/**
+ * A mail step whose words ask for `{uitschrijf_link}` while Sjablonen holds none: the mail would be refused
+ * (`CustomerFacing.linkFiller`), so the step is skipped rather than failed, and whoever the flow tells (its settings,
+ * else its owner) hears it once per version, as for an unchecked mail. `undefined` where the mail can go.
+ */
+const unsubscribeLacking = Effect.fn("AutomationActs.unsubscribeLacking")(function*(
+  sql: SqlClient.SqlClient,
+  input: ActInput,
+  texts: ReadonlyArray<string>
+) {
+  if (!(yield* unsubscribeMissing(sql, texts))) return undefined
+  const { plan } = input
+  const [v] = yield* sql<{ notify: string | null; told: boolean }>`
+    select coalesce(s.notify_member_id, a.owner_member_id) as notify,
+           exists (select 1 from automation_run_steps st join automation_runs r on r.id = st.run_id
+                   where r.automation_id = a.id and r.version = ${plan.version}
+                     and st.variant = 'action.send_email' and st.output @> '{"noUnsubscribe": true}'::jsonb) as told
+    from automations a
+    left join automation_settings s on s.automation_id = a.id
+    where a.id = ${plan.automationId}`
+  if (v !== undefined && !v.told && v.notify !== null) {
+    const outboxId = yield* Outbox.write(sql, plan.workspaceId, {
+      type: "automation.notify",
+      workspaceId: plan.workspaceId,
+      userId: "system",
+      kind: "alert",
+      automationId: plan.automationId,
+      runId: plan.runId,
+      memberIds: [v.notify],
+      detail: `“E-mail versturen” is overgeslagen. ${NO_UNSUBSCRIBE_LINK} Vul de link in; daarna mailt de flow weer.`
+    })
+    ;(yield* PendingEvents)?.add(outboxId)
+  }
+  return {
+    status: "skipped" as const,
+    output: { noUnsubscribe: true },
+    explanation: NO_UNSUBSCRIBE_LINK
   } satisfies Did
 })
 
@@ -478,9 +530,12 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
             }
             const refusal = yield* mailRefusal(sql, input.plan, o.storeId)
             if (refusal !== undefined) return yield* fail(refusal)
+            const lacking = yield* unsubscribeLacking(sql, input, [input.text("subject"), input.text("body")])
+            if (lacking !== undefined) return { did: lacking } as const
             return { go: mailId } as const
           })
         )
+        if ("did" in state) return state.did
         if ("skip" in state) return { status: "skipped" as const, output: {}, explanation: state.skip }
         const queued = yield* asAccount(
           emailCustomer({ orderId, subject: input.text("subject"), body: input.text("body"), id: state.go })
@@ -591,26 +646,39 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
                 explanation: `${money(amountMinor, currency)} terugbetaald; Shopify verwerkt het.`
               }
             }
-            if (currency !== o.workspaceCurrency.trim().toUpperCase() || THREE_DECIMALS.has(currency)) {
+            if (THREE_DECIMALS.has(currency)) {
+              return yield* fail(`Deze bestelling is in ${currency}; daarin betaalt een flow niet terug. Doe het zelf.`)
+            }
+            // The limits are in the workspace's currency; the order is refunded in its own, at the latest ECB rate.
+            const own = o.workspaceCurrency.trim().toUpperCase()
+            const [fx] = currency === own ? [{ rate: "1" }] : yield* sql<{ rate: string }>`
+              select rate::text as rate from fx_rates
+              where base = ${currency} and quote = ${own} and day <= current_date order by day desc limit 1`
+            if (fx === undefined) {
               return yield* fail(
-                `Deze bestelling is in ${currency}; een flow betaalt alleen terug in ${o.workspaceCurrency.trim()}. Doe het zelf.`
+                `Er is nog geen wisselkoers van ${currency} naar ${own}, dus de flow kan zijn limiet niet toetsen. Doe het zelf.`
               )
             }
+            const rate = Number(fx.rate)
             const asked = amountOf(input.text("amount"), currency)
             if (asked === undefined) {
               return yield* fail(`“${input.text("amount")}” is geen bedrag; schrijf “volledig” of “25,00”.`)
             }
-            const capMinor = toMinor(String(FLOW_REFUND_CAP), currency)
-            const limit = yield* limitOf(sql, input.plan, o.storeId, capMinor)
-            if ("refused" in limit) return yield* fail(limit.refused)
+            const capMinor = toMinor(String(FLOW_REFUND_CAP), own)
+            const allowed = yield* limitOf(sql, input.plan, o.storeId, capMinor)
+            if ("refused" in allowed) return yield* fail(allowed.refused)
+            const limit = { limitMinor: limitIn(allowed.limitMinor, own, currency, rate) }
+            const limitText = currency === own
+              ? money(limit.limitMinor, currency)
+              : `${money(limit.limitMinor, currency)}, ${money(allowed.limitMinor, own)} tegen de ECB-koers`
             const balance = Number(o.balanceMinor)
             const amountMinor = asked === "full" ? balance : asked
             if (amountMinor <= 0) return yield* fail("De bestelling is al volledig terugbetaald.")
             if (amountMinor > limit.limitMinor) {
               return yield* fail(
-                `${money(amountMinor, currency)} is meer dan de flow per bestelling mag terugbetalen (${
-                  money(limit.limitMinor, currency)
-                }). Doe het zelf, of vraag eerst goedkeuring.`
+                `${
+                  money(amountMinor, currency)
+                } is meer dan de flow per bestelling mag terugbetalen (${limitText}). Doe het zelf, of vraag eerst goedkeuring.`
               )
             }
             const byFlows = Number(o.byFlowsMinor)
@@ -618,9 +686,7 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
               return yield* fail(
                 `Flows betaalden op deze bestelling al ${money(byFlows, currency)} terug; met ${
                   money(amountMinor, currency)
-                } erbij is het meer dan flows per bestelling mogen (${
-                  money(limit.limitMinor, currency)
-                }). Doe het zelf, of vraag eerst goedkeuring.`
+                } erbij is het meer dan flows per bestelling mogen (${limitText}). Doe het zelf, of vraag eerst goedkeuring.`
               )
             }
             const done = yield* refundOn(sql, { id: orderId, refundId: refundId as never, amountMinor, note }).pipe(

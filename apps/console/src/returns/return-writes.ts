@@ -13,6 +13,7 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import type { ReturnCommands, Said, StartDraft } from "@insyte/ui/app/returns/source"
 import { Exit, Schema } from "effect"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { ORDERS } from "../data/orders.ts"
 import { RETURN_SETTINGS, RETURNS, returnWrites } from "../data/returns.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -127,7 +128,7 @@ export function useReturnCommands() {
     resolve: useAtomSet(returnWrites.resolve, { mode: "promiseExit" }),
     retryResolution: useAtomSet(returnWrites.retryResolution, { mode: "promiseExit" }),
     setSettings: useAtomSet(returnWrites.setSettings, { mode: "promiseExit" }),
-    undo: useAtomSet(returnWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(returnWrites.undo)
   }
   const undo = (token: string, reactivityKeys: ReadonlyArray<string> = RETURNS) =>
     void write.undo({ payload: { token }, reactivityKeys: [...reactivityKeys] }).then((exit) => {

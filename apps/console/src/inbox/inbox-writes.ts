@@ -4,6 +4,7 @@ import type { InboxThread, InboxWrites, Place, Said } from "@insyte/ui/app/inbox
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { INBOX, inboxWrites } from "../data/inbox.ts"
 import { TICKETS } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -108,7 +109,7 @@ export function useInboxWrites(
     reply: useAtomSet(inboxWrites.reply, { mode: "promiseExit" }),
     forward: useAtomSet(inboxWrites.forward, { mode: "promiseExit" }),
     compose: useAtomSet(inboxWrites.compose, { mode: "promiseExit" }),
-    undo: useAtomSet(inboxWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(inboxWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...withTickets }).then((exit) => {

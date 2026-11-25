@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { ChannelMark, MailboxMark } from "../inbox/channel-mark";
 import { toast } from "sonner";
 import { BrandLogo } from "../marketplace/brand-logos";
+import { useMarketplaceModalStore } from "../stores/marketplace-modal-store";
 import { SoonChip } from "../common/soon-chip";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "./setting-card";
 import { formatRelative } from "../lib/format";
@@ -81,6 +82,8 @@ function IntegrationMark({ it }: { it: IntegrationItem }) {
 function IntegrationRow({ it, source, onConnect }: { it: IntegrationItem; source: IntegrationsSource; onConnect?: (() => void) | undefined }) {
 	const { connect, disconnect, sync } = source;
 	const restore = () => source.restore?.(it);
+	const openApp = useMarketplaceModalStore((s) => s.openApp);
+	const app = it.app;
 
 	const status =
 		it.status === "connected" ? (
@@ -160,6 +163,10 @@ function IntegrationRow({ it, source, onConnect }: { it: IntegrationItem; source
 						>
 							{it.status === "action_required" ? "Opnieuw koppelen" : "Koppelen"}
 						</button>
+						) : app ? (
+							<button type="button" onClick={() => openApp(app)} className={PRIMARY}>
+								{it.action ?? (it.status === "action_required" ? "Opnieuw koppelen" : "Koppelen")}
+							</button>
 						) : manage ? (
 							<Link {...manage} className={PRIMARY}>
 								{it.action ?? (it.status === "action_required" ? "Opnieuw koppelen" : "Koppelen")}

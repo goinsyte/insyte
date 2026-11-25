@@ -300,8 +300,10 @@ function Numbers({ a: am, b: bm, onPeriods }: { a: string; b: string; onPeriods:
 }
 
 function FigureCell({ it, first }: { it: FigureView; first: boolean }) {
-  const good = it.delta === 0 || it.delta > 0 === it.goodWhenUp
-  const Arrow = it.delta >= 0 ? ArrowUp : ArrowDown
+  // A change that rounds to nothing shows no arrow: "↑ 0,0%" reads as a rise that did not happen.
+  const shownDelta = Number(it.delta.toFixed(it.digits ?? 1))
+  const good = shownDelta === 0 || it.delta > 0 === it.goodWhenUp
+  const Arrow = shownDelta === 0 ? null : it.delta > 0 ? ArrowUp : ArrowDown
   const body = (
     <>
       <dt className="text-mesh-ink-2 text-sm">{it.label}</dt>
@@ -324,7 +326,7 @@ function FigureCell({ it, first }: { it: FigureView; first: boolean }) {
                   good ? "bg-signal-green-bg text-signal-green" : "bg-signal-red-bg text-signal-red"
                 )}
               >
-                <Arrow className="size-3" strokeWidth={2.25} />
+                {Arrow === null ? null : <Arrow className="size-3" strokeWidth={2.25} />}
                 {Math.abs(it.delta).toLocaleString("nl-NL", {
                   minimumFractionDigits: it.digits ?? 1,
                   maximumFractionDigits: it.digits ?? 1

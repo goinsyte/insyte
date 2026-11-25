@@ -201,6 +201,33 @@ describe("settings depth", () => {
     expect(served.headers.get("content-security-policy")).toContain("sandbox")
   })
 
+  it("shows each store's currency as Shopify has it, whatever a save sends", async () => {
+    const other = (await person("depth-vat", "Btw Valuta B.V.")).cookie
+    const seed = await call("http://api.test/api/__dev/stores/seed", { method: "POST", headers: { cookie: other } })
+    const { storeId } = await seed.json() as { storeId: string }
+    // The recorded store sells in euros.
+    expect(ok(await rpc("WorkspaceSettings.get", { section: "vat" }, other))).toMatchObject({
+      value: { stores: [{ storeId, currency: "EUR", vatOnShipping: true, refundInclVat: true }] }
+    })
+    const saved = ok(
+      await rpc("WorkspaceSettings.save", {
+        section: "vat",
+        value: {
+          stores: [{ storeId, currency: "USD", vatOnShipping: false, refundInclVat: true }],
+          oss: false,
+          ossNumber: ""
+        },
+        baseVersion: 0
+      }, other)
+    )
+    expect(saved.section.value).toMatchObject({
+      stores: [{ storeId, currency: "EUR", vatOnShipping: false, refundInclVat: true }]
+    })
+    expect(ok(await rpc("WorkspaceSettings.get", { section: "vat" }, other))).toMatchObject({
+      value: { stores: [{ storeId, currency: "EUR", vatOnShipping: false }] }
+    })
+  })
+
   it("lets a read-only colleague read the pages and count, never save or switch", async () => {
     expect(ok(await rpc("WorkspaceSettings.get", { section: "links" }, viewer)).version).toBe(1)
     expect(

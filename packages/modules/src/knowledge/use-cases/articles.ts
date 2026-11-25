@@ -306,11 +306,15 @@ const audit = (
 ) =>
   Effect.gen(function*() {
     const p = yield* CurrentPrincipal
+    // In the Logboek on Kennisbank, by the chapter's title as it is now.
+    const [article] = yield* sql<{ title: string }>`select title from knowledge_articles where id = ${subjectId}`
     yield* Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, {
       action,
       subjectType: "knowledge_article",
       subjectId,
-      ...(diff === undefined ? {} : { diff })
+      section: "knowledge",
+      ...(diff === undefined ? {} : { diff }),
+      log: { name: article?.title }
     })
   })
 

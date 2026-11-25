@@ -18,7 +18,7 @@ import {
 	Star,
 	X,
 } from "../../icons";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { InsyteMark, InsyteWordmark } from "../../brand/mark";
 import { useMarketplaceState } from "../shell/state";
 import { SoonChip } from "../common/soon-chip";
@@ -131,6 +131,8 @@ const CATEGORY_THEME: Record<
 export function MarketplaceModal() {
 	const open = useMarketplaceModalStore((s) => s.open);
 	const closeModal = useMarketplaceModalStore((s) => s.closeModal);
+	const focus = useMarketplaceModalStore((s) => s.focus);
+	const clearFocus = useMarketplaceModalStore((s) => s.clearFocus);
 	const market = useMarketplaceState();
 	const { isInstalled, install, uninstall, soon } = market;
 	const seedExtensions = market.apps;
@@ -139,6 +141,20 @@ export function MarketplaceModal() {
 	const [detail, setDetail] = useState<Extension | null>(null);
 	const [feedback, setFeedback] = useState(false);
 	const [legal, setLegal] = useState(false);
+
+	// Opened for one app (Koppelingen's "Koppelen"): only its detail, over the page it came from, once the catalogue
+	// is in; closing it closes the Marketplace too. Not in the catalogue, the Marketplace opens as it always does.
+	const [solo, setSolo] = useState(false);
+	useEffect(() => {
+		if (!open) setSolo(false);
+		if (!open || focus === null) return;
+		const app = seedExtensions.find((e) => e.id === focus);
+		if (app !== undefined) {
+			setDetail(app);
+			setSolo(true);
+			clearFocus();
+		} else if (market.status !== "loading") clearFocus();
+	}, [open, focus, seedExtensions, market.status, clearFocus]);
 
 	const counts = useMemo(() => {
 		const map = new Map<CollectionId, number>();
@@ -210,7 +226,7 @@ export function MarketplaceModal() {
 
 	return (
 		<>
-			<Dialog open={open} onOpenChange={(o) => !o && closeModal()}>
+			<Dialog open={open && !solo && focus === null} onOpenChange={(o) => !o && closeModal()}>
 				<DialogContent
 					showCloseButton={false}
 					className="flex h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-2rem)]"
@@ -247,7 +263,7 @@ export function MarketplaceModal() {
 								type="text"
 								value={query}
 								onChange={(e) => setQuery(e.target.value)}
-								placeholder="Zoek in 200+ koppelingen, apps en diensten"
+								placeholder="Zoek in koppelingen, apps en diensten"
 								className="field h-9 w-full rounded-md pr-3 pl-9 font-medium text-base text-ink leading-none outline-none placeholder:text-ink-3 focus:ring-2 focus:ring-arc/40"
 							/>
 						</div>
@@ -448,7 +464,9 @@ export function MarketplaceModal() {
 				extension={detail}
 				open={!!detail}
 				onOpenChange={(o) => {
-					if (!o) setDetail(null);
+					if (o) return;
+					setDetail(null);
+					if (solo) closeModal();
 				}}
 			/>
 			<FeedbackDialog open={feedback} onOpenChange={setFeedback} />

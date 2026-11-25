@@ -27,7 +27,8 @@ import {
  * Kosten's reads (M13 step 5; widgets/02 `/costs`): the lines with what each costs per month, and the months' figures.
  * Revenue and orders are the daily facts' counted ones (`fact_orders_day`, the rule in `@insyte/domain/Revenue`),
  * inside the role's stores, each day's amount brought into the workspace's currency at that day's rate (§B.0.5). The
- * lines and ad spend are the workspace's. An ad line reads from its account while that account is connected; until an
+ * lines and ad spend are the workspace's, each amount kept in the currency it was typed or reported in and read in the
+ * workspace's (which Regio can change). An ad line reads from its account while that account is connected; until an
  * account can be connected (Meta and Google Ads need app keys) no line reads and every ad month is typed.
  */
 
@@ -107,19 +108,39 @@ const linesOf = Effect.fn("Costs.lines")(function*(
   to: string,
   until?: string
 ) {
+  // A per-order amount in another currency than the workspace's (set before Regio changed it) at the latest rate.
   const lines = yield* sql<LineRow>`
-    select l.id, l.name, l.kind, l.rate::float8 as rate, l.rate_minor::text as rate_minor, l.source,
+    select l.id, l.name, l.kind, l.rate::float8 as rate,
+           round(l.rate_minor * case when l.currency = w.currency then 1 else coalesce(fx.rate, 1) end)::text
+             as rate_minor,
+           l.source,
            (l.kind = 'ads' and l.source <> 'manual' and exists (
              select 1 from connections c
              where c.provider = l.source and c.status = 'connected'
                and (l.connection_id is null or c.id = l.connection_id))) as reads,
            exists (select 1 from cost_line_amounts a where a.line_id = l.id) as has_typed
     from cost_lines l
+    cross join (select currency from workspaces where id = app_workspace_id()) w
+    left join lateral (
+      select x.rate from fx_rates x
+      where l.currency <> w.currency and x.base = l.currency and x.quote = w.currency
+      order by x.day desc limit 1) fx on true
     where l.deleted_at is null
     order by l.position, l.created_at, l.id`
+  // A month typed in another currency than the workspace's at the rate of that month's end (the latest before it; for
+  // a month older than every rate kept, the first after).
   const typed = yield* sql<{ lineId: string; month: string; amountMinor: string }>`
-    select a.line_id, to_char(a.month, 'YYYY-MM') as month, a.amount_minor::text as amount_minor
+    select a.line_id, to_char(a.month, 'YYYY-MM') as month,
+           round(a.amount_minor * case when a.currency = w.currency then 1 else coalesce(fx.rate, 1) end)::text
+             as amount_minor
     from cost_line_amounts a join cost_lines l on l.id = a.line_id
+    cross join (select currency from workspaces where id = app_workspace_id()) w
+    left join lateral (
+      select x.rate from fx_rates x
+      where a.currency <> w.currency and x.base = a.currency and x.quote = w.currency
+      order by x.day <= (a.month + interval '1 month' - interval '1 day')::date desc,
+               abs(x.day - (a.month + interval '1 month' - interval '1 day')::date)
+      limit 1) fx on true
     where l.deleted_at is null and a.month between ${firstOf(from)}::date and ${firstOf(to)}::date`
   const spend = yield* sql<{ lineId: string; month: string; spendMinor: string }>`
     select l.id as line_id, to_char(s.day, 'YYYY-MM') as month,

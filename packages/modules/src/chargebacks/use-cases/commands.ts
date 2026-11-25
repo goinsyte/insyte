@@ -141,6 +141,11 @@ export const createManual = Effect.fn("Chargebacks.createManual")(function*(inpu
         storeId = storeId ?? cu.storeId
         customerId = input.customer.id
       }
+      // The order's currency; else the customer's store's, as Shopify has it; else the workspace's.
+      if (currency === null && storeId !== null) {
+        const [s] = yield* sql<{ currency: string | null }>`select currency from stores where id = ${storeId}`
+        currency = s?.currency?.trim() || null
+      }
       if (currency === null) {
         const [w] = yield* sql<{ currency: string }>`select currency from workspaces where id = app_workspace_id()`
         currency = (w?.currency ?? "EUR").trim()

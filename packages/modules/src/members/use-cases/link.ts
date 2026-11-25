@@ -5,6 +5,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { roleLabels } from "../../shared/use-cases/LogNames.ts"
 import { InvitationLinks } from "../domain/Ports.ts"
 import type { SetLink } from "../domain/Team.ts"
 import { beyondReach, grantable } from "./invite.ts"
@@ -16,7 +17,13 @@ import { readTeam } from "./team.ts"
  * puts the previous round back. People who join through it still take a seat (checked when they join).
  */
 
-const audit = (sql: SqlClient.SqlClient, action: string, diff?: Record<string, unknown>) =>
+/** In the Logboek on Team. */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
   Effect.flatMap(
     Effect.service(CurrentPrincipal),
     (p) =>
@@ -24,7 +31,9 @@ const audit = (sql: SqlClient.SqlClient, action: string, diff?: Record<string, u
         action,
         subjectType: "invite_link",
         subjectId: p.workspaceId,
-        diff
+        section: "team",
+        diff,
+        ...(changes === undefined ? {} : { log: { changes } })
       })
   )
 
@@ -48,16 +57,27 @@ export const set = Effect.fn("InviteLink.set")(function*(patch: SetLink) {
       }
       yield* ensure(sql)
       // Whoever joins through the link gets its role in every store: someone held to some stores cannot open it.
-      const [now] = yield* sql<{ enabled: boolean; roleId: string }>`select enabled, role_id from invite_links`
+      const [now] = yield* sql<{ enabled: boolean; roleId: string; days: number }>`
+        select enabled, role_id, days from invite_links`
       if ((patch.enabled ?? now!.enabled) && (yield* beyondReach(sql, patch.roleId ?? now!.roleId, "all"))) {
         return yield* new Invalid({ fields: { roleId: "forbidden" } })
       }
+      const labels = yield* roleLabels(sql, [now!.roleId, patch.roleId ?? now!.roleId])
+      const changes = Audit.fieldChanges(
+        { linkOn: now!.enabled, linkRole: labels.get(now!.roleId), linkDays: now!.days },
+        {
+          linkOn: patch.enabled ?? now!.enabled,
+          linkRole: labels.get(patch.roleId ?? now!.roleId),
+          linkDays: patch.days ?? now!.days
+        },
+        ["linkOn", "linkRole", "linkDays"]
+      )
       yield* sql`update invite_links set
                    enabled = coalesce(${patch.enabled ?? null}, enabled),
                    role_id = coalesce(${patch.roleId ?? null}, role_id),
                    days = coalesce(${patch.days ?? null}, days),
                    expires_at = created_at + make_interval(days => coalesce(${patch.days ?? null}, days))`
-      yield* audit(sql, "member.invite_link_changed", { ...patch })
+      yield* audit(sql, "member.invite_link_changed", { ...patch }, changes)
       return yield* readTeam(sql)
     })
   )

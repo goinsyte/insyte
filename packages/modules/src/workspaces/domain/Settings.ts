@@ -48,12 +48,28 @@ export type SetRetention = typeof SetRetention.Type
 /* ── Regio ─────────────────────────────────────────────────────────────────────────────────────── */
 
 export const LANGUAGES = ["nl-NL", "en-US", "en-GB", "de-DE", "fr-FR"] as const
-export const CURRENCY_DISPLAYS = ["EUR", "USD", "GBP", "JPY"] as const
+/**
+ * The reporting currency Regio's "Valuta" sets (`workspaces.currency`, domain.md §1): what Start, Analyse, Kosten and
+ * INSYTE() count in, each store's amounts converted at the ECB's rate of their day (`fx_rates`). A store sells in its
+ * own currency, Shopify's. Only currencies with cents: the conversions scale minor units by the rate alone, so one
+ * without them (the yen) would read a hundred times off.
+ */
+export const CURRENCY_DISPLAYS = ["EUR", "USD", "GBP"] as const
 export const DATE_FORMATS = ["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"] as const
 export const TIME_FORMATS = ["24h", "12h"] as const
 export const WEEK_STARTS = ["mon", "sun", "sat"] as const
 
-/** Taal en notatie, as codes; the console says them in Dutch. The timezone is any IANA zone. */
+/** How the console writes a date and a time in this workspace: every member's, read with the frame. */
+export const Notation = Schema.Struct({
+  dateFormat: Schema.Literals(DATE_FORMATS),
+  timeFormat: Schema.Literals(TIME_FORMATS)
+})
+export type Notation = typeof Notation.Type
+
+/**
+ * Taal en notatie, as codes; the console says them in Dutch. `currencyDisplay` is the reporting currency
+ * (`workspaces.currency`). The timezone is any IANA zone.
+ */
 export class Regional extends Schema.Class<Regional>("workspaces/Regional")({
   language: Schema.Literals(LANGUAGES),
   currencyDisplay: Schema.Literals(CURRENCY_DISPLAYS),

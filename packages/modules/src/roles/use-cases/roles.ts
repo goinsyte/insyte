@@ -17,6 +17,7 @@ import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import { narrowStores, type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { roleLabel, storesSaid } from "../../shared/use-cases/LogNames.ts"
 import { storeChoices } from "../../shared/use-cases/StoreScope.ts"
 import { Created, RoleHolders, Roles, RoleView, type UpdateRole } from "../domain/Roles.ts"
 
@@ -40,12 +41,70 @@ interface RoleRow {
   readonly version: number
 }
 
-const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
-  Effect.flatMap(
-    Effect.service(CurrentPrincipal),
-    (p) =>
-      Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, { action, subjectType: "role", subjectId, diff })
-  )
+/** In the Logboek on Rollen, by the role's name. */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  subjectId: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
+  Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    yield* Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, {
+      action,
+      subjectType: "role",
+      subjectId,
+      section: "roles",
+      diff,
+      log: { name: yield* roleLabel(sql, subjectId), changes }
+    })
+  })
+
+interface Rights {
+  readonly levels: Readonly<Record<string, unknown>>
+  readonly specials: unknown
+  readonly refundLimitMinor: unknown
+}
+
+/** What a role's rights were and became, area by area and special by special, as Rollen lists them. */
+export const rightsChanges = (before: Rights, after: Rights): Array<Audit.LogChange> => {
+  const held = (specials: unknown) =>
+    new Set(
+      Array.isArray(specials)
+        ? specials.map(String)
+        : typeof specials === "object" && specials !== null
+        ? Object.entries(specials).filter(([, on]) => on === true).map(([id]) => id)
+        : []
+    )
+  const was = held(before.specials)
+  const is = held(after.specials)
+  const euros = (v: unknown) => (v === null || v === undefined ? null : Number(v) / 100)
+  return [
+    ...AREA_IDS.filter((a) => (before.levels[a] ?? 0) !== (after.levels[a] ?? 0)).map((a) => ({
+      field: "level",
+      key: a,
+      before: before.levels[a] ?? 0,
+      after: after.levels[a] ?? 0
+    })),
+    ...SPECIAL_IDS.filter((s) => was.has(s) !== is.has(s)).map((s) => ({
+      field: "special",
+      key: s,
+      before: was.has(s),
+      after: is.has(s)
+    })),
+    ...(euros(before.refundLimitMinor) === euros(after.refundLimitMinor)
+      ? []
+      : [{ field: "refundLimit", before: euros(before.refundLimitMinor), after: euros(after.refundLimitMinor) }])
+  ]
+}
+
+/** The rights a save writes (`normalise`), read back as `rightsChanges` takes them. */
+const rightsOf = (p: ReturnType<typeof normalise>): Rights => ({
+  levels: JSON.parse(p.levels) as Record<string, unknown>,
+  specials: JSON.parse(p.specials) as unknown,
+  refundLimitMinor: p.refundLimitMinor
+})
 
 export const readRoles = Effect.fn("Roles.read")(function*(sql: SqlClient.SqlClient) {
   const principal = yield* CurrentPrincipal
@@ -141,8 +200,17 @@ const ensureReach = (...stores: ReadonlyArray<StoreAccess>) =>
 /** The role, locked for the change, if it is one this change may touch. */
 const target = (sql: SqlClient.SqlClient, id: string) =>
   Effect.gen(function*() {
-    const [row] = yield* sql<{ kind: string; stores: StoreAccess }>`
-      select kind, stores from roles where id = ${id} and deleted_at is null for update`
+    const [row] = yield* sql<
+      {
+        kind: string
+        stores: StoreAccess
+        levels: Record<string, Level>
+        specials: Record<string, boolean>
+        refundLimitMinor: string | number | null
+      }
+    >`
+      select kind, stores, levels, specials, refund_limit_minor from roles where id = ${id} and deleted_at is null
+      for update`
     if (row === undefined) return yield* new NotFound({ entity: "role", id })
     if (id === "owner") return yield* new Conflict({ entity: "role", reason: "owner" })
     return row
@@ -197,7 +265,15 @@ export const update = Effect.fn("Roles.update")(function*(input: UpdateRole) {
       yield* sql`update roles set levels = ${p.levels}::jsonb, specials = ${p.specials}::jsonb,
                    refund_limit_minor = ${p.refundLimitMinor}, stores = ${p.stores}::jsonb, version = version + 1
                  where id = ${input.id}`
-      yield* audit(sql, "role.updated", input.id, { levels: input.levels })
+      const stores = JSON.parse(p.stores) as StoreAccess
+      yield* audit(sql, "role.updated", input.id, { levels: input.levels }, [
+        ...rightsChanges(role, rightsOf(p)),
+        ...(JSON.stringify(role.stores) === JSON.stringify(stores) ? [] : [{
+          field: "stores",
+          before: yield* storesSaid(sql, role.stores),
+          after: yield* storesSaid(sql, stores)
+        }])
+      ])
       return yield* readRoles(sql)
     })
   )
@@ -212,10 +288,11 @@ export const rename = Effect.fn("Roles.rename")(function*(id: string, label: str
       const role = yield* target(sql, id)
       if (role.kind !== "custom") return yield* new Conflict({ entity: "role", reason: "system" })
       yield* ensureFree(sql, trimmed, id)
+      const was = yield* roleLabel(sql, id)
       yield* sql`update roles set label = ${trimmed}, version = version + 1 where id = ${id}`.pipe(
         Effect.catchIf(isLabelTaken, () => Effect.fail(new Invalid({ fields: { label: "taken" } })))
       )
-      yield* audit(sql, "role.renamed", id, { label: trimmed })
+      yield* audit(sql, "role.renamed", id, { label: trimmed }, [{ field: "label", before: was, after: trimmed }])
       return yield* readRoles(sql)
     })
   )
@@ -237,7 +314,7 @@ export const reset = Effect.fn("Roles.reset")(function*(id: string) {
       yield* sql`update roles set levels = ${p.levels}::jsonb, specials = ${p.specials}::jsonb,
                    refund_limit_minor = ${p.refundLimitMinor}, stores = ${p.stores}::jsonb, version = version + 1
                  where id = ${id}`
-      yield* audit(sql, "role.reset", id)
+      yield* audit(sql, "role.reset", id, undefined, rightsChanges(role, rightsOf(p)))
       return yield* readRoles(sql)
     })
   )

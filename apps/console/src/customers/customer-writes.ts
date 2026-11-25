@@ -5,6 +5,7 @@ import type { Customer } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { CUSTOMERS, customerWrites } from "../data/customers.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
 /*
@@ -45,7 +46,7 @@ export function useCustomerCommands() {
     create: useAtomSet(customerWrites.create, { mode: "promiseExit" }),
     merge: useAtomSet(customerWrites.merge, { mode: "promiseExit" }),
     markNotDuplicate: useAtomSet(customerWrites.markNotDuplicate, { mode: "promiseExit" }),
-    undo: useAtomSet(customerWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(customerWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {

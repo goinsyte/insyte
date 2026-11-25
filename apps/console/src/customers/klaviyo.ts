@@ -5,6 +5,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
 import { CUSTOMERS } from "../data/customers.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { MARKETING, marketingListsAtom, marketingStatusAtom, marketingWrites } from "../data/marketing.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -41,7 +42,7 @@ export function useKlaviyo() {
   const write = {
     beginConnect: useAtomSet(marketingWrites.beginConnect, { mode: "promiseExit" }),
     sync: useAtomSet(marketingWrites.sync, { mode: "promiseExit" }),
-    undo: useAtomSet(marketingWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(marketingWrites.undo)
   }
   const keys = { reactivityKeys: [...MARKETING, ...CUSTOMERS] }
   return {

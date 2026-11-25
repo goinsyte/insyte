@@ -6,6 +6,7 @@ import { Exit } from "effect"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { COSTS, costWrites } from "../data/costs.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
@@ -115,7 +116,7 @@ export function useConsoleCostsSource(list: CostsList): CostsSource {
     setAmount: useAtomSet(costWrites.setAmount, { mode: "promiseExit" }),
     readFromSource: useAtomSet(costWrites.readFromSource, { mode: "promiseExit" }),
     remove: useAtomSet(costWrites.remove, { mode: "promiseExit" }),
-    undo: useAtomSet(costWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(costWrites.undo)
   }
   const edit = useGate("costs.write")
   const undo = (token: string) =>

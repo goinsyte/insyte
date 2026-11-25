@@ -3,7 +3,8 @@ import type {
   Browser,
   BrowserContext,
   BrowserContextOptions,
-  PlaywrightWorkerArgs
+  PlaywrightWorkerArgs,
+  Route
 } from "@playwright/test"
 
 /*
@@ -24,6 +25,29 @@ const headers = (): Record<string, string> | undefined => {
 /** Whether the run goes through Access (a preview with the token), which also means no trace: it would record them. */
 export const throughAccess = headers() !== undefined
 
+/** The page, its context or the browser closed under a route still in flight: the test is over. */
+const closedUnder = (error: unknown) =>
+  error instanceof Error && (error.name === "TargetClosedError" || /has been closed|Test ended/.test(error.message))
+
+/**
+ * A route handler that cannot put a request's headers in a log. Playwright's error for a failed `route.fetch`,
+ * `route.continue` or `route.fallback` lists every header it sent in its call log (the session cookie, a chat's
+ * `authorization`, the Access token), and CI's log and report are public. A route still in flight when its page or
+ * context closes is let go quietly; any other failure is rethrown as an error naming only the method and the path.
+ */
+export const guarded = (handler: (route: Route) => Promise<unknown>) => async (route: Route): Promise<void> => {
+  try {
+    await handler(route)
+  } catch (error) {
+    if (closedUnder(error)) return
+    const request = route.request()
+    const name = error instanceof Error ? error.name : "Error"
+    // No `cause`: the cause is the error with the headers, and a reporter would print it.
+    // oxlint-disable-next-line preserve-caught-error
+    throw new Error(`the route for ${request.method()} ${new URL(request.url()).pathname} failed (${name})`)
+  }
+}
+
 /** Adds the token's headers to the context's requests to `baseURL`'s origin, and to no other. */
 export async function admit(context: BrowserContext, baseURL: string | undefined): Promise<void> {
   const access = headers()
@@ -31,7 +55,7 @@ export async function admit(context: BrowserContext, baseURL: string | undefined
   const origin = new URL(baseURL).origin
   await context.route(
     (url) => url.origin === origin,
-    (route) => route.continue({ headers: { ...route.request().headers(), ...access } })
+    guarded((route) => route.continue({ headers: { ...route.request().headers(), ...access } }))
   )
 }
 
