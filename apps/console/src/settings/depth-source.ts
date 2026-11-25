@@ -55,6 +55,7 @@ const INVALID: Record<string, string> = {
   ossNumber: "Een nummer als NL123456789B01: landcode en dan cijfers.",
   required: "Elke status heeft een zin nodig die de klant leest.",
   too_long: "Een zin is hoogstens 120 tekens.",
+  unknown_variable: "In een zin kan alleen {vervoerder}.",
   mime: "Kies een PNG, JPG, WebP of SVG.",
   too_large: "Kies er een tot 400 kB; het staat klein in mails en de chat."
 }
@@ -227,10 +228,12 @@ export function useConsoleDepthSource(
         reactivityKeys: [...DEPTH]
       })
       if (Exit.isFailure(exit)) {
-        const error = failureOf(exit) as { _tag?: string; reason?: string }
+        const error = failureOf(exit) as { _tag?: string; reason?: string; fields?: Record<string, string> }
         sayRefusal(error, COPY)
         // Beaten to it: the newest version is what the page shows now.
         if (error._tag === "Conflict" && error.reason === "stale_version") refresh()
+        // A field the server refused: the page marks it.
+        if (error._tag === "Invalid" && error.fields !== undefined) return { fields: error.fields }
         return false
       }
       const token = exit.value.undo.token
