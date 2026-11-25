@@ -1,4 +1,5 @@
 import { Keyboard, Mail, MessageSquareText, Palette, Receipt, ShieldCheck, Radio, GraduationCap, Sheet as SheetIcon, Clock as Recent, Bot, Send, Sparkle, Undo2, AlertOctagon, AlertTriangle, Archive, BadgePercent, Bell, Box, Building, ChartLine, CheckCircle2, Circle, Clock, CornerDownLeft, CreditCard, Database, Download, Edit3, FileText, Filter, Folder, Globe, Grid2x2, Home, Inbox, Key, Link2, List, Loader, MessagesSquare, Plug, RotateCcw, Shield, ShoppingBag, Slash, Sparkles, Star, Store, Ticket, Trash2, Truck, Upload, User, UserCog, UserPlus, Users, UserX, Wallet, Webhook, Workflow, XCircle, Zap } from "../../icons";
+import { SETTINGS_KEYWORDS } from "./settings-keywords";
 import type { Persona } from "./types/persona";
 import type {
 	RailItem,
@@ -698,6 +699,7 @@ const AFFILIATES_PANEL: SubPanelConfig = {
 	],
 };
 
+/* Settings, with the settings inside each page as the panel's filter finds them (`settings-keywords.ts`). */
 const SETTINGS_PANEL: SubPanelConfig = {
 	title: "Instellingen",
 	icon: Plug,
@@ -705,49 +707,50 @@ const SETTINGS_PANEL: SubPanelConfig = {
 		{
 			label: "Algemeen",
 			items: [
-				{ to: "/settings/profile", label: "Account", icon: User },
-				{ to: "/settings/team", label: "Team", icon: Users },
-				{ to: "/settings/roles", label: "Rollen", icon: UserCog },
-				{ to: "/settings/stores", label: "Winkels", icon: Store },
-				{ to: "/settings/billing", label: "Facturatie", icon: CreditCard },
-				{ to: "/settings/regional", label: "Regio", icon: Globe },
-				{ to: "/settings/returns", label: "Retouren", icon: RotateCcw },
-				{ to: "/settings/shipping", label: "Verzending", icon: Truck },
-				{ to: "/settings/templates", label: "Sjablonen", icon: MessageSquareText },
-				{ to: "/settings/brand", label: "Huisstijl", icon: Palette },
-				{ to: "/settings/vat", label: "Btw", icon: Receipt },
-				{ to: "/settings/notifications", label: "Meldingen", icon: Bell },
-				{ to: "/settings/shortcuts", label: "Sneltoetsen", icon: Keyboard },
+				{ to: "/settings/me", label: "Je profiel", icon: User, keywords: SETTINGS_KEYWORDS["/settings/me"] },
+				{ to: "/settings/profile", label: "Account", icon: Building, keywords: SETTINGS_KEYWORDS["/settings/profile"] },
+				{ to: "/settings/team", label: "Team", icon: Users, keywords: SETTINGS_KEYWORDS["/settings/team"] },
+				{ to: "/settings/roles", label: "Rollen", icon: UserCog, keywords: SETTINGS_KEYWORDS["/settings/roles"] },
+				{ to: "/settings/stores", label: "Winkels", icon: Store, keywords: SETTINGS_KEYWORDS["/settings/stores"] },
+				{ to: "/settings/billing", label: "Facturatie", icon: CreditCard, keywords: SETTINGS_KEYWORDS["/settings/billing"] },
+				{ to: "/settings/regional", label: "Regio", icon: Globe, keywords: SETTINGS_KEYWORDS["/settings/regional"] },
+				{ to: "/settings/returns", label: "Retouren", icon: RotateCcw, keywords: SETTINGS_KEYWORDS["/settings/returns"] },
+				{ to: "/settings/shipping", label: "Verzending", icon: Truck, keywords: SETTINGS_KEYWORDS["/settings/shipping"] },
+				{ to: "/settings/templates", label: "Sjablonen", icon: MessageSquareText, keywords: SETTINGS_KEYWORDS["/settings/templates"] },
+				{ to: "/settings/brand", label: "Huisstijl", icon: Palette, keywords: SETTINGS_KEYWORDS["/settings/brand"] },
+				{ to: "/settings/vat", label: "Btw", icon: Receipt, keywords: SETTINGS_KEYWORDS["/settings/vat"] },
+				{ to: "/settings/notifications", label: "Meldingen", icon: Bell, keywords: SETTINGS_KEYWORDS["/settings/notifications"] },
+				{ to: "/settings/shortcuts", label: "Sneltoetsen", icon: Keyboard, keywords: SETTINGS_KEYWORDS["/settings/shortcuts"] },
 			],
 		},
 		{
 			label: "Insyte AI",
 			items: [
-				{ to: "/settings/ai/autonomy", label: "Zelfstandigheid", icon: Sparkles },
-				{ to: "/settings/ai/customer-agent", label: "Klantagent", icon: MessagesSquare },
-				{ to: "/settings/ai/knowledge", label: "Kennisbank", icon: FileText },
-				{ to: "/settings/ai/limits", label: "Limieten", icon: Wallet },
+				{ to: "/settings/ai/autonomy", label: "Zelfstandigheid", icon: Sparkles, keywords: SETTINGS_KEYWORDS["/settings/ai/autonomy"] },
+				{ to: "/settings/ai/customer-agent", label: "Klantagent", icon: MessagesSquare, keywords: SETTINGS_KEYWORDS["/settings/ai/customer-agent"] },
+				{ to: "/settings/ai/knowledge", label: "Kennisbank", icon: FileText, keywords: SETTINGS_KEYWORDS["/settings/ai/knowledge"] },
+				{ to: "/settings/ai/limits", label: "Limieten", icon: Wallet, keywords: SETTINGS_KEYWORDS["/settings/ai/limits"] },
 			],
 		},
 		{
 			label: "Technisch",
 			items: [
-				{ to: "/settings/integrations", label: "Koppelingen", icon: Plug },
-				{ to: "/settings/apps", label: "Apps", icon: BadgePercent },
-				{ to: "/settings/security", label: "Beveiliging", icon: Shield },
-				{ to: "/settings/api-keys", label: "API-sleutels", icon: Key },
-				{ to: "/settings/webhooks", label: "Webhooks", icon: Webhook },
-				{ to: "/settings/email-domain", label: "E-mail en domein", icon: Mail },
-				{ to: "/settings/agents", label: "Agents en MCP", icon: Bot },
+				{ to: "/settings/integrations", label: "Koppelingen", icon: Plug, keywords: SETTINGS_KEYWORDS["/settings/integrations"] },
+				{ to: "/settings/apps", label: "Apps", icon: BadgePercent, keywords: SETTINGS_KEYWORDS["/settings/apps"] },
+				{ to: "/settings/security", label: "Beveiliging", icon: Shield, keywords: SETTINGS_KEYWORDS["/settings/security"] },
+				{ to: "/settings/api-keys", label: "API-sleutels", icon: Key, keywords: SETTINGS_KEYWORDS["/settings/api-keys"] },
+				{ to: "/settings/webhooks", label: "Webhooks", icon: Webhook, keywords: SETTINGS_KEYWORDS["/settings/webhooks"] },
+				{ to: "/settings/email-domain", label: "E-mail en domein", icon: Mail, keywords: SETTINGS_KEYWORDS["/settings/email-domain"] },
+				{ to: "/settings/agents", label: "Agents en MCP", icon: Bot, keywords: SETTINGS_KEYWORDS["/settings/agents"] },
 			],
 		},
 		{
 			label: "Beheer",
 			items: [
-				{ to: "/settings/data", label: "Je gegevens", icon: Database },
-				{ to: "/settings/privacy", label: "Gegevens en privacy", icon: ShieldCheck },
-				{ to: "/settings/log", label: "Logboek", icon: FileText },
-				{ to: "/settings/trash", label: "Prullenbak", icon: Trash2 },
+				{ to: "/settings/data", label: "Je gegevens", icon: Database, keywords: SETTINGS_KEYWORDS["/settings/data"] },
+				{ to: "/settings/privacy", label: "Gegevens en privacy", icon: ShieldCheck, keywords: SETTINGS_KEYWORDS["/settings/privacy"] },
+				{ to: "/settings/log", label: "Logboek", icon: FileText, keywords: SETTINGS_KEYWORDS["/settings/log"] },
+				{ to: "/settings/trash", label: "Prullenbak", icon: Trash2, keywords: SETTINGS_KEYWORDS["/settings/trash"] },
 			],
 		},
 	],

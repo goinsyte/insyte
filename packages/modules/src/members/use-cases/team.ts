@@ -97,8 +97,10 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
   const [link] = yield* sql<LinkRow>`
     select enabled, round, role_id, days, created_at, expires_at, joined_count from invite_links`
   const seats = yield* seatsIn(sql)
+  // The roles to choose from: a deleted one is gone from every list (its row stays only for the undo).
   const roles = yield* sql<RoleRow>`
     select id, label, kind, levels, specials, refund_limit_minor, stores from roles
+    where deleted_at is null
     order by id <> 'owner', kind <> 'system', created_at, id`
   const choices = yield* storeChoices(sql)
   const now = Date.now()

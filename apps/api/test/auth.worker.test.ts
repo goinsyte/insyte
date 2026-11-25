@@ -108,6 +108,30 @@ describe("better-auth on the API Worker", () => {
     expect(response.status).toBe(403)
   })
 
+  it("lets a person change their own name, said and not too long, but not their picture", async () => {
+    const changed = await post("/api/auth/update-user", { name: "Amber de Vries" }, cookie)
+    expect(changed.status).toBe(200)
+    // The row itself, without the cache cookie the answer refreshed.
+    const token = cookie.split("; ").find((c) => c.startsWith("insyte.session="))!
+    const session = await (await call("http://api.test/api/auth/get-session", { headers: { cookie: token } }))
+      .json() as {
+        user: { name: string }
+      }
+    expect(session.user.name).toBe("Amber de Vries")
+
+    const refused = async (body: unknown) => {
+      const response = await post("/api/auth/update-user", body, cookie)
+      expect(response.status).toBe(400)
+      return ((await response.json()) as { code: string }).code
+    }
+    expect(await refused({ name: "   " })).toBe("NAME_REQUIRED")
+    expect(await refused({ name: "x".repeat(81) })).toBe("NAME_TOO_LONG")
+    expect(await refused({ image: "https://tracker.example/pixel.png" })).toBe("IMAGE_NOT_SUPPORTED")
+    expect(await refused({ name: "Amber", image: null })).toBe("IMAGE_NOT_SUPPORTED")
+    // Unauthenticated, nobody's name changes.
+    expect((await post("/api/auth/update-user", { name: "Iemand" })).status).toBe(401)
+  })
+
   it("signs out: the cookies are cleared and the session row is gone", async () => {
     const response = await post("/api/auth/sign-out", {}, cookie)
     expect(response.status).toBe(200)

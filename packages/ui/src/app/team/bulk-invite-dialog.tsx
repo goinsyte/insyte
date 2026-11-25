@@ -3,6 +3,7 @@ import { CheckCircle2, Download, Upload, XCircle } from "../../icons";
 import { useMemo, useRef, useState } from "react";
 import { Field, SelectField } from "../common/form-dialog";
 import { GHOST_BTN, PRIMARY_BTN, WELL_BTN } from "./bits";
+import { roleForCell } from "./csv-roles";
 import { useAddressCheck, useSendInvites } from "./invite-dialog";
 import { roleLabel, storeAccessLabel } from "./role-text";
 import { useSourceInviteRoles, useTeamSource } from "./source";
@@ -10,7 +11,7 @@ import { counted } from "../lib/counted";
 import type { StoreAccess } from "../lib/team-core";
 import { cn } from "../lib/utils";
 
-type Row = { line: number; email: string; roleId: string; stores: StoreAccess; problem?: string; note?: string };
+type Row = { line: number; email: string; roleId: string; stores: StoreAccess; problem?: string };
 
 const TEMPLATE = "e-mail,rol,winkels\namber@northwindclothing.co,Klantenservice,Northwind US|Northwind EU\njonas@northwindclothing.co,Financiën,\n";
 
@@ -41,24 +42,29 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 			if (!email) continue;
 			// A header row names its columns instead of holding an address.
 			if (i === 0 && !email.includes("@") && /mail/.test(email)) continue;
-			const roleCell = cells[1] ?? "";
-			const role = roleCell ? roles.find((r) => r.label.toLowerCase() === roleCell.toLowerCase() || r.id === roleCell.toLowerCase()) : undefined;
+			// Named as Rollen names it, case and accents aside; a name that is no role (or the owner's) stops the row.
+			const role = roleForCell(source.roles, cells[1] ?? "");
 			const storeNames = (cells[2] ?? "").split("|").map((s) => s.trim()).filter(Boolean);
 			const storeIds = storeNames.map((n) => shops.find((s) => s.name.toLowerCase() === n.toLowerCase())?.id);
 			const v = check(email, seen);
 			seen.push(email);
-			const problem = !v.ok ? v.reason : storeIds.includes(undefined) ? `Onbekende winkel: ${storeNames[storeIds.indexOf(undefined)]}` : undefined;
+			const problem = !v.ok
+				? v.reason
+				: role?.ok === false
+					? role.reason
+					: storeIds.includes(undefined)
+						? `Onbekende winkel: ${storeNames[storeIds.indexOf(undefined)]}`
+						: undefined;
 			out.push({
 				line: i + 1,
 				email,
-				roleId: role?.id ?? fallbackRole,
+				roleId: role?.ok ? role.id : fallbackRole,
 				stores: storeIds.length === 0 || storeIds.length === shops.length ? "all" : (storeIds as string[]),
 				problem,
-				note: roleCell && !role ? `Rol "${roleCell}" bestaat niet, wordt ${roleLabel(roles, fallbackRole)}` : undefined,
 			});
 		}
 		return out;
-	}, [text, roles, shops, check, fallbackRole]);
+	}, [text, source.roles, shops, check, fallbackRole]);
 
 	const ready = rows.filter((r) => !r.problem);
 	const sendable = ready.slice(0, seats.free);
@@ -185,9 +191,9 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 														{r.problem}
 													</span>
 												) : (
-													<span className="inline-flex items-center gap-1.5 text-ink-2" title={r.note}>
+													<span className="inline-flex items-center gap-1.5 text-ink-2">
 														<CheckCircle2 className="size-3.5 shrink-0 text-signal-green" strokeWidth={1.75} />
-														{r.note ?? "Wordt uitgenodigd"}
+														Wordt uitgenodigd
 													</span>
 												)}
 											</td>

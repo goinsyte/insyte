@@ -1,6 +1,8 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Plus, Search } from "../../icons";
 import { motion, useReducedMotion } from "motion/react";
+import { useState } from "react";
+import { filterSections } from "../lib/panel-filter";
 import type { SubPanelItem } from "../lib/types/sub-panel";
 import { cn } from "../lib/utils";
 import { isDrawn, isNeedsYou } from "../lib/queue-state";
@@ -56,6 +58,8 @@ export function SubPanel() {
 	>;
 	const navigate = useNavigate();
 	const { conversations } = useShellData();
+	// What is typed in the area's filter, for the area it was typed in: another area starts unfiltered.
+	const [filter, setFilter] = useState({ area: "", text: "" });
 
 	const sections = usePanel((s) => s.sections);
 	const hidden = usePanel((s) => s.hidden);
@@ -127,6 +131,9 @@ export function SubPanel() {
 						: base;
 	// A link to a page the host does not have yet is left out, and a section it leaves empty goes with it.
 	const cfg = withPages(drawn, hasPage);
+	const query = filter.area === cfg.title ? filter.text : "";
+	const filtering = query.trim() !== "";
+	const found = filtering ? filterSections(cfg.sections, query) : cfg.sections;
 
 	return (
 		<aside className="flex w-56 shrink-0 flex-col overflow-hidden bg-mist px-2 py-2.5">
@@ -136,7 +143,7 @@ export function SubPanel() {
 				</span>
 			</header>
 
-			<AreaFilter area={cfg.title} />
+			<AreaFilter area={cfg.title} value={query} onChange={(text) => setFilter({ area: cfg.title, text })} />
 
 			{cfg.cta ? (
 				<div className="pt-1 pb-2">
@@ -162,9 +169,14 @@ export function SubPanel() {
 			) : null}
 
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2">
-				{shown.map((id) =>
+				{filtering && found.length === 0 ? (
+					<p role="status" className="px-2 pt-1 text-ink-3 text-sm">
+						Niets gevonden voor “{query.trim()}”.
+					</p>
+				) : null}
+				{(filtering ? ["navigation" as const] : shown).map((id) =>
 					id === "navigation" ? (
-						cfg.sections.map((section, si) => (
+						found.map((section, si) => (
 							<div key={section.label ?? si} className="flex flex-col">
 								{section.label ? (
 									<div className="px-2 pt-3 pb-1 font-medium text-ink-3 text-xs">
@@ -182,7 +194,7 @@ export function SubPanel() {
 										}
 									/>
 								))}
-								{cfg.title === "Automatiseringen" && si === cfg.sections.length - 1 && automationsPanel.Extras ? <automationsPanel.Extras /> : null}
+								{!filtering && cfg.title === "Automatiseringen" && si === cfg.sections.length - 1 && automationsPanel.Extras ? <automationsPanel.Extras /> : null}
 							</div>
 						))
 					) : id === "report" ? (
@@ -202,14 +214,23 @@ export function SubPanel() {
 
 /**
  * The area's own filter, which is also what names the area. A filled well, the same 30px well the
- * top bar's search is, because they do the same kind of thing at two scales.
+ * top bar's search is, because they do the same kind of thing at two scales. It narrows the panel's
+ * links to those whose name, or a setting inside the page, holds what is typed; Escape clears it.
  */
-function AreaFilter({ area }: { area: string }) {
+function AreaFilter({ area, value, onChange }: { area: string; value: string; onChange: (text: string) => void }) {
 	return (
 		<label className="field mt-1 mb-1.5 flex h-[30px] items-center gap-2 rounded-md px-2.5 transition-colors hover:field-hover">
 			<Search className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
 			<input
 				type="search"
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				onKeyDown={(e) => {
+					if (e.key === "Escape" && value !== "") {
+						e.preventDefault();
+						onChange("");
+					}
+				}}
 				placeholder={`Zoek in ${area.toLowerCase()}`}
 				aria-label={`Zoek in ${area.toLowerCase()}`}
 				className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-3"

@@ -69,6 +69,29 @@ const refuseBreached = async (
   }
 }
 
+/** The longest name a person goes by, as a workspace's name is held to. */
+const NAME_MAX = 80
+
+/**
+ * What a person changes about themselves (`/update-user`, Je profiel): their name, said and not too long. Not their
+ * picture: there is nowhere to upload one, and an address anyone could set would load in every teammate's console.
+ */
+const refuseProfile = (ctx: { readonly path: string; readonly body?: unknown }) => {
+  if (ctx.path !== "/update-user") return
+  const body = (ctx.body ?? {}) as Record<string, unknown>
+  if ("image" in body) {
+    throw new APIError("BAD_REQUEST", { code: "IMAGE_NOT_SUPPORTED", message: "The picture cannot be changed here." })
+  }
+  const name = body["name"]
+  if (name === undefined) return
+  if (typeof name !== "string" || name.trim() === "") {
+    throw new APIError("BAD_REQUEST", { code: "NAME_REQUIRED", message: "A name is required." })
+  }
+  if (name.trim().length > NAME_MAX) {
+    throw new APIError("BAD_REQUEST", { code: "NAME_TOO_LONG", message: `At most ${NAME_MAX} characters.` })
+  }
+}
+
 /** Prefix per better-auth model, so its ids read like ours in logs and joins. */
 const PREFIX: Record<string, string> = {
   user: "usr",
@@ -154,6 +177,7 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
     rateLimit: { enabled: false },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        refuseProfile(ctx)
         if (config.isBreached !== undefined) await refuseBreached(config.isBreached, ctx)
         if (config.recordEvent !== undefined) await eventsBefore(ctx, config.recordEvent)
       }),

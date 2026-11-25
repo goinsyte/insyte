@@ -21,9 +21,15 @@ import { readTeam, seatsIn } from "./team.ts"
 
 export const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
 
-/** The roles an invitation may grant: any of the workspace's, but never the owner's (that is a transfer). */
+/**
+ * The roles an invitation, the link or a member's change may grant: any live one of the workspace's, but never the
+ * owner's (that is a transfer). A deleted role keeps its row for its undo, and grants nothing while it is deleted.
+ */
 export const grantable = (sql: SqlClient.SqlClient) =>
-  Effect.map(sql<{ id: string }>`select id from roles where id <> 'owner'`, (rows) => new Set(rows.map((r) => r.id)))
+  Effect.map(
+    sql<{ id: string }>`select id from roles where id <> 'owner' and deleted_at is null`,
+    (rows) => new Set(rows.map((r) => r.id))
+  )
 
 /**
  * Whether someone at `roleId` with these stores of their own would reach past the principal's stores (`storeScope`).

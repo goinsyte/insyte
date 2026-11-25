@@ -129,6 +129,32 @@ describe("roles", () => {
       _tag: "Conflict"
     })
 
+    // Gone everywhere a role is chosen: the team page offers it no more, and the server grants it to nobody.
+    const team = ok(await rpc("Team.get", undefined, owner.cookie))
+    expect(team.roles.map((r) => r.id)).not.toContain(custom)
+    const unknown = { _tag: "Invalid" }
+    expect(
+      failure(
+        await rpc("Invitations.send", {
+          rows: [{ email: `deleted-role-${Date.now()}@example.com`, roleId: custom, stores: "all" }]
+        }, owner.cookie)
+      )
+    ).toMatchObject({ ...unknown, fields: { "rows.0.roleId": "unknown" } })
+    expect(failure(await rpc("InviteLink.set", { roleId: custom }, owner.cookie))).toMatchObject({
+      ...unknown,
+      fields: { roleId: "unknown" }
+    })
+    const invited = ok(
+      await rpc("Invitations.send", {
+        rows: [{ email: `kept-role-${Date.now()}@example.com`, roleId: "view", stores: "all" }]
+      }, owner.cookie)
+    ).invitations.at(-1)!
+    expect(failure(await rpc("Invitations.setRole", { id: invited.id, roleId: custom }, owner.cookie))).toMatchObject({
+      ...unknown,
+      fields: { roleId: "unknown" }
+    })
+    ok(await rpc("Invitations.revoke", { ids: [invited.id] }, owner.cookie))
+
     const back = ok(await rpc("Roles.restore", { id: custom }, owner.cookie))
     expect(back.roles.find((r) => r.id === custom)?.label).toBe("Retouren")
     expect(ok(await rpc("Team.get", undefined, owner.cookie)).link.roleId).toBe(custom)

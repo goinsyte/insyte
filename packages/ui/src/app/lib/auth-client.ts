@@ -65,6 +65,8 @@ export interface AuthClient {
   ) => AuthResult<unknown>
   readonly resetPassword: (request: { newPassword: string; token: string }) => AuthResult<unknown>
   readonly signOut: () => AuthResult<unknown>
+  /** The signed-in person's own name (Je profiel). Their address and picture are not changed here. */
+  readonly updateUser: (request: { name: string }) => AuthResult<unknown>
   /** The second step of a sign-in that answered `twoFactorRedirect`: an authenticator code, or a backup code. */
   readonly twoFactor: {
     readonly verifyTotp: (request: { code: string; trustDevice: boolean }) => AuthResult<unknown>

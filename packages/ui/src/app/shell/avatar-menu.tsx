@@ -190,8 +190,9 @@ export function AvatarMenuContent({
 				</div>
 				{admin ? (
 					<>
+						{/* Your own name and address (Je profiel); the workspace's facts are Account. */}
 						<DropdownMenuItem asChild>
-							<Link to={"/settings/profile" as never}>
+							<Link to={"/settings/me" as never}>
 								<UserCog className="size-3.5" />
 								Profiel bewerken
 							</Link>
