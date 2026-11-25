@@ -247,6 +247,8 @@ describe("a Shopify erasure that cannot finish", () => {
 })
 
 describe("the reconcile sweep", () => {
+  // The 15-minute tick runs every sweep over every workspace in the shared test database, which on a CI runner
+  // has taken longer than the 30 s default.
   it("repairs what changed in Shopify without a webhook, on the fifteenth minute", async () => {
     const store = await imported("sweep")
     expect((await mirrorOf(store)).orders.find((o) => o.number === "#1001")).toMatchObject({ status: "paid" })
@@ -256,5 +258,5 @@ describe("the reconcile sweep", () => {
     const mirror = await mirrorOf(store)
     expect(mirror.orders.find((o) => o.number === "#1001")).toMatchObject({ status: "shipped" })
     expect(mirror.orders.find((o) => o.number === "#1002")).toMatchObject({ status: "delivered" })
-  })
+  }, 90_000)
 })
