@@ -14,7 +14,7 @@ import { scopeSummary } from "../lib/developer-core";
  * the same source as API-sleutels.
  */
 const GUIDE = [
-	{ title: "Agent-ready", body: "Je eigen AI-tools lezen en werken in Insyte met de rechten van een rol: via de API, MCP en webhooks.", art: "keys" },
+	{ title: "Klaar voor je eigen agents", body: "Je eigen AI-tools lezen en werken in Insyte met de rechten van een rol: via de API, MCP en webhooks.", art: "keys" },
 	{ title: "Rechten", body: "Per rol of per onderdeel, lezen of schrijven. Team, facturatie en de API zelf zijn nooit bereikbaar met een sleutel.", art: "roles" },
 	{ title: "Dezelfde regels", body: "Elke schrijfactie volgt Zelfstandigheid. Wat op Eerst vragen staat, komt als voorstel bij jou, net als bij Insyte.", art: "rules" },
 	{ title: "MCP", body: "Een MCP-client logt in met een API-sleutel, met dezelfde rechten. Elke aanroep staat in het verzoeklog van die sleutel.", art: "webhook" },

@@ -196,7 +196,7 @@ export const PromptBar = forwardRef<
 							<Slash className="size-3.5" strokeWidth={1.75} />
 						</ToolButton>
 						<span className="ml-1 truncate text-xs text-ink-3">
-							Ziet {PLACES[where] ?? "deze pagina"}, je wachtrij en records · werkt binnen jouw regels
+							Ziet {PLACES[where] ?? "deze pagina"}, je wachtrij en records · leest alleen, wijzigt niets
 						</span>
 						<button
 							type="button"

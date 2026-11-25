@@ -73,6 +73,7 @@ export function useConsoleCustomerAgentSource(view: ChannelAgentView): CustomerA
     today: day ?? NO_DAY,
     sendReply: view.sendReply,
     webchatDetail: view.stores.join(", "),
+    timeZone: view.timezone,
     spent: view.budgetSpent,
     gate: settingsGate,
     save: async (next, said) => {

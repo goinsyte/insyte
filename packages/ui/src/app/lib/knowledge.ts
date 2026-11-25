@@ -12,6 +12,13 @@ export type Audience = "customer_agent" | "assistant" | "both";
 
 export const AUDIENCE_LABEL: Record<Audience, string> = { customer_agent: "Klantagent", assistant: "Vraag Insyte", both: "Beide" };
 
+/** What a publish says: only the agents the chapter is for read it from now on. */
+export const PUBLISHED_FOR: Record<Audience, string> = {
+	customer_agent: "De klantagent gebruikt vanaf nu deze versie.",
+	assistant: "Vraag Insyte gebruikt vanaf nu deze versie.",
+	both: "De klantagent en Vraag Insyte gebruiken vanaf nu deze versie.",
+};
+
 export type ArticleVersion = { n: number; at: string; by: string; body: string; title: string; published: boolean };
 
 export type Article = {

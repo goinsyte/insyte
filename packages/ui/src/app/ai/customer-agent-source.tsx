@@ -17,6 +17,8 @@ export interface CustomerAgentSource {
   sendReply: "auto" | "ask" | "never"
   /** Under "Websitechat": the stores it answers for. */
   webchatDetail: string
+  /** The workspace's time zone, which the hours are in; without one the browser's (the design app). */
+  timeZone?: string | undefined
   /** The workspace's AI budget is spent this month: every new chat goes to the team. */
   spent: boolean
   /** Whether the viewer may change the settings (Instellingen · Beheren and `ai.autonomy`), and why not. */

@@ -39,28 +39,43 @@ const minutes = (hhmm: string) => {
 /** Monday is 0, as `DAYS`; JavaScript's Sunday-first day turned round. */
 export const weekday = (d: Date) => (d.getDay() + 6) % 7;
 
-export function isOpen(hours: ReadonlyArray<DayHours>, at: Date): boolean {
-	const day = hours[weekday(at)];
+/** What the agent says at a handover before anyone wrote their own (the server's default, word for word). */
+export const DEFAULT_HANDOVER = "Hier kijkt een collega graag even naar. Je hoort {wanneer} van ons, hier in de chat of per mail.";
+
+const WEEKDAY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+
+/**
+ * The day (Monday 0) and minute of the day at `at` on the clock of `timeZone`, the workspace's, as the server reads the
+ * hours; without one the browser's own clock.
+ */
+function clock(at: Date, timeZone?: string): { day: number; now: number } {
+	if (timeZone === undefined) return { day: weekday(at), now: at.getHours() * 60 + at.getMinutes() };
+	const parts = new Intl.DateTimeFormat("en-GB", { timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+	const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+	return { day: WEEKDAY[part("weekday")] ?? weekday(at), now: Number(part("hour")) * 60 + Number(part("minute")) };
+}
+
+export function isOpen(hours: ReadonlyArray<DayHours>, at: Date, timeZone?: string): boolean {
+	const { day: today, now } = clock(at, timeZone);
+	const day = hours[today];
 	if (!day?.open) return false;
-	const now = at.getHours() * 60 + at.getMinutes();
 	return now >= minutes(day.from) && now < minutes(day.to);
 }
 
 /** "vandaag om 9:00", "morgen vanaf 9:00", "maandag vanaf 9:00": when a person is next there. */
-export function nextOpenLabel(hours: ReadonlyArray<DayHours>, at: Date): string {
+export function nextOpenLabel(hours: ReadonlyArray<DayHours>, at: Date, timeZone?: string): string {
+	const { day: today, now } = clock(at, timeZone);
 	for (let i = 0; i < 8; i++) {
-		const d = new Date(at);
-		d.setDate(d.getDate() + i);
-		const day = hours[weekday(d)];
+		const n = (today + i) % 7;
+		const day = hours[n];
 		if (!day?.open) continue;
 		const from = minutes(day.from);
 		if (i === 0) {
-			const now = at.getHours() * 60 + at.getMinutes();
 			if (now < from) return `vandaag vanaf ${day.from.replace(/^0/, "")}`;
 			if (now < minutes(day.to)) return "nu";
 			continue;
 		}
-		return `${i === 1 ? "morgen" : DAYS[weekday(d)]} vanaf ${day.from.replace(/^0/, "")}`;
+		return `${i === 1 ? "morgen" : DAYS[n]} vanaf ${day.from.replace(/^0/, "")}`;
 	}
 	return "zodra er iemand is";
 }
