@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { RefundLimit } from "../../orders/domain/Orders.ts"
 import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
@@ -170,7 +171,9 @@ export class ReturnDetail extends Schema.Class<ReturnDetail>("returns/ReturnDeta
   address: Schema.NullOr(Schema.Struct({ label: Schema.String, address: Schema.String, carrier: Carrier })),
   assignee: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
   /** Whether a carrier is set up for return labels (M9.2). */
-  labels: Schema.Boolean
+  labels: Schema.Boolean,
+  /** What the caller may refund on its order; null when the role has no limit. */
+  refundLimit: Schema.NullOr(RefundLimit)
 }) {}
 
 /** "Retour starten": an order's lines, what is still free to send back, and the rule on each. */

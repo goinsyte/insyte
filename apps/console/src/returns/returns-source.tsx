@@ -200,13 +200,20 @@ function useHost() {
 
 const NO_SETTINGS = { giftCardBonus: 0, exchangeFee: 0 }
 
-/** Whether the role may refund this much, in major units as the screen has it. */
-const useRefund = (amount: number) => useRefundGate(Math.round(amount * 100))
+/**
+ * Whether the role may refund this much, in major units as the screen has it, against the server's limit on the
+ * return's order (in the order's currency); while the return is still out, the role's own.
+ */
+const refundGateOf = (limit: ReturnDetail["refundLimit"] | undefined) =>
+  function useRefund(amount: number) {
+    return useRefundGate(Math.round(amount * 100), limit)
+  }
 
 function useDetailSource(
   view: ReturnView,
   settings: ReturnSettingsDoc | undefined,
-  labels: boolean
+  labels: boolean,
+  limit?: ReturnDetail["refundLimit"]
 ): ReturnDetailSource {
   const commands = useReturnCommands()
   const gates = useReturnGates()
@@ -218,7 +225,7 @@ function useDetailSource(
     gates,
     meId: team.meId,
     role: { label: role?.label ?? "", refundLimit: role?.refundLimit ?? null },
-    useRefundGate: useRefund,
+    useRefundGate: refundGateOf(limit),
     money: settings === undefined ?
       NO_SETTINGS :
       { giftCardBonus: settings.giftCardBonusPct, exchangeFee: settings.exchangeFeeMinor / 100 },
@@ -232,7 +239,7 @@ export function useConsoleReturnDetailSource(
   settings: ReturnSettingsDoc | undefined
 ): ReturnDetailSource {
   const view = useMemo(() => ({ ...viewOf(detail), arriving: false }), [detail])
-  return useDetailSource(view, settings, detail.labels)
+  return useDetailSource(view, settings, detail.labels, detail.refundLimit)
 }
 
 /** The return while `Returns.get` is still out: the list's row draws the header, the record's skeleton the body. */

@@ -9,6 +9,8 @@ import { explain, keyOf, StepFailed } from "@insyte/modules/automations/use-case
 import { conversationOf } from "@insyte/modules/chats/use-cases/chats"
 import { post } from "@insyte/modules/chats/use-cases/commands"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
+import { minorDigits } from "@insyte/modules/fx/domain/Units"
+import { latestRate, limitIn } from "@insyte/modules/fx/Fx"
 import { emailCustomer } from "@insyte/modules/orders/use-cases/customer-mail"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { PendingEvents, type Relay } from "@insyte/modules/shared/domain/Outbox"
@@ -48,13 +50,6 @@ const money = (minor: number, currency: string) => {
   const text = amount.toLocaleString("nl-NL", { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return `${SYMBOL[currency.toUpperCase()] ?? currency.toUpperCase()} ${text}`
 }
-
-/**
- * `limitMinor` in `from` (the workspace's currency) as an amount in `to` (the order's), at `rate` (1 `to` = rate
- * `from`), rounded down: a flow never refunds more than it may.
- */
-export const limitIn = (limitMinor: number, from: string, to: string, rate: number) =>
-  from === to ? limitMinor : Math.floor((limitMinor / toMinor("1", from) / rate) * toMinor("1", to) + 1e-6)
 
 const fail = (explanation: string, terminal = true) => Effect.fail(new StepFailed({ explanation, terminal }))
 
@@ -634,7 +629,12 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
             const currency = o.currency.trim().toUpperCase()
             const reason = input.text("reason")
             const note = `${reason === "" ? "Terugbetaald" : reason} · automatisering “${input.plan.name}”`
-            const account = (limitMinor: number) => ({ ...p, role: { ...p.role, refundLimit: limitMinor / 100 } })
+            // The flow's account at its limit, in the workspace's currency as a role's is: `refundOn` converts it into
+            // the order's, so it is handed over unconverted.
+            const account = (limitMinor: number, own: string) => ({
+              ...p,
+              role: { ...p.role, refundLimit: limitMinor / 10 ** minorDigits(own) }
+            })
             if (o.asked) {
               // An attempt before this one refunded: the same refund, answered again.
               const [earlier] = yield* sql<{ amountMinor: string }>`
@@ -649,17 +649,15 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
             if (THREE_DECIMALS.has(currency)) {
               return yield* fail(`Deze bestelling is in ${currency}; daarin betaalt een flow niet terug. Doe het zelf.`)
             }
-            // The limits are in the workspace's currency; the order is refunded in its own, at the latest ECB rate.
+            // The limits are in the workspace's currency; the order is refunded in its own, at the latest ECB rate of
+            // the last week (`latestRate`).
             const own = o.workspaceCurrency.trim().toUpperCase()
-            const [fx] = currency === own ? [{ rate: "1" }] : yield* sql<{ rate: string }>`
-              select rate::text as rate from fx_rates
-              where base = ${currency} and quote = ${own} and day <= current_date order by day desc limit 1`
-            if (fx === undefined) {
+            const rate = yield* latestRate(sql, currency, own)
+            if (rate === undefined) {
               return yield* fail(
                 `Er is nog geen wisselkoers van ${currency} naar ${own}, dus de flow kan zijn limiet niet toetsen. Doe het zelf.`
               )
             }
-            const rate = Number(fx.rate)
             const asked = amountOf(input.text("amount"), currency)
             if (asked === undefined) {
               return yield* fail(`“${input.text("amount")}” is geen bedrag; schrijf “volledig” of “25,00”.`)
@@ -690,7 +688,7 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
               )
             }
             const done = yield* refundOn(sql, { id: orderId, refundId: refundId as never, amountMinor, note }).pipe(
-              Effect.provideService(CurrentPrincipal, account(limit.limitMinor))
+              Effect.provideService(CurrentPrincipal, account(allowed.limitMinor, own))
             )
             if (done.outboxId !== null) (yield* PendingEvents)?.add(done.outboxId)
             return {

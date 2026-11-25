@@ -1,11 +1,20 @@
 import { OrdersTools } from "@insyte/api/mcp/tools/OrdersTools"
+import { minorDigits } from "@insyte/modules/fx/domain/Units"
 import { Effect, Layer } from "effect"
 import { governed, notForAgents, type Plan, token } from "../mcp/Governance.ts"
 import { kicker } from "../mcp/Outbox.ts"
 import { OrdersV1 } from "./OrdersV1.ts"
 
-const euro = (minor: number) =>
-  new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
+/** An amount in Insyte's minor units of its currency, as the proposal says it: "€ 12,50", "US$ 105,00". */
+const money = (minor: number, currency: string) => {
+  const digits = minorDigits(currency)
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  }).format(minor / 10 ** digits)
+}
 
 export const OrdersMcp = OrdersTools.toLayer(Effect.gen(function*() {
   const read = yield* OrdersV1
@@ -92,8 +101,8 @@ export const OrdersMcp = OrdersTools.toLayer(Effect.gen(function*() {
           amountMinor: body.amount_minor,
           storeId,
           subject,
-          sentence: `${euro(body.amount_minor)} terugbetaald op bestelling ${order.number}`,
-          after: euro(body.amount_minor),
+          sentence: `${money(body.amount_minor, order.total.currency)} terugbetaald op bestelling ${order.number}`,
+          after: money(body.amount_minor, order.total.currency),
           ask: { _tag: "RefundOrder", orderId: order_id, amountMinor: body.amount_minor, note: body.note ?? null },
           effect: token
         })),

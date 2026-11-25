@@ -94,18 +94,33 @@ export const writeV1 = (e: WriteRefusal): Effect.Effect<never, WriteV1, CurrentA
   }
 }
 
-/** The same for a refund, which may also be over the key's limit or more than is left. */
+/** Over the key's limit: in the order's currency, and the role's own in the workspace's. */
+export interface RefundOverLimitRefusal {
+  readonly _tag: "RefundOverLimit"
+  readonly limitMinor: number
+  readonly currency: string
+  readonly roleMinor: number
+  readonly roleCurrency: string
+}
+
+/**
+ * The same for a refund, which may also be over the key's limit or more than is left. An order in another currency than
+ * the workspace's with no exchange rate yet is `409 no_fx_rate` (a `Conflict`), for a key held to a limit.
+ */
 export const refundV1 = (
   e:
     | WriteRefusal
-    | { readonly _tag: "RefundOverLimit"; readonly limitMinor: number }
+    | RefundOverLimitRefusal
     | { readonly _tag: "RefundOverBalance" }
     | { readonly _tag: "AlreadyRefunded" }
 ): Effect.Effect<never, WriteV1 | RefundOverLimitV1, CurrentApiKey> => {
   switch (e._tag) {
     case "RefundOverLimit":
       return fail("RefundOverLimitV1" as const, "More than this key may refund on one order.", {
-        limit_minor: e.limitMinor
+        limit_minor: e.limitMinor,
+        currency: e.currency,
+        role_limit_minor: e.roleMinor,
+        role_currency: e.roleCurrency
       })
     case "RefundOverBalance":
       return conflict("over_balance")

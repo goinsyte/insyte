@@ -3,6 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
+import { refundLimitIn } from "../../fx/Fx.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { Labels } from "../domain/Ports.ts"
 import { type ListInput, Returnable, ReturnDetail, ReturnList, ReturnRow } from "../domain/Returns.ts"
@@ -335,7 +336,8 @@ export const get = Effect.fn("Returns.get")(function*(id: string) {
         address: address === undefined
           ? null
           : { label: address.label, address: address.address, carrier: address.carrier as "PostNL" },
-        assignee: assignee ?? null
+        assignee: assignee ?? null,
+        refundLimit: yield* refundLimitIn(sql, record.currency)
       })
     })
   )

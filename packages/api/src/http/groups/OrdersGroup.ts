@@ -179,7 +179,7 @@ export class OrdersGroup extends HttpApiGroup.make("orders")
       error: [...WriteErrors, RefundOverLimitV1]
     }).annotate(
       OpenApi.Description,
-      "Refunds part or all of what is left on the order, through its original payments. Irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `orders.write` and `refunds.write`, within the key's limit; `pending` until Shopify took it."
+      "Refunds part or all of what is left on the order, through its original payments. Irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `orders.write` and `refunds.write`, within the key's limit; `pending` until Shopify took it. The limit is set in the workspace's currency and held against the order's at the latest ECB rate: `422 RefundOverLimitV1` gives it in both, and `409 no_fx_rate` means there is no rate for the order's currency yet."
     )
   )
   .annotate(OpenApi.Title, "Orders")

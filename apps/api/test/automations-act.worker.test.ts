@@ -3,6 +3,7 @@ import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { actionStep, planOf } from "../src/workflows/AutomationRun.ts"
+import { paidOrder, setRates } from "./currencies.ts"
 import { failure, join, ok, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
@@ -227,7 +228,8 @@ describe("automations that act", () => {
   }, 240_000)
 
   it("refunds an order in its own currency within a limit in the workspace's, at the ECB rate", async () => {
-    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    // Today's rate, at the recorded twin's last: the twin's own days are older than a limit is held with.
+    await setRates([{ base: "EUR", quote: "USD", rate: "1.12140000", ageDays: 0 }])
     const store = await importedStore("act-fx")
     // The workspace counts in dollars now; the store sells in euros.
     ok(
@@ -250,6 +252,7 @@ describe("automations that act", () => {
     }
     const small = await flow("Klein terug", "5,00")
     const large = await flow("Groot terug", "95,00")
+    const between = await flow("Tussenin terug", "80,00")
     const orderId = ok(await rpc("Forwarding.list", { view: "to_forward" }, store.cookie)).rows[0]!.orderId
     const key = await keyOf(store.cookie, "Fx", false)
 
@@ -273,12 +276,28 @@ describe("automations that act", () => {
     const limitCents = Math.floor(10_000 / Number(rates[0]!.rate) + 1e-6)
     const euros = (limitCents / 100).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const refused = await runOn(large)
-    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
     expect(refused.run).toMatchObject({
       status: "failed",
       reason:
         `“Terugbetalen”: € 95,00 is meer dan de flow per bestelling mag terugbetalen (€ ${euros}, $ 100,00 tegen de ECB-koers). Doe het zelf, of vraag eerst goedkeuring.`
     })
+
+    // € 80 on an order of its own: under $ 100 converted once (€ 89,17), over it converted twice (€ 79,51), which
+    // the refund itself would do if the flow handed it the limit already in euros.
+    await paidOrder(store, "#EUR80", "EUR")
+    const own = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#EUR80")!
+    const response = await startBy(key, between, own.id)
+    expect(response.status).toBe(200)
+    const betweenRun = (await response.json() as Json).id as string
+    const settled = await until(
+      () => rpc("Runs.get", { id: betweenRun }, store.cookie).then(ok),
+      (d) => d.run.finishedAt !== null
+    )
+    expect(settled.run.status).toBe("succeeded")
+    expect(settled.steps.find((s: Json) => s.nodeId === "r")!.explanation).toBe(
+      "€ 80,00 terugbetaald; Shopify verwerkt het."
+    )
+    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
   }, 240_000)
 
   it("refunds no more than the flow's owner, its publisher or its starter may, and only in their stores", async () => {

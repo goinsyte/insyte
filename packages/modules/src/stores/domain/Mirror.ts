@@ -1,4 +1,5 @@
 import { Option, Schema } from "effect"
+import { minorDigits } from "../../fx/domain/Units.ts"
 
 /*
  * The commerce mirror's shapes (M6.3; integrations.md §2 "Backfill", domain.md §4): the queries Insyte reads a store
@@ -24,29 +25,9 @@ const refOf = (attributes: ReadonlyArray<{ readonly key: string; readonly value:
 /** `gid://shopify/ProductVariant/1` → `ProductVariant`. */
 export const gidType = (gid: string): string => gid.split("/")[3] ?? ""
 
-/** ISO 4217 currencies without minor units (Shopify's set); the rest have two. */
-const ZERO_DECIMAL = new Set([
-  "BIF",
-  "CLP",
-  "DJF",
-  "GNF",
-  "ISK",
-  "JPY",
-  "KMF",
-  "KRW",
-  "PYG",
-  "RWF",
-  "UGX",
-  "VND",
-  "VUV",
-  "XAF",
-  "XOF",
-  "XPF"
-])
-
 /** `"12.34"` in EUR → `1234`; exact on the decimal string, never through a float multiply. */
 export const toMinor = (amount: string | number, currency: string): number => {
-  const digits = ZERO_DECIMAL.has(currency.toUpperCase()) ? 0 : 2
+  const digits = minorDigits(currency)
   const [whole = "0", fraction = ""] = String(amount).trim().replace(/^-/, "").split(".")
   const sign = String(amount).trim().startsWith("-") ? -1 : 1
   const padded = (fraction + "0".repeat(digits)).slice(0, digits)
@@ -55,7 +36,7 @@ export const toMinor = (amount: string | number, currency: string): number => {
 
 /** `1234` in EUR → `"12.34"`: the decimal string Shopify takes, never through a float divide. */
 export const fromMinor = (minor: number, currency: string): string => {
-  const digits = ZERO_DECIMAL.has(currency.toUpperCase()) ? 0 : 2
+  const digits = minorDigits(currency)
   const text = String(Math.abs(minor)).padStart(digits + 1, "0")
   const whole = digits === 0 ? text : `${text.slice(0, -digits)}.${text.slice(-digits)}`
   return minor < 0 ? `-${whole}` : whole
