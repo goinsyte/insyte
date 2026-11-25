@@ -150,11 +150,13 @@ function useCommands(
       said(exit, "Notitie opgeslagen")
       return true
     },
-    draw: async (id) => {
-      asked(id, true)
-      const exit = await write.assemblePack({ payload: { ids: [id] }, ...keys })
+    // One write for every case picked: one write each would interrupt each other and only the last case's pack start.
+    draw: async (cases) => {
+      const ids = cases.map((c) => c.id)
+      for (const id of ids) asked(id, true)
+      const exit = await write.assemblePack({ payload: { ids }, ...keys })
       if (Exit.isFailure(exit)) {
-        asked(id, false)
+        for (const id of ids) asked(id, false)
         refused(failureOf(exit))
       }
     },

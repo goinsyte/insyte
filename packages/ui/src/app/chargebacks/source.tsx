@@ -30,8 +30,8 @@ export interface ChargebackCommands {
   accept: (cases: ReadonlyArray<Chargeback>) => void
   /** "Indienen bij {aanbieder}"; absent where no payment connection takes it yet. */
   submit?: ((cases: ReadonlyArray<Chargeback>) => void) | undefined
-  /** "Bewijspakket samenstellen"; absent where Insyte cannot gather the evidence yet. */
-  draw?: ((id: string) => Promise<void>) | undefined
+  /** "Bewijspakket samenstellen", for one case or several at once; absent where Insyte cannot gather the evidence yet. */
+  draw?: ((cases: ReadonlyArray<Chargeback>) => Promise<void>) | undefined
   /** "Notities": the case's note for the team; true once it is kept, false keeps what was typed. */
   note: (c: Chargeback, note: string) => Promise<boolean>
 }

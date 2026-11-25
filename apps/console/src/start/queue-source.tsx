@@ -8,6 +8,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { QUEUE, queueAtom, queueWrites } from "../data/queue.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 import { useBeginConnect } from "../stores/begin-connect.ts"
@@ -91,10 +92,11 @@ const PLATE: RefusalCopy = {
 
 export function useConsoleQueue(now: number) {
   const list = Option.getOrUndefined(AsyncResult.value(useAtomValue(queueAtom)))
-  const markSeen = useAtomSet(queueWrites.markSeen, { mode: "promiseExit" })
-  const file = useAtomSet(queueWrites.file, { mode: "promiseExit" })
+  // In turn: going down the queue with the keys decides the next row before the last one's write came back.
+  const markSeen = useAtomSetInTurn(queueWrites.markSeen)
+  const file = useAtomSetInTurn(queueWrites.file)
   const redraw = useAtomSet(queueWrites.redraw, { mode: "promiseExit" })
-  const undo = useAtomSet(queueWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(queueWrites.undo)
   // A store's reconnect plate, filed, sends the person to Shopify to approve the app again, and back to Start.
   const begin = useBeginConnect("/dashboard")
   const reconnect = useRef(begin)

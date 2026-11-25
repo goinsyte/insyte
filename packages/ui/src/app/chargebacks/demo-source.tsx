@@ -86,7 +86,9 @@ const commands: ChargebackCommands = {
       })
     } else toast.success(`${counted(cases.length, "zaak", "zaken")} ingediend`)
   },
-  draw: (id) => useWorkspace.getState().buildEvidence(id),
+  draw: async (cases) => {
+    await Promise.all(cases.map((c) => useWorkspace.getState().buildEvidence(c.id)))
+  },
   note: (c, note) => {
     const before = c
     useWorkspace.getState().setChargebackNote(c.id, note)

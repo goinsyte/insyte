@@ -29,6 +29,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { type ReactNode, useMemo } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import {
   PORTAL,
   portalDashboardAtom,
@@ -240,7 +241,8 @@ function useWrites(brand: string) {
     accept: useAtomSet(portalWrites.accept, { mode: "promiseExit" }),
     ship: useAtomSet(portalWrites.ship, { mode: "promiseExit" }),
     reportProblem: useAtomSet(portalWrites.reportProblem, { mode: "promiseExit" }),
-    order: useAtomSet(portalWrites.order, { mode: "promiseExit" }),
+    // Read once per order for "Pakbonnen": in turn, or only the last order's slip comes back.
+    order: useAtomSetInTurn(portalWrites.order),
     saveStock: useAtomSet(portalWrites.saveStock, { mode: "promiseExit" }),
     setReporting: useAtomSet(portalWrites.setReporting, { mode: "promiseExit" }),
     undo: useAtomSet(portalWrites.undo, { mode: "promiseExit" })

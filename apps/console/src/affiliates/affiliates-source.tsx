@@ -36,6 +36,7 @@ import {
   payoutsAtom,
   resourcesAtom
 } from "../data/affiliates.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
@@ -230,7 +231,8 @@ export function useConsoleAffiliatesSource(program: ProgramView, list: Affiliate
   const keys = { reactivityKeys: AFFILIATES }
   const write = {
     setTier: useAtomSet(affiliatesWrites.setTier, { mode: "promiseExit" }),
-    setPaused: useAtomSet(affiliatesWrites.setPaused, { mode: "promiseExit" }),
+    // Pausing several affiliates is a write each, and so is undoing it: they go in turn, each with its own answer.
+    setPaused: useAtomSetInTurn(affiliatesWrites.setPaused),
     approve: useAtomSet(affiliatesWrites.approve, { mode: "promiseExit" }),
     reject: useAtomSet(affiliatesWrites.reject, { mode: "promiseExit" }),
     retryDiscount: useAtomSet(affiliatesWrites.retryDiscount, { mode: "promiseExit" }),
@@ -240,7 +242,7 @@ export function useConsoleAffiliatesSource(program: ProgramView, list: Affiliate
     resend: useAtomSet(affiliatesWrites.resend, { mode: "promiseExit" }),
     revoke: useAtomSet(affiliatesWrites.revoke, { mode: "promiseExit" }),
     removeResource: useAtomSet(affiliatesWrites.removeResource, { mode: "promiseExit" }),
-    undo: useAtomSet(affiliatesWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(affiliatesWrites.undo)
   }
   const refreshResources = useAtomRefresh(resourcesAtom)
   const view = value(useAtomValue(payoutsAtom))
