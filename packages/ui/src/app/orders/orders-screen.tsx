@@ -10,8 +10,7 @@ import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
 import { TagDialog } from "../common/tag-dialog"
 import { useSearchCut } from "../filters/use-search-cut"
-import { formatCurrency } from "../lib/format"
-import { ZONE } from "../lib/format"
+import { formatCurrency, formatDate } from "../lib/format"
 import { isForwardView } from "../lib/forwarding"
 import { isSystemTag, tagLabel } from "../lib/order-tags"
 import type { Order } from "../lib/types/domain"
@@ -329,14 +328,7 @@ function AllOrders() {
   )
 }
 
+/** "22 nov, 13:09", in the workspace's notation. */
 function formatPlacedAt(iso: string) {
-  const d = new Date(iso)
-  return new Intl.DateTimeFormat("nl-NL", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: ZONE
-  }).format(d)
+  return formatDate(iso, { year: undefined, hour: "2-digit", minute: "2-digit" })
 }

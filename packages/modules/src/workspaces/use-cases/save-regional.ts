@@ -8,10 +8,11 @@ import { checkRegional, type SaveRegional } from "../domain/Settings.ts"
 import { loadRegional } from "./regional.ts"
 
 /*
- * "Wijzigingen opslaan" on Taal en notatie (M3.1; widgets/05 §2.2): the notation into `workspaces.regional`, the zone
- * into `workspaces.timezone`, on one transaction, audited with what changed. A new zone moves the facts that count on
- * the workspace's days onto the new ones (a trigger, 0078): the tickets and the cases without a store on the spot, the
- * stores without a zone of their own through the facts' drain. Instellingen · Bewerken.
+ * "Wijzigingen opslaan" on Taal en notatie (M3.1; widgets/05 §2.2): the notation into `workspaces.regional`, the
+ * reporting currency into `workspaces.currency` (the one every figure reads, converted at `fx_rates`; the stores keep
+ * selling in Shopify's), the zone into `workspaces.timezone`, on one transaction, audited with what changed. A new zone
+ * moves the facts that count on the workspace's days onto the new ones (a trigger, 0078): the tickets and the cases
+ * without a store on the spot, the stores without a zone of their own through the facts' drain. Instellingen · Bewerken.
  */
 
 const FIELDS = ["language", "currencyDisplay", "dateFormat", "timeFormat", "weekStart", "timezone"] as const
@@ -28,15 +29,18 @@ export const saveRegional = Effect.fn("Workspaces.saveRegional")(function*(input
       const before = yield* loadRegional(sql, principal.workspaceId)
       const changed = FIELDS.filter((f) => before[f] !== next[f])
       if (changed.length === 0) return before
-      const regional = {
+      const regional = JSON.stringify({
         language: next.language,
-        currency_display: next.currencyDisplay,
         date_format: next.dateFormat,
         time_format: next.timeFormat,
         week_start: next.weekStart
-      }
-      yield* sql`update workspaces set regional = ${JSON.stringify(regional)}::jsonb, timezone = ${next.timezone}
-                 where id = ${principal.workspaceId}`
+      })
+      // The currency only when it was changed here: one Regio does not offer stays as it is.
+      const currency = changed.includes("currencyDisplay") ? next.currencyDisplay : null
+      yield* sql`
+        update workspaces set regional = ${regional}::jsonb, currency = coalesce(${currency}, currency),
+                              timezone = ${next.timezone}
+        where id = ${principal.workspaceId}`
       yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
         action: "workspace.regional_updated",
         subjectType: "workspace",

@@ -46,24 +46,27 @@ interface Locked {
   readonly kind: CostKind
   readonly rate: number | null
   readonly rateMinor: string | null
+  readonly currency: string
   readonly source: CostSource
   readonly deletedAt: Date | null
 }
 
 const lock = Effect.fn("Costs.lock")(function*(sql: SqlClient.SqlClient, id: string, withDeleted = false) {
   const [row] = yield* sql<Locked>`
-    select id, name, kind, rate::float8 as rate, rate_minor::text as rate_minor, source, deleted_at
+    select id, name, kind, rate::float8 as rate, rate_minor::text as rate_minor, trim(currency) as currency, source,
+           deleted_at
     from cost_lines where id = ${id} and (${withDeleted} or deleted_at is null) for update`
   if (row === undefined) return yield* new NotFound({ entity: "cost_line", id })
   return row
 })
 
+/** The typed months as stored, each in the currency it was typed in (the workspace's of that moment). */
 const amountsOf = (sql: SqlClient.SqlClient, id: string) =>
   Effect.map(
-    sql<{ month: string; amountMinor: string }>`
-      select to_char(month, 'YYYY-MM') as month, amount_minor::text as amount_minor
+    sql<{ month: string; amountMinor: string; currency: string }>`
+      select to_char(month, 'YYYY-MM') as month, amount_minor::text as amount_minor, trim(currency) as currency
       from cost_line_amounts where line_id = ${id} order by month`,
-    (rows) => rows.map((r) => ({ month: r.month as Month, amountMinor: Number(r.amountMinor) }))
+    (rows) => rows.map((r) => ({ month: r.month as Month, amountMinor: Number(r.amountMinor), currency: r.currency }))
   )
 
 /** The line and its typed months as they are now, for its undo. */
@@ -76,6 +79,7 @@ const snapshot = (sql: SqlClient.SqlClient, l: Locked) =>
       kind: l.kind,
       rate: l.rate === null ? null : Number(l.rate),
       rateMinor: l.rateMinor === null ? null : Number(l.rateMinor),
+      currency: l.currency,
       source: l.source,
       deletedAt: l.deletedAt?.getTime() ?? null
     },
@@ -198,12 +202,17 @@ export const update = Effect.fn("Costs.update")(function*(input: typeof UpdateIn
       }
       // An ad line keeps its account unless it is told another.
       const source = input.kind === "ads" ? (input.source ?? (l.kind === "ads" ? l.source : "manual")) : "manual"
+      // A rate per order stored in another currency than the workspace's now is not the number the page shows.
+      const { currency } = yield* workspaceMonth(sql)
       const same = name === l.name && input.kind === l.kind &&
         rule.rate === (l.rate === null ? null : Number(l.rate)) &&
-        rule.rateMinor === (l.rateMinor === null ? null : Number(l.rateMinor)) && source === l.source
+        rule.rateMinor === (l.rateMinor === null ? null : Number(l.rateMinor)) &&
+        (rule.rateMinor === null || l.currency === currency) && source === l.source
       if (same) return new CostChange({ id: l.id, undo: null })
+      // The rate as the page showed it, in the workspace's currency (`costs.ts` reads an older one converted).
       yield* sql`
         update cost_lines set name = ${name}, kind = ${input.kind}, rate = ${rule.rate}, rate_minor = ${rule.rateMinor},
+                              currency = (select currency from workspaces where id = app_workspace_id()),
                               source = ${source}, connection_id = case when ${source} = source then connection_id end
         where id = ${l.id}`
       yield* audit(sql, "cost_line.updated", l.id, {
@@ -236,7 +245,11 @@ export const setAmount = Effect.fn("Costs.setAmount")(function*(input: typeof Se
       yield* inRange(input.month, current)
       const before = yield* snapshot(sql, l)
       const prior = before.kind === "line" ? before.amounts.find((a) => a.month === input.month) : undefined
-      if ((prior?.amountMinor ?? null) === input.amountMinor) return new CostChange({ id: l.id, undo: null })
+      // The same number in another currency than it was typed in is a new amount.
+      const unchanged = input.amountMinor === null
+        ? prior === undefined
+        : prior?.amountMinor === input.amountMinor && prior.currency === currency
+      if (unchanged) return new CostChange({ id: l.id, undo: null })
       const month = `${input.month}-01`
       if (input.amountMinor === null) {
         yield* sql`delete from cost_line_amounts where line_id = ${l.id} and month = ${month}::date`
@@ -353,16 +366,19 @@ export const restore = Effect.fn("Costs.restore")(function*(sql: SqlClient.SqlCl
   const l = undo.line
   const [row] = yield* sql<{ currency: string }>`select currency from cost_lines where id = ${l.id} for update`
   if (row === undefined) return yield* new NotFound({ entity: "cost_line", id: l.id })
+  // Each amount back in the currency it was in (a snapshot from before it said so: the line's).
+  const lineCurrency = l.currency ?? row.currency
   yield* sql`
     update cost_lines set name = ${l.name}, kind = ${l.kind}, rate = ${l.rate}, rate_minor = ${l.rateMinor},
-                          source = ${l.source}, deleted_at = ${l.deletedAt === null ? null : new Date(l.deletedAt)}
+                          currency = ${lineCurrency}, source = ${l.source},
+                          deleted_at = ${l.deletedAt === null ? null : new Date(l.deletedAt)}
     where id = ${l.id}`
   yield* sql`delete from cost_line_amounts where line_id = ${l.id}`
   for (const a of undo.amounts) {
     yield* sql`
       insert into cost_line_amounts (line_id, workspace_id, month, amount_minor, currency, typed_by)
-      values (${l.id}, ${principal.workspaceId}, ${`${a.month}-01`}::date, ${a.amountMinor}, ${row.currency},
-              ${principal.id})`
+      values (${l.id}, ${principal.workspaceId}, ${`${a.month}-01`}::date, ${a.amountMinor},
+              ${a.currency ?? row.currency}, ${principal.id})`
   }
   yield* audit(sql, "cost_line.restored", l.id)
 })

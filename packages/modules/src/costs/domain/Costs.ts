@@ -144,6 +144,8 @@ const LineBefore = Schema.Struct({
   kind: CostKind,
   rate: Schema.NullOr(Schema.Finite),
   rateMinor: Schema.NullOr(Schema.Int),
+  /** What `rateMinor` was in; absent in a snapshot from before the reporting currency could change. */
+  currency: Schema.optional(Schema.String),
   source: CostSource,
   deletedAt: Schema.NullOr(Schema.Finite)
 })
@@ -154,7 +156,9 @@ export const CostsRestore = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("line"),
     line: LineBefore,
-    amounts: Schema.Array(Schema.Struct({ month: Month, amountMinor: Schema.Int }))
+    amounts: Schema.Array(
+      Schema.Struct({ month: Month, amountMinor: Schema.Int, currency: Schema.optional(Schema.String) })
+    )
   })
 ])
 export type CostsRestore = typeof CostsRestore.Type

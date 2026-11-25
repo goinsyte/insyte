@@ -190,8 +190,9 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       Effect.gen(function*() {
         const principal = yield* CurrentPrincipal
         const user = yield* CurrentUser
-        const [memberships, mine, counts, teammates, health, reachable] = yield* Effect.all([
+        const [memberships, notation, mine, counts, teammates, health, reachable] = yield* Effect.all([
           workspaces.memberships,
+          workspaces.notation,
           prefs.get,
           notes.counts,
           members.directory,
@@ -201,6 +202,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
         const workspace = memberships.find((m) => m.workspaceId === principal.workspaceId)
         return new Frame({
           workspace: { id: principal.workspaceId, name: workspace?.workspaceName ?? "" },
+          notation,
           me: { memberId: principal.id, name: user.name, email: user.email, image: user.image },
           role: principal.role,
           prefs: mine,

@@ -292,4 +292,75 @@ describe("Kosten", () => {
     expect(refused.status).toBe(403)
     expect(refused.body.error).toMatchObject({ code: "ScopeMissingV1", scope: "analytics.read" })
   })
+
+  it("reads what was typed in euros in the reporting currency Regio switches to, and keeps the undo in euros", async () => {
+    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    const shop = await seeded("fx")
+    const { current } = ok(await rpc("Costs.list", {}, shop.cookie))
+    const huur = { name: "Huur", kind: "fixed", amountPerMonthMinor: 100_000, months: [current] } as const
+    const fixed = ok(await rpc("Costs.create", huur, shop.cookie))
+    const perOrder = ok(await rpc("Costs.create", { name: "Doos", kind: "per_order", rateMinor: 200 }, shop.cookie))
+    ok(
+      await rpc("Workspaces.saveRegional", {
+        language: "nl-NL",
+        currencyDisplay: "USD",
+        dateFormat: "DD MMM YYYY",
+        timeFormat: "24h",
+        weekStart: "mon",
+        timezone: "Europe/Amsterdam"
+      }, shop.cookie)
+    )
+    // The euro's rate into the dollar on or before the month's last day, as Kosten reads it.
+    const all = (await (await call("http://api.test/api/__dev/fx")).json() as {
+      rates: Array<{ day: string; base: string; quote: string; rate: string }>
+    }).rates
+    const [y, m] = current.split("-").map(Number) as [number, number]
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+    const rateAt = (until: string) =>
+      Number(
+        all.filter((r) => r.base === "EUR" && r.quote === "USD" && r.day <= until)
+          .toSorted((a, b) => b.day.localeCompare(a.day))[0]!.rate
+      )
+    const latest = rateAt("9999-12-31")
+    const list = ok(await rpc("Costs.list", {}, shop.cookie))
+    expect(list.currency).toBe("USD")
+    const line = (id: string) => list.lines.find((l) => l.id === id)!
+    expect(line(fixed.id).cells[current]).toEqual({
+      amountMinor: Math.round(100_000 * rateAt(end)),
+      typed: true,
+      source: "typed"
+    })
+    expect(line(perOrder.id).rateMinor).toBe(Math.round(200 * latest))
+
+    // Typed now, in dollars; the undo puts the euros back, still read in dollars.
+    const typed = ok(
+      await rpc("Costs.setAmount", { lineId: fixed.id, month: current, amountMinor: 50_000 }, shop.cookie)
+    )
+    const cell = async () =>
+      ok(await rpc("Costs.list", {}, shop.cookie)).lines.find((l) => l.id === fixed.id)!.cells[current]
+    expect((await cell())!.amountMinor).toBe(50_000)
+    ok(await rpc("Shared.undo", { token: typed.undo!.token }, shop.cookie))
+    expect((await cell())!.amountMinor).toBe(Math.round(100_000 * rateAt(end)))
+
+    // The euros' number typed again is now that many dollars: a change, with its undo.
+    const raw = ok(
+      await rpc("Costs.setAmount", { lineId: fixed.id, month: current, amountMinor: 100_000 }, shop.cookie)
+    )
+    expect(raw.undo).not.toBeNull()
+    expect((await cell())!.amountMinor).toBe(100_000)
+    const again = ok(
+      await rpc("Costs.setAmount", { lineId: fixed.id, month: current, amountMinor: 100_000 }, shop.cookie)
+    )
+    expect(again.undo).toBeNull()
+
+    // The per-order rate saved as its old number is the dollars the page showed, no longer converted.
+    const doos = { id: perOrder.id, name: "Doos", kind: "per_order", rateMinor: 200 } as const
+    expect(ok(await rpc("Costs.update", doos, shop.cookie)).undo).not.toBeNull()
+    const rate = async () =>
+      ok(await rpc("Costs.list", {}, shop.cookie)).lines.find((l) => l.id === perOrder.id)!.rateMinor
+    expect(await rate()).toBe(200)
+    expect(ok(await rpc("Costs.update", doos, shop.cookie)).undo).toBeNull()
+    ok(await rpc("Costs.update", { ...doos, rateMinor: 250 }, shop.cookie))
+    expect(await rate()).toBe(250)
+  })
 })

@@ -6,6 +6,7 @@ import { SearchHit, SearchKind } from "@insyte/modules/shared/domain/Search"
 import { StoreFilter } from "@insyte/modules/shared/domain/Stores"
 import { HealthLine } from "@insyte/modules/stores/domain/Health"
 import { StoreView } from "@insyte/modules/stores/domain/Stores"
+import { Notation } from "@insyte/modules/workspaces/domain/Settings"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -23,6 +24,8 @@ export const NavCounts = Schema.Record(Schema.String, Schema.Int)
 
 export class Frame extends Schema.Class<Frame>("shell/Frame")({
   workspace: Schema.Struct({ id: Schema.String, name: Schema.String }),
+  /** How every screen writes a date and a time here (Instellingen → Regio). */
+  notation: Notation,
   me: Schema.Struct({
     memberId: Schema.String,
     name: Schema.String,

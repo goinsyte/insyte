@@ -12,11 +12,11 @@ const LANGUAGES = [
   { value: "de-DE", label: "Deutsch" },
   { value: "fr-FR", label: "Français" }
 ]
+/* The reporting currency (`workspaces.currency`): what the figures are counted in. Each store sells in Shopify's. */
 const CURRENCIES = [
   { value: "EUR", label: "EUR · euro" },
   { value: "USD", label: "USD · Amerikaanse dollar" },
-  { value: "GBP", label: "GBP · Brits pond" },
-  { value: "JPY", label: "JPY · Japanse yen" }
+  { value: "GBP", label: "GBP · Brits pond" }
 ]
 const DATE_FORMATS = ["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"]
 const TIME_FORMATS = [{ value: "24h", label: "24-uurs" }, { value: "12h", label: "12-uurs" }]
@@ -62,9 +62,21 @@ export function RegionalPage() {
           <FieldRow label="Taal">
             <SelectInput value={form.language} onChange={(v) => set("language", v)} options={LANGUAGES} />
           </FieldRow>
-          <FieldRow label="Valuta">
+          <FieldRow
+            label="Valuta"
+            hint="Start, Analyse en Kosten rekenen hierin, tegen de ECB-koers van de dag. Je winkel verkoopt in de valuta uit Shopify."
+          >
             <SelectInput value={form.currency} onChange={(v) => set("currency", v)} options={CURRENCIES} />
           </FieldRow>
+          {form.currency !== saved.currency
+            ? (
+              <p role="note" className="text-sm text-ink-2 sm:ml-[232px] sm:max-w-[380px]">
+                Na opslaan rekenen Start, Analyse, Kosten en Geschillen alles om naar{" "}
+                {form.currency}, ook wat al is ingevoerd. Bedragen die je zelf instelt, zoals terugbetaallimieten, de
+                drempel voor geschillen en affiliatebedragen, houden hun getal en gelden dan in {form.currency}.
+              </p>
+            )
+            : null}
           <FieldRow label="Datumnotatie">
             <SelectInput value={form.dateFormat} onChange={(v) => set("dateFormat", v)} options={DATE_FORMATS} />
           </FieldRow>

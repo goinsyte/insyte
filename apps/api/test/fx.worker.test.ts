@@ -31,9 +31,10 @@ describe("fx_rates from the ECB", () => {
     // Pound into dollar, through the euro: 1.1214 / 0.83545.
     expect(rate(all, "2026-11-10", "GBP", "USD")).toBe("1.34227063")
     expect(rate(all, "2026-11-06", "CHF", "EUR")).toBe("1.09373291")
-    // Only the currencies a workspace counts in are quotes; no rate of a currency into itself.
+    // Only the currencies a workspace counts in are quotes (Regio's, the yen not among them); no rate of a currency
+    // into itself.
     const recorded = all.filter((r) => ["2026-11-06", "2026-11-09", "2026-11-10"].includes(r.day))
-    expect(new Set(recorded.map((r) => r.quote))).toEqual(new Set(["EUR", "USD", "GBP", "JPY"]))
+    expect(new Set(recorded.map((r) => r.quote))).toEqual(new Set(["EUR", "USD", "GBP"]))
     expect(recorded.some((r) => r.base === r.quote)).toBe(false)
     // The weekend has no rows.
     expect(all.some((r) => r.day === "2026-11-07" || r.day === "2026-11-08")).toBe(false)
