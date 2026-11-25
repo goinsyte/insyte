@@ -27,7 +27,7 @@ export function AskInsytePanel({ open, onOpenChange }: { open: boolean; onOpenCh
 					<div className="flex min-w-0 flex-1 flex-col">
 						<SheetTitle className="font-medium text-base text-mesh-ink leading-tight">Vraag Insyte</SheetTitle>
 						<SheetDescription className="truncate text-xs text-mesh-ink-3 leading-tight">
-							Werkt binnen jouw regels.
+							Leest alleen, wijzigt niets.
 						</SheetDescription>
 					</div>
 					<HeadButton label="Nieuw gesprek" onClick={start}>

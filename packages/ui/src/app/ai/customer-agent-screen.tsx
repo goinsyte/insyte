@@ -52,7 +52,13 @@ export function CustomerAgentPage() {
 	const open = isOpen(draft.hours, now);
 	const [testing, setTesting] = useState(false);
 
-	const save = (next = draft, said = "Klantagent opgeslagen") => void source.save(next, said);
+	// The handover sentence is what a handed-over shopper reads: a save without one is said at the field, not sent.
+	const handoverEmpty = draft.handoverMessage.trim() === "";
+	const handoverRef = useRef<HTMLTextAreaElement>(null);
+	const save = (next = draft, said = "Klantagent opgeslagen") => {
+		if (next.handoverMessage.trim() === "") return void handoverRef.current?.focus();
+		void source.save(next, said);
+	};
 
 	if (!saved.on) {
 		return (
@@ -66,7 +72,7 @@ export function CustomerAgentPage() {
 					action={readOnly ? undefined : { label: "Aanzetten voor de websitechat", onClick: () => save({ ...draft, on: true, channels: { ...draft.channels, webchat: "auto" } }, "Klantagent staat aan") }}
 					secondary={{ label: "Kennisbank vullen", onClick: () => void navigate({ to: "/settings/ai/knowledge" }) }}
 					starts={[
-						{ id: "never", label: "Wat Insyte nooit doet", body: "Terugbetalen, annuleren of geld beloven.", to: "/settings/ai/autonomy", search: { actie: "RefundOrder" } },
+						{ id: "never", label: "Wat Insyte altijd eerst vraagt", body: "Terugbetalen, annuleren of geld beloven.", to: "/settings/ai/autonomy", search: { actie: "RefundOrder" } },
 						{ id: "hours", label: "Binnen je openingstijden", body: "Daarbuiten neemt het de vraag aan.", to: "/settings/ai/customer-agent" },
 						{ id: "kb", label: "Uit je eigen woorden", body: "Alleen uit wat je in de kennisbank publiceert.", to: "/settings/ai/knowledge" },
 					]}
@@ -198,11 +204,18 @@ export function CustomerAgentPage() {
 							</span>
 						</FieldRow>
 						<FieldRow label="Bij een overdracht" hint="{wanneer} wordt bijvoorbeeld “vandaag” of “morgen vanaf 9:00”">
-							<textarea value={draft.handoverMessage} onChange={(e) => set("handoverMessage", e.target.value)} rows={3} aria-label="Overdrachtsbericht" className="field w-full rounded-md px-3 py-2 text-base text-ink leading-[1.5] outline-none focus:bg-paper" />
+							<span className="flex flex-col gap-1">
+								<textarea ref={handoverRef} value={draft.handoverMessage} onChange={(e) => set("handoverMessage", e.target.value)} rows={3} maxLength={500} aria-label="Overdrachtsbericht" aria-invalid={handoverEmpty || undefined} aria-describedby={handoverEmpty ? "handover-empty" : undefined} className={cn("field w-full rounded-md px-3 py-2 text-base text-ink leading-[1.5] outline-none focus:bg-paper", handoverEmpty && "bg-signal-red-bg")} />
+								{handoverEmpty ? (
+									<span id="handover-empty" className="text-signal-red text-xs">
+										Vul een tekst in. Die leest de klant als een collega het overneemt.
+									</span>
+								) : null}
+							</span>
 						</FieldRow>
 					</SettingCard>
 
-					<SettingCard title="Wat Insyte nooit doet" icon={Shield}>
+					<SettingCard title="Wat Insyte altijd eerst vraagt" icon={Shield}>
 						<ul className="flex flex-col overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)] [&>li+li]:shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
 							{(
 								[
@@ -348,6 +361,9 @@ function TestChat({ settings }: { settings: CustomerAgentSettings }) {
 		end.current?.scrollIntoView({ block: "nearest" });
 	}, [msgs.length]);
 	const greeting = useMemo(() => "Hoi! Waar kunnen we je mee helpen?", []);
+	// "antwoordt meteen" only where it would: on Zelf antwoorden in both places, and inside the hours or answering
+	// outside them. Concepts only, or a closed shop that takes the question, is not answering at once.
+	const answers = settings.on && settings.channels.webchat === "auto" && source.sendReply === "auto" && (settings.outside === "answer" || isOpen(settings.hours, new Date()));
 	const send = (text: string) => {
 		if (!text.trim()) return;
 		setMsgs((m) => [...m, { from: "shopper", text }]);
@@ -360,7 +376,7 @@ function TestChat({ settings }: { settings: CustomerAgentSettings }) {
 				<h2 className="font-medium text-base text-ink">Proberen</h2>
 				<span className="rounded-sm bg-mist px-1.5 py-px text-ink-3 text-xs">Test</span>
 			</header>
-			<WidgetPreview greeting={greeting} agent {...(source.webchatDetail ? { store: source.webchatDetail.split(", ")[0] } : {})} />
+			<WidgetPreview greeting={greeting} agent={answers} {...(source.webchatDetail ? { store: source.webchatDetail.split(", ")[0] } : {})} />
 			<ol className="flex max-h-[380px] min-h-[120px] flex-col gap-2 overflow-y-auto px-1 lg:max-h-[380px]">
 				{msgs.length === 0 ? <li className="text-ink-3 text-sm">Stel een vraag zoals een klant.</li> : null}
 				{msgs.map((m, i) => (
@@ -377,7 +393,7 @@ function TestChat({ settings }: { settings: CustomerAgentSettings }) {
 				<div ref={end} />
 			</ol>
 			<div className="flex flex-wrap gap-1">
-				{["Hoe lang duurt verzending naar Duitsland?", "Valt de Cascade pufferjas klein?", "Ik wil mijn geld terug"].map((s) => (
+				{["Hoe lang duurt de verzending?", "Kan ik iets ruilen?", "Ik wil mijn geld terug"].map((s) => (
 					<button key={s} type="button" onClick={() => send(s)} className="h-7 rounded-md bg-mist px-2 text-ink-2 text-xs hover:text-ink">
 						{s}
 					</button>

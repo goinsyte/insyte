@@ -48,6 +48,8 @@ function Editor({ source }: { source: ArticleSource }) {
 	const [versions, setVersions] = useState(false);
 	const st = statusOf({ ...a, ...draft });
 	const over = draft.body.length > LIMIT;
+	// An empty chapter answers nothing: it may be kept as a draft, not published.
+	const empty = draft.body.trim() === "";
 	const area = useRef<HTMLTextAreaElement>(null);
 
 	const publishGate = source.publishGate(draft.audience);
@@ -184,7 +186,7 @@ function Editor({ source }: { source: ArticleSource }) {
 							<button type="button" disabled={over || (!dirty && st !== "changed" && st !== "draft")} onClick={() => keep(false)} className="flex h-8 items-center rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink disabled:opacity-45">
 								Opslaan als concept
 							</button>
-							<button type="button" disabled={over || !publishGate.ok || (!dirty && st === "published")} title={publishGate.ok ? undefined : publishGate.reason} onClick={() => keep(true)} className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45">
+							<button type="button" disabled={over || empty || !publishGate.ok || (!dirty && st === "published")} title={!publishGate.ok ? publishGate.reason : empty ? "Schrijf eerst de tekst" : undefined} onClick={() => keep(true)} className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45">
 								Publiceren
 							</button>
 						</>

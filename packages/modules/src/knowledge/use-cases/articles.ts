@@ -395,6 +395,8 @@ export const publish = Effect.fn("Knowledge.publish")(function*(sql: SqlClient.S
   yield* requirePublish(input.audience, yield* publishedAudience(sql, row))
   yield* checkLive(row)
   yield* checkRevision(row, input.baseRevision)
+  // An empty chapter answers nothing: it may stay a draft, but the agents are not given it to read.
+  if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const content = { title: yield* trimmedTitle(input.title), audience: input.audience, body: input.body }
   const n = yield* writeVersion(sql, row.id, content, true)
   yield* writeArticle(sql, row.id, content, n)

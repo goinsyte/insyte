@@ -38,7 +38,9 @@ function answer(q: string, articles: ReadonlyArray<Article>, s: CustomerAgentSet
       if (score > (best?.score ?? 1)) best = { a, score, section }
     }
   }
-  if (!best) return handover("Overgedragen: niet in de kennisbank, de vraag staat bij Nog niet beantwoord")
+  if (!best) {
+    return handover("Overgedragen: niet in de kennisbank; van een echte klant komt de vraag bij Nog niet beantwoord")
+  }
   const text = best.section.replace(/^## .*\n+/, "").replace(/^- /gm, "• ").trim()
   return { from: "insyte", text, source: `Uit Kennisbank: ${best.a.title} · versie ${publishedVersion(best.a)?.n}` }
 }

@@ -1,7 +1,7 @@
 import { useAtomSet } from "@effect/atom-react"
 import type { Article, ArticleList, Gap } from "@insyte/modules/knowledge/domain/Knowledge"
 import type { ArticleSource, KnowledgeGate, KnowledgeSource } from "@insyte/ui/app/ai/knowledge-source"
-import type { Article as UiArticle, ArticleVersion, Gap as UiGap } from "@insyte/ui/app/lib/knowledge"
+import { type Article as UiArticle, type Gap as UiGap, PUBLISHED_FOR } from "@insyte/ui/app/lib/knowledge"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { useMemo } from "react"
@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { KNOWLEDGE, knowledgeWrites } from "../data/knowledge.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 import { sayAiRefusal } from "./drafts.tsx"
+import { withTexts } from "./version-texts.ts"
 
 /*
  * Kennisbank in the console (M15 step 7): `Knowledge.*` as the design's chapters and questions. Instellingen ·
@@ -62,7 +63,7 @@ const notDone = (error: unknown) =>
     gone: "Dit hoofdstuk bestaat niet meer",
     invalid: {
       title: "Een titel is 1 tot 120 tekens.",
-      body: "Een hoofdstuk is hoogstens 40.000 tekens.",
+      body: "Schrijf eerst de tekst van het hoofdstuk.",
       storeId: "Die winkel bestaat niet meer."
     },
     other: (tagged) => {
@@ -158,7 +159,7 @@ export function useConsoleArticleSource(article: Article, gap: Gap | undefined):
   const publish = useAtomSet(knowledgeWrites.publish, { mode: "promiseExit" })
   const restore = useAtomSet(knowledgeWrites.restoreVersion, { mode: "promiseExit" })
   const archive = useAtomSet(knowledgeWrites.archive, { mode: "promiseExit" })
-  const version = useAtomSet(knowledgeWrites.version, { mode: "promiseExit" })
+  const versions = useAtomSet(knowledgeWrites.versions, { mode: "promiseExit" })
   const firstText = useAtomSet(knowledgeWrites.firstText, { mode: "promiseExit" })
   const say = useUndo()
   const gate: KnowledgeGate = useGate("settings", 3)
@@ -182,7 +183,7 @@ export function useConsoleArticleSource(article: Article, gap: Gap | undefined):
         toPublish ? `“${draft.title}” gepubliceerd` : `Concept van “${draft.title}” opgeslagen`,
         exit.value.undo,
         toPublish
-          ? "De klantagent en Vraag Insyte gebruiken vanaf nu deze versie."
+          ? PUBLISHED_FOR[draft.audience]
           : "De agents lezen nog de gepubliceerde versie."
       )
       return true
@@ -201,14 +202,10 @@ export function useConsoleArticleSource(article: Article, gap: Gap | undefined):
       return true
     },
     versions: async () => {
-      const read = await Promise.all(
-        article.versions.map((v) => version({ payload: { id: article.id, version: v.version } }))
-      )
-      return read.flatMap((exit, i): ReadonlyArray<ArticleVersion> => {
-        const known = ui.versions[i]
-        if (known === undefined) return []
-        return [Exit.isSuccess(exit) ? { ...known, body: exit.value.body } : known]
-      })
+      // One read for every version: one fn atom's setter called side by side answers each call with the last
+      // call's result, so a read per version gave every version the newest text.
+      const read = await versions({ payload: { id: article.id } })
+      return Exit.isSuccess(read) ? withTexts(ui.versions, read.value) : ui.versions
     },
     firstText: async () => {
       if (gap === undefined) return null

@@ -195,6 +195,25 @@ describe("Kennisbank", () => {
       .toMatchObject({ _tag: "NotFound" })
   })
 
+  it("keeps an empty chapter a draft: publishing it is refused at its text", async () => {
+    const created = ok(await rpc("Knowledge.create", { title: "Leeg", audience: "assistant", body: "" }, people.owner))
+    for (const body of ["", "  \n "]) {
+      expect(
+        failure(
+          await rpc(
+            "Knowledge.publish",
+            { id: created.article.id, title: "Leeg", audience: "assistant", body },
+            people.owner
+          )
+        ),
+        JSON.stringify(body)
+      ).toMatchObject({ _tag: "Invalid", fields: { body: "required" } })
+    }
+    expect(ok(await rpc("Knowledge.get", { id: created.article.id }, people.owner)))
+      .toMatchObject({ status: "draft", published: null })
+    ok(await rpc("Knowledge.archive", { id: created.article.id }, people.owner))
+  })
+
   it("lets Bekijken read, Beheren write, and only ai.autonomy publish what the customer agent reads", async () => {
     expect(ok(await rpc("Knowledge.list", {}, people.view)).rows.map((r) => r.id)).toContain(returns)
     expect(failure(await rpc("Knowledge.create", { title: "X", audience: "assistant", body: "" }, people.view)))

@@ -162,6 +162,22 @@ export function budgetState(used: number, limit: number | null): BudgetState {
 
 export const budgetShare = (used: number, limit: number | null) => (limit === null || limit <= 0 ? 0 : Math.min(1, used / limit));
 
+export type LimitInput = { ok: true; limit: number | null } | { ok: false; message: string };
+
+/**
+ * A limit as typed on Limieten: whole euros, as the server keeps them. Empty is no limit; "1.250" is a thousand and
+ * two hundred and fifty, "12,00" is twelve; cents, a minus or anything else is said, not dropped.
+ */
+export function limitOf(text: string): LimitInput {
+	const t = text.replace(/[\s€]/g, "");
+	if (t === "") return { ok: true, limit: null };
+	if (t.startsWith("-")) return { ok: false, message: "Een limiet kan niet onder nul." };
+	const whole = /^\d{1,3}(\.\d{3})+$/.test(t) ? t.replace(/\./g, "") : /^\d+([,.]0{1,2})?$/.test(t) ? t.replace(/[,.]0+$/, "") : null;
+	if (whole === null) return { ok: false, message: /^\d+[,.]\d+$/.test(t) ? "Alleen hele euro's, zonder centen." : "Vul een bedrag in hele euro's in." };
+	if (whole.length > 9) return { ok: false, message: "Dat bedrag is te hoog." };
+	return { ok: true, limit: Number(whole) };
+}
+
 /* ── undo window ───────────────────────────────────────────────────────────────────────────── */
 
 /**
