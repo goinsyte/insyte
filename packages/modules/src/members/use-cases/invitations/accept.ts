@@ -7,7 +7,7 @@ import * as Audit from "../../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { Accepted, type LandingRef, NotAcceptable } from "../../domain/Landing.ts"
 import { revokeKeysOf } from "../access-ended.ts"
-import { classify } from "./landing.ts"
+import { classify, liveRoleId } from "./landing.ts"
 import { type Route, route, sha256 } from "./route.ts"
 
 /*
@@ -103,7 +103,12 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
         : (yield* sql<{ roleId: string; stores: unknown; invitedBy: string }>`
             select role_id, stores, invited_by from invitations where id = ${ref.id} and kind = 'team' for update`)[0]
       if (!found.link && invitation === undefined) return yield* new NotAcceptable({ state: "missing" })
-      const roleId = invitation?.roleId ?? (yield* sql<{ roleId: string }>`select role_id from invite_links`)[0]!.roleId
+      // The role it grants, if it is still a role: a deleted one never comes in this way (`liveRoleId`).
+      const roleId = yield* liveRoleId(
+        sql,
+        invitation?.roleId ?? (yield* sql<{ roleId: string }>`select role_id from invite_links`)[0]!.roleId
+      )
+      if (roleId === undefined) return yield* new NotAcceptable({ state: "missing" })
       const stores = JSON.stringify(invitation?.stores ?? "all")
       const [member] = yield* sql<{ id: string }>`
         insert into members (id, workspace_id, user_id, role_id, stores, invited_by)

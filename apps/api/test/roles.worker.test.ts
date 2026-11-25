@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { failure, ok, person } from "./journeys.ts"
+import { failure, join, ok, pastUndo, person, relay } from "./journeys.ts"
 import { rpc, sessionMe } from "./support.ts"
 
 /*
@@ -158,6 +158,26 @@ describe("roles", () => {
     const back = ok(await rpc("Roles.restore", { id: custom }, owner.cookie))
     expect(back.roles.find((r) => r.id === custom)?.label).toBe("Retouren")
     expect(ok(await rpc("Team.get", undefined, owner.cookie)).link.roleId).toBe(custom)
+  })
+
+  it("never lets a revoked invitation bring a deleted role back: restored, it grants the role its holders went to", async () => {
+    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const role = ok(await rpc("Roles.create", { label: `Tijdelijk ${Date.now()}`, from: "service" }, owner.cookie)).id
+    const email = `revoked-role-${Date.now().toString(36)}@example.com`
+    const sent = ok(
+      await rpc("Invitations.send", { rows: [{ email, roleId: role, stores: "all" }] }, owner.cookie)
+    ).invitations.find((i) => i.email === email)!
+    await pastUndo(workspace)
+    await relay(workspace)
+    ok(await rpc("Invitations.revoke", { ids: [sent.id] }, owner.cookie))
+    ok(await rpc("Roles.remove", { id: role, to: "view" }, owner.cookie))
+
+    // Its undo brings the invitation back on the role it was moved to, and that is the role it grants.
+    const restored = ok(await rpc("Invitations.restore", { id: sent.id }, owner.cookie))
+    expect(restored.invitations.find((i) => i.id === sent.id)?.roleId).toBe("view")
+    await join(email)
+    const member = ok(await rpc("Team.get", undefined, owner.cookie)).members.find((m) => m.email === email)
+    expect(member?.roleId).toBe("view")
   })
 
   it("lets whoever may see the team read the roles, and nobody else change them", async () => {

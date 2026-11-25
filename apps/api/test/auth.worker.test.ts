@@ -109,7 +109,8 @@ describe("better-auth on the API Worker", () => {
   })
 
   it("lets a person change their own name, said and not too long, but not their picture", async () => {
-    const changed = await post("/api/auth/update-user", { name: "Amber de Vries" }, cookie)
+    // Kept without the spaces around it.
+    const changed = await post("/api/auth/update-user", { name: "  Amber de Vries  " }, cookie)
     expect(changed.status).toBe(200)
     // The row itself, without the cache cookie the answer refreshed.
     const token = cookie.split("; ").find((c) => c.startsWith("insyte.session="))!
@@ -128,8 +129,35 @@ describe("better-auth on the API Worker", () => {
     expect(await refused({ name: "x".repeat(81) })).toBe("NAME_TOO_LONG")
     expect(await refused({ image: "https://tracker.example/pixel.png" })).toBe("IMAGE_NOT_SUPPORTED")
     expect(await refused({ name: "Amber", image: null })).toBe("IMAGE_NOT_SUPPORTED")
+    // A body that is no object is refused, not a server error.
+    expect(await refused("Amber")).toBe("BODY_MUST_BE_AN_OBJECT")
+    expect(await refused(["Amber"])).toBe("BODY_MUST_BE_AN_OBJECT")
+    // A name padded with spaces past the limit is kept trimmed, not stored as sent.
+    expect((await post("/api/auth/update-user", { name: `x${" ".repeat(15_000)}` }, cookie)).status).toBe(200)
+    const padded = await (await call("http://api.test/api/auth/get-session", { headers: { cookie: token } }))
+      .json() as {
+        user: { name: string }
+      }
+    expect(padded.user.name).toBe("x")
     // Unauthenticated, nobody's name changes.
     expect((await post("/api/auth/update-user", { name: "Iemand" })).status).toBe(401)
+  })
+
+  it("holds sign-up to the same name, and takes no picture", async () => {
+    const refused = async (body: Record<string, unknown>) => {
+      const response = await post("/api/auth/sign-up/email", {
+        email: `naming-${Date.now().toString(36)}@example.com`,
+        password,
+        ...body
+      })
+      expect(response.status).toBe(400)
+      return ((await response.json()) as { code: string }).code
+    }
+    expect(await refused({ name: "  " })).toBe("NAME_REQUIRED")
+    expect(await refused({ name: "x".repeat(81) })).toBe("NAME_TOO_LONG")
+    expect(await refused({ name: "Probe", image: "https://tracker.example/pixel.png" })).toBe("IMAGE_NOT_SUPPORTED")
+    const response = await post("/api/auth/sign-up/email", ["Probe"])
+    expect(response.status).toBe(400)
   })
 
   it("signs out: the cookies are cleared and the session row is gone", async () => {

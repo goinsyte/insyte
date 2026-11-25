@@ -72,18 +72,27 @@ const refuseBreached = async (
 /** The longest name a person goes by, as a workspace's name is held to. */
 const NAME_MAX = 80
 
+/** Where a person names themselves: signing up, and Je profiel (`/update-user`). */
+const NAMING = new Set(["/sign-up/email", "/update-user"])
+
 /**
- * What a person changes about themselves (`/update-user`, Je profiel): their name, said and not too long. Not their
- * picture: there is nowhere to upload one, and an address anyone could set would load in every teammate's console.
+ * A person's name where they give it (`NAMING`): said, and at most `NAME_MAX` once trimmed (the user hooks store it
+ * trimmed). Never their picture: there is nowhere to upload one, and an address anyone could set would load in every
+ * teammate's console. A body that is no JSON object is refused here, before anything reads it.
  */
 const refuseProfile = (ctx: { readonly path: string; readonly body?: unknown }) => {
-  if (ctx.path !== "/update-user") return
-  const body = (ctx.body ?? {}) as Record<string, unknown>
-  if ("image" in body) {
-    throw new APIError("BAD_REQUEST", { code: "IMAGE_NOT_SUPPORTED", message: "The picture cannot be changed here." })
+  if (!NAMING.has(ctx.path)) return
+  const body = ctx.body
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new APIError("BAD_REQUEST", { code: "BODY_MUST_BE_AN_OBJECT", message: "The body must be an object." })
   }
-  const name = body["name"]
-  if (name === undefined) return
+  const fields = body as Record<string, unknown>
+  if ("image" in fields) {
+    throw new APIError("BAD_REQUEST", { code: "IMAGE_NOT_SUPPORTED", message: "The picture cannot be set here." })
+  }
+  const name = fields["name"]
+  // Je profiel may change something else one day; signing up always names the person.
+  if (name === undefined && ctx.path === "/update-user") return
   if (typeof name !== "string" || name.trim() === "") {
     throw new APIError("BAD_REQUEST", { code: "NAME_REQUIRED", message: "A name is required." })
   }
@@ -91,6 +100,10 @@ const refuseProfile = (ctx: { readonly path: string; readonly body?: unknown }) 
     throw new APIError("BAD_REQUEST", { code: "NAME_TOO_LONG", message: `At most ${NAME_MAX} characters.` })
   }
 }
+
+/** The name as it is kept: without the spaces around it. */
+const trimmedName = <U extends { name?: string | undefined }>(user: U): U =>
+  typeof user.name === "string" ? { ...user, name: user.name.trim() } : user
 
 /** Prefix per better-auth model, so its ids read like ours in logs and joins. */
 const PREFIX: Record<string, string> = {
@@ -190,25 +203,28 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
         create: {
           // The beta gate, where every account is born (password now, Google later): refused before the row exists.
           before: async (
-            user: { email: string },
+            user: { email: string; name?: string | undefined },
             ctx?: { readonly headers?: Headers | undefined; readonly request?: Request | undefined } | null
           ) => {
             // An invitation's link proves the address: admitted, and verified from the start.
             const proof = (ctx?.request?.headers ?? ctx?.headers)?.get(INVITATION_HEADER)
             if (proof != null && config.vouches !== undefined && await config.vouches(user.email, proof)) {
-              return { data: { ...user, emailVerified: true } }
+              return { data: { ...trimmedName(user), emailVerified: true } }
             }
             if (config.admits !== undefined && !(await config.admits(user.email))) {
               // 400, not 403: sign-up turns a 403 from here into its generic duplicate-address success, which would
               // tell the visitor their account exists.
               throw new APIError("BAD_REQUEST", { code: "BETA_CLOSED", message: "Insyte is invite-only for now." })
             }
+            return { data: trimmedName(user) }
           },
           // The real new account, which sign-up's answer is not for an address that already has one.
           after: async (user: { id: string }, ctx?: { readonly request?: Request | undefined } | null) => {
             await config.recordEvent?.({ kind: "sign_up", userId: user.id, request: ctx?.request ?? undefined })
           }
-        }
+        },
+        // Je profiel's name, kept as `refuseProfile` measured it.
+        update: { before: async (user: { name?: string | undefined }) => ({ data: trimmedName(user) }) }
       },
       session: {
         create: {

@@ -131,6 +131,8 @@ export function SubPanel() {
 						: base;
 	// A link to a page the host does not have yet is left out, and a section it leaves empty goes with it.
 	const cfg = withPages(drawn, hasPage);
+	// Leaving the area clears what was typed, so coming back starts unfiltered too.
+	if (filter.area !== cfg.title && filter.text !== "") setFilter({ area: cfg.title, text: "" });
 	const query = filter.area === cfg.title ? filter.text : "";
 	const filtering = query.trim() !== "";
 	const found = filtering ? filterSections(cfg.sections, query) : cfg.sections;

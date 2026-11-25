@@ -24,10 +24,12 @@ export const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
 /**
  * The roles an invitation, the link or a member's change may grant: any live one of the workspace's, but never the
  * owner's (that is a transfer). A deleted role keeps its row for its undo, and grants nothing while it is deleted.
+ * Held `for share` until the change commits: a delete of the same role (`for update`) waits for it and then moves what
+ * it wrote, or goes first and the role is no longer among these.
  */
 export const grantable = (sql: SqlClient.SqlClient) =>
   Effect.map(
-    sql<{ id: string }>`select id from roles where id <> 'owner' and deleted_at is null`,
+    sql<{ id: string }>`select id from roles where id <> 'owner' and deleted_at is null for share`,
     (rows) => new Set(rows.map((r) => r.id))
   )
 

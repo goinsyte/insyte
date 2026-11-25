@@ -37,7 +37,27 @@ interface SsoPolicy {
 export const ssoRequired = (policy: SsoPolicy, email: string) =>
   policy.kind === "google" && (policy.domains ?? []).includes(email.slice(email.lastIndexOf("@") + 1).toLowerCase())
 
+/**
+ * The live role an invitation grants: its own, or, when that role was deleted without the invitation moving with it
+ * (one sent before a delete moved every invitation not yet taken up), the role the deleted one's holders went to.
+ * Never the owner's. `undefined` when neither is live: the invitation grants nothing.
+ */
+export const liveRoleId = (sql: SqlClient.SqlClient, roleId: string) =>
+  Effect.map(
+    sql<{ id: string | null }>`
+      select coalesce(
+        (select id from roles where id = ${roleId} and deleted_at is null),
+        (select t.id from roles r join roles t on t.workspace_id = r.workspace_id and t.id = r.moved ->> 'to'
+         where r.id = ${roleId} and t.deleted_at is null and t.id <> 'owner')
+      ) as id`,
+    ([row]) => row?.id ?? undefined
+  )
+
+/** What the landing says the invitation grants: its live role (`liveRoleId`). */
 const roleOf = (sql: SqlClient.SqlClient, roleId: string) =>
+  Effect.flatMap(liveRoleId(sql, roleId), (live) => live === undefined ? Effect.succeed(null) : roleById(sql, live))
+
+const roleById = (sql: SqlClient.SqlClient, roleId: string) =>
   Effect.map(
     sql<Omit<LandingRole, "refundLimit"> & { refundLimitMinor: string | number | null }>`
       select id, label, levels, specials, refund_limit_minor from roles where id = ${roleId}`,
