@@ -1,4 +1,6 @@
 import { Db } from "@insyte/database/Db"
+import type { WorkspaceId } from "@insyte/domain/Ids"
+import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Cause, Effect, Exit } from "effect"
 import { throughGate } from "../domain/Gate.ts"
 import { HEADROOM_LOW } from "../domain/Health.ts"
@@ -22,6 +24,11 @@ import { retireCompletedDrafts } from "./webhooks.ts"
  *
  * Last, the drafts Insyte made (M7.1) that Shopify completed but whose webhook never got through are retired into the
  * orders they became (`retireCompletedDrafts`); that look failing is logged and leaves the sweep's outcome alone.
+ *
+ * The run (`storesToReconcile`, then `sweepStores`): every connected, imported store, one at a time and each in its own
+ * workspace, the one whose connection went longest without a sweep first. One store's failure is logged and counted on
+ * its connection, and the rest go on. It stops starting stores after `SWEEP_BUDGET_MS`, and the next run starts where
+ * this one stopped.
  */
 
 const RESOURCES: ReadonlyArray<{ readonly kind: MirrorKind; readonly resource: string; readonly field: string }> = [
@@ -185,3 +192,40 @@ export const sweepStore = Effect.fn("Stores.sweepStore")(function*(storeId: stri
   )
   return 0
 })
+
+/** A run stops starting stores after this long: the cron's limit is fifteen minutes, and the next run comes then. */
+const SWEEP_BUDGET_MS = 10 * 60_000
+/** Extra pages of orders one run reads, over all the stores with a webhook gap: a wide outage cannot stall it. */
+const GAP_PAGES_PER_SWEEP = 200
+
+/** A store the run reads, by id only. */
+export interface ToReconcile {
+  readonly workspaceId: string
+  readonly storeId: string
+}
+
+/**
+ * The stores a run reads, across workspaces and ids only (`stores_to_reconcile()`): every connected, imported store,
+ * the one whose connection went longest without a sweep first.
+ */
+export const storesToReconcile = Effect.fn("Stores.toReconcile")(function*() {
+  const db = yield* Db
+  return yield* db.routing((sql) => sql<ToReconcile>`select workspace_id, store_id from stores_to_reconcile()`)
+})
+
+/** One run over `stores`, in their order, until its budget is spent. Never fails. Answers how many it swept. */
+export const sweepStores = (stores: ReadonlyArray<ToReconcile>) =>
+  Effect.gen(function*() {
+    const started = Date.now()
+    let gapPages = GAP_PAGES_PER_SWEEP
+    let swept = 0
+    for (const { workspaceId, storeId } of stores) {
+      if (Date.now() - started > SWEEP_BUDGET_MS) break
+      swept++
+      gapPages -= yield* sweepStore(storeId, gapPages).pipe(
+        Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId })
+      )
+    }
+    yield* Effect.annotateCurrentSpan({ stores: stores.length, swept, gapPagesLeft: gapPages })
+    return swept
+  })

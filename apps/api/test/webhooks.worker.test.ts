@@ -1,7 +1,4 @@
-import { createExecutionContext, createScheduledController, waitOnExecutionContext } from "cloudflare:test"
-import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import worker from "../src/Local.ts"
 import { ok, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
@@ -247,16 +244,19 @@ describe("a Shopify erasure that cannot finish", () => {
 })
 
 describe("the reconcile sweep", () => {
-  // The 15-minute tick runs every sweep over every workspace in the shared test database, which on a CI runner
-  // has taken longer than the 30 s default.
-  it("repairs what changed in Shopify without a webhook, on the fifteenth minute", async () => {
+  // The cron's own run (`storesToReconcile`, then `sweepStores`), narrowed to this store. The whole 15-minute tick
+  // reads every store the shared test database holds, longest-waiting first, so a store just imported comes last, and
+  // the pool lets go of a tick's work after 30 s.
+  it("repairs what changed in Shopify without a webhook, in the 15-minute run", async () => {
     const store = await imported("sweep")
     expect((await mirrorOf(store)).orders.find((o) => o.number === "#1001")).toMatchObject({ status: "paid" })
-    const ctx = createExecutionContext()
-    await worker.scheduled(createScheduledController({ scheduledTime: Date.UTC(2026, 10, 8, 12, 15) }), env, ctx)
-    await waitOnExecutionContext(ctx)
+    const answer = await call(
+      `http://api.test/api/__dev/stores/reconcile?workspace=${store.workspace}&store=${store.storeId}`,
+      { method: "POST" }
+    )
+    expect(await answer.json()).toEqual({ listed: true, swept: 1 })
     const mirror = await mirrorOf(store)
     expect(mirror.orders.find((o) => o.number === "#1001")).toMatchObject({ status: "shipped" })
     expect(mirror.orders.find((o) => o.number === "#1002")).toMatchObject({ status: "delivered" })
-  }, 90_000)
+  })
 })
