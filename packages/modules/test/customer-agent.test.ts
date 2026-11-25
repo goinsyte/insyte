@@ -113,6 +113,11 @@ describe("the opening hours", () => {
     expect(textRefused(said)).toBeUndefined()
   })
 
+  it("says the default handover sentence for an empty one, as the test chat may run on a draft", () => {
+    const said = handoverText({ handoverMessage: "  ", hours: office }, AMS, tuesdayMorning)
+    expect(said).toBe(handoverText({ handoverMessage: DEFAULT_HANDOVER_MESSAGE, hours: office }, AMS, tuesdayMorning))
+  })
+
   it("refuses a day that closes before it opens", () => {
     expect(badDay(office)).toBeNull()
     expect(badDay([{ open: true, from: "18:00", to: "09:00" }, ...office.slice(1)])).toBe(0)

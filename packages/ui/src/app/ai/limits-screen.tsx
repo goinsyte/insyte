@@ -6,7 +6,7 @@ import { Notice } from "../developer/bits";
 import { FieldRow, UnsavedBar } from "../settings/form";
 import { BandedList, SettingCard } from "../settings/setting-card";
 import { PersonDisc } from "../team/bits";
-import { budgetState } from "../lib/autonomy";
+import { budgetState, type LimitInput, limitOf } from "../lib/autonomy";
 import { cn } from "../lib/utils";
 import { BudgetBar, euroCents } from "./budget-bar";
 import { type LimitsDraft as Draft, type LimitsPerson, useLimitsSource } from "./limits-source";
@@ -30,20 +30,32 @@ export function LimitsPage() {
 	const readOnly = !gate.ok;
 	const saved: Draft = useMemo(() => ({ limit: budget.limit, people: Object.fromEntries(people.map((p) => [p.memberId, p.limit])) }), [budget.limit, people]);
 	const savedKey = JSON.stringify(saved);
-	const [draft, setDraft] = useState<Draft>(saved);
+	// What is typed, per field (the workspace's under WORKSPACE, a person's under their id): a field keeps its text
+	// until it reads as whole euros, so "12,50" is said at the field instead of saved as 1250.
+	const [texts, setTexts] = useState<Record<string, string>>(() => textsOf(saved));
 	const last = useRef(savedKey);
 	useEffect(() => {
 		if (last.current !== savedKey) {
 			last.current = savedKey;
-			setDraft(JSON.parse(savedKey) as Draft);
+			setTexts(textsOf(JSON.parse(savedKey) as Draft));
 		}
 	}, [savedKey]);
-	const dirty = JSON.stringify(draft) !== savedKey;
+	const read = (key: string, was: number | null) => limitOf(texts[key] ?? textOf(was));
+	const limitIn = (key: string, was: number | null) => {
+		const r = read(key, was);
+		return r.ok ? r.limit : was;
+	};
+	const draft: Draft = { limit: limitIn(WORKSPACE, saved.limit), people: Object.fromEntries(people.map((p) => [p.memberId, limitIn(p.memberId, saved.people[p.memberId] ?? null)])) };
+	const bad = Object.values(texts).some((text) => !limitOf(text).ok);
+	const dirty = bad || JSON.stringify(draft) !== savedKey;
 	const state = budgetState(budget.used, draft.limit);
 	const month = MONTH();
+	const type = (key: string) => (text: string) => setTexts((t) => ({ ...t, [key]: text }));
 
 	function save() {
-		void send(draft);
+		// A field that does not read says so under itself; nothing goes until it does.
+		if (bad) return;
+		return send(draft);
 	}
 
 	return (
@@ -61,8 +73,8 @@ export function LimitsPage() {
 
 			<SettingCard title={`Werkruimte · ${month}`} icon={Wallet}>
 				<div className="flex flex-col gap-1">
-					<FieldRow label="Maandbudget" hint="Leeg is geen limiet">
-						<EuroField value={draft.limit} disabled={readOnly} onChange={(limit) => setDraft((d) => ({ ...d, limit }))} label="Maandbudget in euro" />
+					<FieldRow label="Maandbudget" hint="In hele euro's, ook als je winkel in een andere valuta verkoopt. Leeg is geen limiet.">
+						<EuroField text={texts[WORKSPACE] ?? ""} error={errorOf(read(WORKSPACE, saved.limit))} disabled={readOnly} onChange={type(WORKSPACE)} label="Maandbudget in euro" />
 					</FieldRow>
 					<div className="grid grid-cols-1 items-center gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]">
 						<span className="font-medium text-ink text-sm">Deze maand</span>
@@ -80,18 +92,19 @@ export function LimitsPage() {
 					{people.map((p) => {
 						const limit = draft.people[p.memberId] ?? null;
 						const st = budgetState(p.used, limit);
-						return <PersonRow key={p.memberId} p={p} name={p.name} role={p.role} limit={limit} state={st} readOnly={readOnly} onChange={(v) => setDraft((d) => ({ ...d, people: { ...d.people, [p.memberId]: v } }))} />;
+						const was = saved.people[p.memberId] ?? null;
+						return <PersonRow key={p.memberId} p={p} name={p.name} role={p.role} limit={limit} text={texts[p.memberId] ?? textOf(was)} error={errorOf(read(p.memberId, was))} state={st} readOnly={readOnly} onChange={type(p.memberId)} />;
 					})}
 				</BandedList>
 			</SettingCard>
 
-			<UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(saved)} onSave={save} />
+			<UnsavedBar visible={dirty && !readOnly} onDiscard={() => setTexts(textsOf(saved))} onSave={save} />
 			<PageGuide id="settings.ai.limits" title="Limieten" steps={GUIDE} />
 		</>
 	);
 }
 
-function PersonRow({ p, name, role, limit, state, readOnly, onChange }: { p: LimitsPerson; name: string; role: string; limit: number | null; state: ReturnType<typeof budgetState>; readOnly: boolean; onChange: (v: number | null) => void }) {
+function PersonRow({ p, name, role, limit, text, error, state, readOnly, onChange }: { p: LimitsPerson; name: string; role: string; limit: number | null; text: string; error: string | undefined; state: ReturnType<typeof budgetState>; readOnly: boolean; onChange: (text: string) => void }) {
 	return (
 		<li className="grid grid-cols-1 items-center gap-x-4 gap-y-2 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,240px)_120px]">
 			<span className="flex min-w-0 items-center gap-3">
@@ -104,29 +117,40 @@ function PersonRow({ p, name, role, limit, state, readOnly, onChange }: { p: Lim
 				</span>
 			</span>
 			<BudgetBar used={p.used} limit={limit} />
-			<EuroField value={limit} disabled={readOnly} onChange={onChange} label={`Limiet voor ${name}`} small />
+			<EuroField text={text} error={error} disabled={readOnly} onChange={onChange} label={`Limiet voor ${name}`} small />
 		</li>
 	);
 }
 
-/** A euro amount in a white well; empty means no limit. */
-function EuroField({ value, onChange, disabled, label, small = false }: { value: number | null; onChange: (v: number | null) => void; disabled?: boolean; label: string; small?: boolean }) {
+const WORKSPACE = "workspace";
+
+const textOf = (limit: number | null) => (limit === null ? "" : String(limit));
+
+const textsOf = (d: Draft): Record<string, string> => ({ [WORKSPACE]: textOf(d.limit), ...Object.fromEntries(Object.entries(d.people).map(([id, limit]) => [id, textOf(limit)])) });
+
+const errorOf = (r: LimitInput) => (r.ok ? undefined : r.message);
+
+/**
+ * A limit in whole euros in a white well; empty means no limit. Insyte reckons AI use in euros whatever the stores
+ * sell in, so the sign is the euro's. What does not read as whole euros is said under the field.
+ */
+function EuroField({ text, error, onChange, disabled, label, small = false }: { text: string; error: string | undefined; onChange: (text: string) => void; disabled?: boolean; label: string; small?: boolean }) {
 	return (
-		<label className={cn("field flex items-center gap-1 rounded-md px-3 focus-within:bg-paper", small ? "h-8 w-full text-sm sm:w-[120px]" : "h-9 w-40 text-base", disabled && "opacity-60")}>
-			<span className="text-ink-3">€</span>
-			<input
-				inputMode="numeric"
-				aria-label={label}
-				disabled={disabled}
-				value={value === null ? "" : String(value)}
-				placeholder="Geen limiet"
-				onChange={(e) => {
-					const digits = e.target.value.replace(/[^0-9]/g, "");
-					onChange(digits === "" ? null : Number(digits));
-				}}
-				className="min-w-0 flex-1 bg-transparent text-ink tabular-nums outline-none placeholder:text-ink-3"
-			/>
-		</label>
+		<span className={cn("flex flex-col gap-1", small ? "w-full sm:w-[120px]" : "w-40")}>
+			<label className={cn("field flex w-full items-center gap-1 rounded-md px-3 focus-within:bg-paper", small ? "h-8 text-sm" : "h-9 text-base", error !== undefined && "bg-signal-red-bg", disabled && "opacity-60")}>
+				<span className="text-ink-3">€</span>
+				<input
+					inputMode="decimal"
+					aria-label={label}
+					aria-invalid={error !== undefined || undefined}
+					disabled={disabled}
+					value={text}
+					placeholder="Geen limiet"
+					onChange={(e) => onChange(e.target.value)}
+					className="min-w-0 flex-1 bg-transparent text-ink tabular-nums outline-none placeholder:text-ink-3"
+				/>
+			</label>
+			{error !== undefined ? <span className="text-signal-red text-xs">{error}</span> : null}
+		</span>
 	);
 }
-

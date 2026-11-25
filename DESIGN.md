@@ -1241,7 +1241,7 @@ dismissed report persist in `stores/pins-store.ts`; the panel's arrangement in
 ### Ask Insyte
 
 A white drawer (460px) and a full page (`/ask`) on one shared thread (`stores/ask-store.ts`). The
-drawer's head is a 56px `abyss` band: the star mark, "Vraag Insyte" over "Werkt binnen jouw regels.", New
+drawer's head is a 56px `abyss` band: the star mark, "Vraag Insyte" over "Leest alleen, wijzigt niets.", New
 conversation, Open the full page, Close. The page has conversations on a `mist` rail at the left, the
 thread at a 680px measure in the middle, and on `glacier` at the right what the latest answer read
 and the tools it ran, so every figure can be traced.
@@ -1263,7 +1263,7 @@ The agent parts (`components/ask/`) follow beautifului.dev's agent kit, drawn in
   ticket, or sends the reply, with Undo. A decided plate is stamped Filed or Discarded and desaturates.
 - **Composer.** A white well that grows with its text: `@` lists records (delayed orders first),
   `/` lists commands, both worked with the arrows and Enter. A toolbar line says what Insyte can see
-  from the current page and that it works within the operator's rules ("werkt binnen jouw regels").
+  from the current page and that it only reads ("leest alleen, wijzigt niets").
 
 Answers are scripted from the live workspace (`lib/ask/scripts.ts`) while the model is mocked, and
 say so when a question cannot be tied to a record.

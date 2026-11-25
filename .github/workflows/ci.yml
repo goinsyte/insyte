@@ -33,9 +33,10 @@ jobs:
     name: preflight
     runs-on: ubuntu-24.04
     # The unit and worker tests alone took 12.7 min at 0267b3a5c (149 files), and the job hit its old 15 min limit
-    # with every test passed. Splitting the worker tests into their own sharded job is the real fix; until then
-    # the limit leaves room for the slices still landing.
-    timeout-minutes: 25
+    # with every test passed. By 0e93307f8 (about 4,670 tests) a passing run took 19-24 min, and runs on a slower
+    # runner were cancelled at 25 min midway through the tests. Splitting the worker tests into their own sharded
+    # job is the real fix; until then the limit leaves room for a slow runner.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
