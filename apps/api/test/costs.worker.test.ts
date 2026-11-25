@@ -342,9 +342,25 @@ describe("Kosten", () => {
     ok(await rpc("Shared.undo", { token: typed.undo!.token }, shop.cookie))
     expect((await cell())!.amountMinor).toBe(Math.round(100_000 * rateAt(end)))
 
-    // The per-order rate saved again is the dollars the page showed, no longer converted.
-    ok(await rpc("Costs.update", { id: perOrder.id, name: "Doos", kind: "per_order", rateMinor: 250 }, shop.cookie))
-    const after = ok(await rpc("Costs.list", {}, shop.cookie))
-    expect(after.lines.find((l) => l.id === perOrder.id)!.rateMinor).toBe(250)
+    // The euros' number typed again is now that many dollars: a change, with its undo.
+    const raw = ok(
+      await rpc("Costs.setAmount", { lineId: fixed.id, month: current, amountMinor: 100_000 }, shop.cookie)
+    )
+    expect(raw.undo).not.toBeNull()
+    expect((await cell())!.amountMinor).toBe(100_000)
+    const again = ok(
+      await rpc("Costs.setAmount", { lineId: fixed.id, month: current, amountMinor: 100_000 }, shop.cookie)
+    )
+    expect(again.undo).toBeNull()
+
+    // The per-order rate saved as its old number is the dollars the page showed, no longer converted.
+    const doos = { id: perOrder.id, name: "Doos", kind: "per_order", rateMinor: 200 } as const
+    expect(ok(await rpc("Costs.update", doos, shop.cookie)).undo).not.toBeNull()
+    const rate = async () =>
+      ok(await rpc("Costs.list", {}, shop.cookie)).lines.find((l) => l.id === perOrder.id)!.rateMinor
+    expect(await rate()).toBe(200)
+    expect(ok(await rpc("Costs.update", doos, shop.cookie)).undo).toBeNull()
+    ok(await rpc("Costs.update", { ...doos, rateMinor: 250 }, shop.cookie))
+    expect(await rate()).toBe(250)
   })
 })

@@ -3,7 +3,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
-import { CURRENCY_DISPLAYS, type Notation, Regional } from "../domain/Settings.ts"
+import { CURRENCY_DISPLAYS, DATE_FORMATS, type Notation, Regional, TIME_FORMATS } from "../domain/Settings.ts"
 
 /*
  * Instellingen → Regio, read (M3.1; widgets/05 §2.2): the workspace's language and notation, in `workspaces.regional`,
@@ -49,10 +49,19 @@ export const getRegional = Effect.fn("Workspaces.getRegional")(function*() {
   return yield* db.scoped((sql) => loadRegional(sql, workspaceId))
 })
 
-/** How the console writes dates and times here, for the frame: any member's, so no permission beyond membership. */
+/**
+ * How the console writes dates and times here, for the frame: any member's, so no permission beyond membership. Only
+ * the two fields, each its default when what is stored is not one Regio offers: the frame never fails on it.
+ */
 export const notationOf = Effect.fn("Workspaces.notation")(function*() {
   const { workspaceId } = yield* CurrentPrincipal
   const db = yield* Db
-  const regional = yield* db.scoped((sql) => loadRegional(sql, workspaceId))
-  return { dateFormat: regional.dateFormat, timeFormat: regional.timeFormat } satisfies Notation
+  const [row] = yield* db.scoped((sql) =>
+    sql<{ dateFormat: string | null; timeFormat: string | null }>`
+      select regional->>'date_format' as date_format, regional->>'time_format' as time_format
+      from workspaces where id = ${workspaceId}`
+  )
+  const dateFormat = DATE_FORMATS.find((f) => f === row?.dateFormat) ?? "DD MMM YYYY"
+  const timeFormat = TIME_FORMATS.find((f) => f === row?.timeFormat) ?? "24h"
+  return { dateFormat, timeFormat } satisfies Notation
 })

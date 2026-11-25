@@ -202,9 +202,12 @@ export const update = Effect.fn("Costs.update")(function*(input: typeof UpdateIn
       }
       // An ad line keeps its account unless it is told another.
       const source = input.kind === "ads" ? (input.source ?? (l.kind === "ads" ? l.source : "manual")) : "manual"
+      // A rate per order stored in another currency than the workspace's now is not the number the page shows.
+      const { currency } = yield* workspaceMonth(sql)
       const same = name === l.name && input.kind === l.kind &&
         rule.rate === (l.rate === null ? null : Number(l.rate)) &&
-        rule.rateMinor === (l.rateMinor === null ? null : Number(l.rateMinor)) && source === l.source
+        rule.rateMinor === (l.rateMinor === null ? null : Number(l.rateMinor)) &&
+        (rule.rateMinor === null || l.currency === currency) && source === l.source
       if (same) return new CostChange({ id: l.id, undo: null })
       // The rate as the page showed it, in the workspace's currency (`costs.ts` reads an older one converted).
       yield* sql`
@@ -242,7 +245,11 @@ export const setAmount = Effect.fn("Costs.setAmount")(function*(input: typeof Se
       yield* inRange(input.month, current)
       const before = yield* snapshot(sql, l)
       const prior = before.kind === "line" ? before.amounts.find((a) => a.month === input.month) : undefined
-      if ((prior?.amountMinor ?? null) === input.amountMinor) return new CostChange({ id: l.id, undo: null })
+      // The same number in another currency than it was typed in is a new amount.
+      const unchanged = input.amountMinor === null
+        ? prior === undefined
+        : prior?.amountMinor === input.amountMinor && prior.currency === currency
+      if (unchanged) return new CostChange({ id: l.id, undo: null })
       const month = `${input.month}-01`
       if (input.amountMinor === null) {
         yield* sql`delete from cost_line_amounts where line_id = ${l.id} and month = ${month}::date`

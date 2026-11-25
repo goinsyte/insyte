@@ -68,6 +68,15 @@ export function RegionalPage() {
           >
             <SelectInput value={form.currency} onChange={(v) => set("currency", v)} options={CURRENCIES} />
           </FieldRow>
+          {form.currency !== saved.currency
+            ? (
+              <p role="note" className="text-sm text-ink-2 sm:ml-[232px] sm:max-w-[380px]">
+                Na opslaan rekenen Start, Analyse, Kosten en Geschillen alles om naar{" "}
+                {form.currency}, ook wat al is ingevoerd. Bedragen die je zelf instelt, zoals terugbetaallimieten, de
+                drempel voor geschillen en affiliatebedragen, houden hun getal en gelden dan in {form.currency}.
+              </p>
+            )
+            : null}
           <FieldRow label="Datumnotatie">
             <SelectInput value={form.dateFormat} onChange={(v) => set("dateFormat", v)} options={DATE_FORMATS} />
           </FieldRow>

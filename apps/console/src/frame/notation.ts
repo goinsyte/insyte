@@ -37,6 +37,11 @@ const holder = createIsomorphicFn()
 /** Once, at the composition root: the formatters read the request's or the tab's notation. */
 export const installNotation = () => readNotationFrom(() => holder()?.notation)
 
+/** The frame gone from the tab (a portal, signed out): dates are written in the default notation again. */
+export const leaveNotation = () => {
+  delete tab.notation
+}
+
 /** During the frame's render, before its children's: from here on dates are written in `notation`. */
 export const applyNotation = (notation: Notation) => {
   const held = holder()

@@ -35,8 +35,11 @@ export const saveRegional = Effect.fn("Workspaces.saveRegional")(function*(input
         time_format: next.timeFormat,
         week_start: next.weekStart
       })
+      // The currency only when it was changed here: one Regio does not offer stays as it is.
+      const currency = changed.includes("currencyDisplay") ? next.currencyDisplay : null
       yield* sql`
-        update workspaces set regional = ${regional}::jsonb, currency = ${next.currencyDisplay}, timezone = ${next.timezone}
+        update workspaces set regional = ${regional}::jsonb, currency = coalesce(${currency}, currency),
+                              timezone = ${next.timezone}
         where id = ${principal.workspaceId}`
       yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
         action: "workspace.regional_updated",

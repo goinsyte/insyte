@@ -63,6 +63,19 @@ export function readNotationFrom(read: () => Notation | undefined) {
 	currentNotation = () => read() ?? DEFAULT_NOTATION;
 }
 
+const formats = new Map<string, Intl.DateTimeFormat>();
+
+/** One `Intl.DateTimeFormat` per locale and options, made once: a long list writes hundreds of dates. */
+function dateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions) {
+	const key = `${locale}|${JSON.stringify(options)}`;
+	let format = formats.get(key);
+	if (format === undefined) {
+		format = new Intl.DateTimeFormat(locale, options);
+		formats.set(key, format);
+	}
+	return format;
+}
+
 const partOf = (parts: ReadonlyArray<Intl.DateTimeFormatPart>, type: Intl.DateTimeFormatPartTypes) =>
 	parts.find((p) => p.type === type)?.value;
 
@@ -74,7 +87,7 @@ function dayPeriodOf(parts: Array<Intl.DateTimeFormatPart>, d: Date, timeZone: s
 	const i = parts.findIndex((p) => p.type === "dayPeriod");
 	if (i < 0) return;
 	const hour = Number(
-		new Intl.DateTimeFormat("en-GB", { timeZone, hour: "numeric", hourCycle: "h23" }).format(d),
+		dateTimeFormat("en-GB", { timeZone, hour: "numeric", hourCycle: "h23" }).format(d),
 	);
 	parts[i] = { type: "dayPeriod", value: hour < 12 ? "a.m." : "p.m." };
 	const before = parts[i - 1];
@@ -105,7 +118,7 @@ export function formatDate(
 		delete opts.hourCycle;
 		opts.hour12 = true;
 	}
-	const format = new Intl.DateTimeFormat("nl-NL", opts);
+	const format = dateTimeFormat("nl-NL", opts);
 	if (notation.dateFormat === "DD MMM YYYY" && !twelve) return format.format(d);
 	const parts = format.formatToParts(d);
 	if (twelve) dayPeriodOf(parts, d, opts.timeZone);
@@ -119,7 +132,7 @@ export function formatDate(
 	if (day === undefined && month === undefined && year === undefined) return whole;
 	let date: string;
 	if (notation.dateFormat === "YYYY-MM-DD") {
-		const numbers = new Intl.DateTimeFormat("nl-NL", {
+		const numbers = dateTimeFormat("nl-NL", {
 			timeZone: opts.timeZone,
 			year: "numeric",
 			month: "2-digit",
