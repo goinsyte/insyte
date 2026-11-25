@@ -3,6 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { refundLimitIn } from "../../fx/Fx.ts"
 import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, keyset, type Sorts, type Whitelist } from "../../shared/tables/FilterSql.ts"
@@ -339,7 +340,8 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
           shippedAt: ms(w.shippedAt),
           late: w.handoffBy !== null && w.handoffBy.getTime() < Date.now() &&
             (w.work === "to_accept" || w.work === "to_ship" || w.work === "problem")
-        }))
+        })),
+        refundLimit: yield* refundLimitIn(sql, row.currency)
       })
     })
   )

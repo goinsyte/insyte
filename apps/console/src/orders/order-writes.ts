@@ -3,6 +3,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { canRole } from "@insyte/domain/Permissions"
 import type { OrderChange } from "@insyte/modules/orders/domain/Commands"
 import type { TrackingSent, TrackingSkip } from "@insyte/modules/orders/domain/CustomerMail"
+import type { RefundLimit } from "@insyte/modules/orders/domain/Orders"
 import { useGateRole } from "@insyte/ui/app/access/gate-role"
 import { counted } from "@insyte/ui/app/lib/bulk-io"
 import { permissionName } from "@insyte/ui/app/lib/permissions"
@@ -28,6 +29,46 @@ import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refus
 const euros = (minor: number) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
 
+/** `10869` in USD → "US$ 108,69": an amount in its own currency's minor units. */
+const moneyIn = (minor: number, currency: string) => {
+  const format = new Intl.NumberFormat("nl-NL", { style: "currency", currency })
+  return format.format(minor / 10 ** (format.resolvedOptions().maximumFractionDigits ?? 2))
+}
+
+type LimitBasis = Omit<typeof RefundLimit.Type, "limitMinor">
+
+/**
+ * A refund limit as the team reads it: in the order's currency and, when that is another than the workspace's, the
+ * role's own amount it was converted from.
+ */
+const limitText = (limitMinor: number, l: LimitBasis) =>
+  l.currency === l.roleCurrency
+    ? moneyIn(limitMinor, l.currency)
+    : `${moneyIn(limitMinor, l.currency)} (${moneyIn(l.roleMinor, l.roleCurrency)} tegen de ECB-koers)`
+
+const noRateText = (l: LimitBasis) =>
+  `Er is nog geen wisselkoers van ${l.currency} naar ${l.roleCurrency}, dus je limiet van ${
+    moneyIn(l.roleMinor, l.roleCurrency)
+  } is op deze bestelling nog niet te toetsen`
+
+/** "Boven je limiet": the server's `RefundOverLimit`, in the order's currency and the role's. */
+export const sayOverLimit = (tagged: Readonly<Record<string, unknown>>) => {
+  const limitMinor = Number(tagged["limitMinor"])
+  const currency = String(tagged["currency"] ?? "EUR")
+  const text = limitText(limitMinor, {
+    currency,
+    roleMinor: Number(tagged["roleMinor"] ?? limitMinor),
+    roleCurrency: String(tagged["roleCurrency"] ?? currency)
+  })
+  toast.error("Boven je limiet", { description: `Je rol mag tot ${text} per bestelling terugbetalen.` })
+}
+
+/** A refund the server could not hold to the limit: no exchange rate yet from the order's currency. */
+export const NO_FX_RATE: [string, string] = [
+  "Nog geen wisselkoers",
+  "Je limiet staat in een andere munt dan deze bestelling en er is nog geen koers om mee te rekenen. Probeer het later opnieuw, of vraag iemand zonder limiet."
+]
+
 const COPY: RefusalCopy = {
   gone: "Die bestelling bestaat niet meer",
   conflicts: {
@@ -40,7 +81,8 @@ const COPY: RefusalCopy = {
     already_sent: ["Te laat om ongedaan te maken", "De mail is al verstuurd."],
     draft: ["Dit is een concept", "Een concept wordt pas een bestelling als het in Shopify is afgerond."],
     not_draft: ["Dit is geen concept", "Alleen een concept kun je zo verwijderen."],
-    disconnected: ["De winkel is niet verbonden", "Verbind de winkel opnieuw om er een bestelling in te maken."]
+    disconnected: ["De winkel is niet verbonden", "Verbind de winkel opnieuw om er een bestelling in te maken."],
+    no_fx_rate: NO_FX_RATE
   },
   invalid: {
     system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
@@ -55,9 +97,7 @@ const COPY: RefusalCopy = {
   other: (tagged) => {
     switch (tagged._tag) {
       case "RefundOverLimit":
-        toast.error("Boven je limiet", {
-          description: `Je rol mag tot ${euros(Number(tagged["limitMinor"]))} per bestelling terugbetalen.`
-        })
+        sayOverLimit(tagged)
         return true
       case "RefundOverBalance":
         toast.error("Meer dan er openstaat", {
@@ -115,11 +155,22 @@ export function useKnownOrderTags(): ReadonlyArray<string> {
 
 /**
  * Whether the role may refund this much, as the design's gate says it: over the limit is not the same as not at all.
- * Nothing left to refund is said too, since the screen offers Terugbetalen on every paid order.
+ * Nothing left to refund is said too, since the screen offers Terugbetalen on every paid order. `limit` is the server's
+ * for this order (`refundLimit` on the order's or the return's detail), in the order's currency; the role's own is in
+ * the workspace's, so it is held against the amount only while the server's is not there yet.
  */
-export function useRefundGate(refundableMinor: number): TeamGate {
+export function useRefundGate(refundableMinor: number, limit?: typeof RefundLimit.Type | null): TeamGate {
   const role = useGateRole()
   if (refundableMinor <= 0) return { ok: false, reason: "Er staat niets meer open op deze bestelling" }
+  if (role !== null && limit !== undefined && canRole(role, "refunds.write")) {
+    if (limit === null) return { ok: true, reason: "" }
+    if (limit.limitMinor === null) return { ok: false, reason: noRateText(limit) }
+    if (refundableMinor <= limit.limitMinor) return { ok: true, reason: "" }
+    return {
+      ok: false,
+      reason: `Je rol ${role.label} mag tot ${limitText(limit.limitMinor, limit)} per bestelling terugbetalen`
+    }
+  }
   const euro = refundableMinor / 100
   if (role === null || canRole(role, "refunds.write", euro)) return { ok: true, reason: "" }
   if (canRole(role, "refunds.write") && role.refundLimit !== null) {

@@ -191,7 +191,7 @@ export function useConsoleOrderDetail(d: OrderDetail): OrderDetailSource {
   // What is left to refund: the total less every refund Shopify took or is still taking.
   const refundable = d.order.totalMinor -
     d.refunds.filter((r) => r.status !== "failed").reduce((s, r) => s + r.amountMinor, 0)
-  const refund = useRefundGate(refundable)
+  const refund = useRefundGate(refundable, d.refundLimit)
   const returns = useOrderGate("returns", 2)
   const { order } = source
   return {

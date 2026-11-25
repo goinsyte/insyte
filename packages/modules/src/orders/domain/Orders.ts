@@ -134,6 +134,18 @@ export const OrderCustomer = Schema.Struct({
   currency: Schema.NullOr(Schema.String)
 })
 
+/**
+ * What the caller may refund on one order: `limitMinor` in the order's `currency`, null while there is no exchange rate
+ * yet to convert the role's limit at, which is set in the workspace's currency (`roleMinor` in `roleCurrency`). The
+ * same currency twice when the order is in the workspace's.
+ */
+export const RefundLimit = Schema.Struct({
+  limitMinor: Schema.NullOr(Schema.Int),
+  currency: Schema.String,
+  roleMinor: Schema.Int,
+  roleCurrency: Schema.String
+})
+
 export class OrderDetail extends Schema.Class<OrderDetail>("orders/OrderDetail")({
   order: OrderRow,
   /** Null for a guest order, or a customer since erased (`customers/redact`). */
@@ -162,7 +174,9 @@ export class OrderDetail extends Schema.Class<OrderDetail>("orders/OrderDetail")
   fulfilments: Schema.Array(Fulfilment),
   refunds: Schema.Array(Refund),
   /** Where its legs went (M8.2), the first forwarded first. */
-  supplierWork: Schema.Array(OrderSupplier)
+  supplierWork: Schema.Array(OrderSupplier),
+  /** What the caller may refund on it; null when the role has no limit. */
+  refundLimit: Schema.NullOr(RefundLimit)
 }) {}
 
 /** A page of orders, the cursor to the next, and the counts the header and the facets show. */

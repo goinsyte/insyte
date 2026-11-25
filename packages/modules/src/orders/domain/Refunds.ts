@@ -24,9 +24,15 @@ export class RefundResult extends Schema.Class<RefundResult>("orders/RefundResul
   order: OrderRow
 }) {}
 
-/** Over what the role may refund per order: the limit, in minor units. */
+/**
+ * Over what the role may refund per order: the limit in the order's currency, minor units, and the role's own in the
+ * workspace's currency it was converted from.
+ */
 export class RefundOverLimit extends Schema.TaggedError<RefundOverLimit>()("RefundOverLimit", {
-  limitMinor: Schema.Int
+  limitMinor: Schema.Int,
+  currency: Schema.String,
+  roleMinor: Schema.Int,
+  roleCurrency: Schema.String
 }) {}
 
 /** More than is left on the order. */

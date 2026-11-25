@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { ORDERS } from "../data/orders.ts"
 import { RETURN_SETTINGS, RETURNS, returnWrites } from "../data/returns.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
+import { NO_FX_RATE, sayOverLimit } from "../orders/order-writes.ts"
 import { docOf } from "./return-of.ts"
 
 /*
@@ -37,6 +38,7 @@ const LINE: Record<string, string> = {
 
 const COPY: RefusalCopy = {
   gone: "Die retour bestaat niet meer",
+  conflicts: { no_fx_rate: NO_FX_RATE },
   invalid: {
     reasonId: "Die reden bestaat niet meer.",
     reasons: "Twee redenen hebben dezelfde naam.",
@@ -72,9 +74,7 @@ const COPY: RefusalCopy = {
         toast.error("Dat kan niet terug", { description: LINE[String(tagged["why"])] ?? LINE["unknown"] })
         return true
       case "RefundOverLimit":
-        toast.error("Boven je limiet", {
-          description: `Je rol mag tot ${euros(Number(tagged["limitMinor"]))} per bestelling terugbetalen.`
-        })
+        sayOverLimit(tagged)
         return true
       case "RefundOverBalance":
         toast.error("Meer dan er openstaat", {

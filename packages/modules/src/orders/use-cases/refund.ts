@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { refundLimitIn } from "../../fx/Fx.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -19,7 +20,9 @@ import { type Row, SELECT, toRow } from "./orders.ts"
 
 /*
  * `Orders.refund` (M7.2; 04 §7): at Bestellingen · Bewerken with Terugbetalen, within the role's limit per order and
- * what is left on it. Irreversible (ADR-0023): the console confirmed, so there is no undo token, and `refund.requested`
+ * what is left on it. The limit is in the workspace's currency and the order in its store's: an order in another is
+ * held to the limit at the latest ECB rate, and refused while there is none, rather than compared as if one were the
+ * other. Irreversible (ADR-0023): the console confirmed, so there is no undo token, and `refund.requested`
  * is relayed at once. The refund is `pending` until Shopify took it (`ShopifyWriteWorkflow`): it counts against the
  * balance at once, so it cannot be asked twice, but the order reads as refunded only once Shopify says so. The same
  * refund id asked again answers the same refund: a request retried refunds once.
@@ -35,10 +38,6 @@ const COUNTED = "status <> 'failed'"
 export const refundOn = Effect.fn("Orders.refundOn")(
   function*(sql: SqlClient.SqlClient, input: typeof RefundInput.Type) {
     const principal = yield* CurrentPrincipal
-    const limit = principal.role.refundLimit
-    if (principal.role.id !== "owner" && limit !== null && input.amountMinor > Math.round(limit * 100)) {
-      return yield* new RefundOverLimit({ limitMinor: Math.round(limit * 100) })
-    }
     return yield* Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
       // The lock in a statement of its own, the refunds read after it: a statement that waited for the lock still sees
@@ -59,6 +58,13 @@ export const refundOn = Effect.fn("Orders.refundOn")(
                          where r.order_id = o.id and ${sql.literal(COUNTED)}), 0) as refunded_minor
         from orders o where o.id = ${input.id}`
       if (order === undefined) return yield* new NotFound({ entity: "order", id: input.id })
+      const limit = yield* refundLimitIn(sql, order.currency)
+      if (limit !== null) {
+        if (limit.limitMinor === null) return yield* new Conflict({ entity: "refund", reason: "no_fx_rate" })
+        if (input.amountMinor > limit.limitMinor) {
+          return yield* new RefundOverLimit({ ...limit, limitMinor: limit.limitMinor })
+        }
+      }
 
       const readRow = Effect.map(
         sql<Row>`select ${sql.literal(SELECT)} from orders o where o.id = ${input.id}`,
