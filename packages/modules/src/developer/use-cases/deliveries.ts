@@ -12,7 +12,15 @@ import { Sealer } from "../../shared/domain/Sealer.ts"
 import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
-import { backoffMs, derivedId, hostOf, isPrivateAddress, signature, signatureHeader } from "../domain/Delivery.ts"
+import {
+  backoffMs,
+  derivedId,
+  endpointName,
+  hostOf,
+  isPrivateAddress,
+  signature,
+  signatureHeader
+} from "../domain/Delivery.ts"
 import { WebhookRuns, WebhookSender } from "../domain/Ports.ts"
 import { WebhookDeliveryDetail, WebhookDeliveryView } from "../domain/Webhook.ts"
 
@@ -459,11 +467,14 @@ export const attempt = Effect.fn("Webhooks.attempt")(function*(deliveryId: strin
         select id from webhook_deliveries
         where id = ${deliveryId} and runs = ${run} and outcome in ('pending', 'retrying') for update`
       if (open === undefined) return { stale: true, next: null, endpointId: due.endpointId } as Attempted
-      const [endpoint] = yield* sql<{ failures: number; disabled: boolean; active: boolean; url: string }>`
+      const [endpoint] = yield* sql<
+        { failures: number; disabled: boolean; active: boolean; url: string; description: string }
+      >`
         update webhook_endpoints
         set consecutive_failures = case when ${ok} then 0 else consecutive_failures + 1 end
         where id = ${due.endpointId}
-        returning consecutive_failures as failures, auto_disabled_at is not null as disabled, active, url`
+        returning consecutive_failures as failures, auto_disabled_at is not null as disabled, active, url,
+                  description`
       const failures = endpoint?.failures ?? 0
       // The fifth failure in a row switches the endpoint off, once, and whoever manages integrations hears it.
       const switchOff = !ok && endpoint !== undefined && !endpoint.disabled && endpoint.active &&
@@ -476,7 +487,7 @@ export const attempt = Effect.fn("Webhooks.attempt")(function*(deliveryId: strin
           subjectId: due.endpointId,
           section: "webhooks",
           diff: { failures },
-          log: { name: endpoint.url }
+          log: { name: endpointName(endpoint.url, endpoint.description) }
         })
         told.push(
           yield* Outbox.write(sql, due.workspaceId, {
@@ -604,8 +615,10 @@ export const delivery = Effect.fn("Webhooks.delivery")(function*(id: string) {
 
 const sendable = (sql: SqlClient.SqlClient, endpointId: string) =>
   Effect.gen(function*() {
-    const [e] = yield* sql<{ apiVersion: string; active: boolean; disabled: boolean; url: string }>`
-      select api_version, active, auto_disabled_at is not null as disabled, url
+    const [e] = yield* sql<
+      { apiVersion: string; active: boolean; disabled: boolean; url: string; description: string }
+    >`
+      select api_version, active, auto_disabled_at is not null as disabled, url, description
       from webhook_endpoints where id = ${endpointId} and deleted_at is null`
     if (e === undefined) return yield* new NotFound({ entity: "webhook_endpoint", id: endpointId })
     // "Testevent sturen" and "Opnieuw versturen" go to an endpoint that is on (widgets/05 §5.3, States).
@@ -647,7 +660,7 @@ export const sendTest = Effect.fn("Webhooks.sendTest")(function*(endpointId: str
         subjectId: endpointId,
         section: "webhooks",
         diff: { event },
-        log: { name: endpoint.url }
+        log: { name: endpointName(endpoint.url, endpoint.description) }
       })
       return id
     })
@@ -688,7 +701,7 @@ export const redeliver = Effect.fn("Webhooks.redeliver")(function*(id: string) {
         subjectId: original.endpointId,
         section: "webhooks",
         diff: { delivery: id },
-        log: { name: endpoint.url }
+        log: { name: endpointName(endpoint.url, endpoint.description) }
       })
       return fresh
     })

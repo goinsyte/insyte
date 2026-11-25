@@ -2,6 +2,7 @@ import { mintId } from "@insyte/domain/Ids"
 import type { PrincipalKind } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import type { SectionId } from "../../audit/domain/Audit.ts"
 import { PendingEvents } from "../domain/Outbox.ts"
 import * as Outbox from "./Outbox.ts"
 
@@ -43,8 +44,11 @@ export interface AuditEntry {
   readonly action: string
   readonly subjectType: string
   readonly subjectId: string
-  /** The settings page's section: set, the change is in the Logboek (`audit/domain/Audit.ts` names its page). */
-  readonly section?: string | undefined
+  /**
+   * The settings page's section: set, the change is in the Logboek. One of the catalogue's (`audit/domain/Audit.ts`,
+   * `SECTIONS`), so a section without a page does not compile.
+   */
+  readonly section?: SectionId | undefined
   /** What changed, before → after, for the fields that did. Ids and values, never secrets. */
   readonly diff?: Record<string, unknown> | undefined
   readonly log?: LogNote | undefined

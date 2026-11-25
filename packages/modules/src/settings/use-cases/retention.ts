@@ -218,7 +218,7 @@ export const eraseWorkspace = Effect.fn("Retention.erase")(function*() {
         subjectId: "retention",
         section: "retention",
         diff: { perClass: done.perClass, total: done.total },
-        log: { name: done.total === 1 ? "1 record" : `${done.total} records` }
+        log: { name: done.total === 1 ? "1 item" : `${done.total.toLocaleString("nl-NL")} items` }
       })
       return done
     })

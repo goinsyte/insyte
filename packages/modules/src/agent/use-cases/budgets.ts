@@ -27,10 +27,14 @@ const euros = (minor: string | number | null) => (minor === null ? null : Math.r
 /** Euro micros as euros, to the cent. */
 const spent = (micros: string | number | null | undefined) => Math.round(Number(micros ?? 0) / 10_000) / 100
 
+/** The limits as saved, by member (`null` is the workspace's), in euros. */
+const limits = (sql: SqlClient.SqlClient) =>
+  sql<{ memberId: string | null; limitMinor: string | null }>`
+    select member_id, monthly_limit_minor as limit_minor from ai_budgets`
+
 const read = (sql: SqlClient.SqlClient) =>
   Effect.gen(function*() {
-    const rows = yield* sql<{ memberId: string | null; limitMinor: string | null }>`
-      select member_id, monthly_limit_minor as limit_minor from ai_budgets`
+    const rows = yield* limits(sql)
     const people = yield* sql<{ id: string }>`
       select id from members where deactivated_at is null and removed_at is null order by joined_at, id`
     const byMember = new Map(rows.filter((r) => r.memberId !== null).map((r) => [r.memberId!, euros(r.limitMinor)]))
@@ -70,13 +74,17 @@ const apply = Effect.fn("AiBudget.apply")(function*(sql: SqlClient.SqlClient, en
   // The workspace's budget lock first, as a model call's settlement takes it (`ai/use-cases/call.ts`, `lockBudgets`):
   // a call that counted against the old limit cannot then mark the new one as warned.
   yield* sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`
-  // What the limits were, and whose: the Logboek names the person a limit is for.
-  const was = snapshot(yield* read(sql), entries.map((e) => e.scope))
+  // What the limits were, and whose: the Logboek names the person a limit is for. Only the limits, under the lock:
+  // not the month's use, which `read` sums per member.
+  const saved = yield* limits(sql)
   const changes: Array<Audit.LogChange> = []
-  for (const [i, e] of entries.entries()) {
-    if (was[i]!.limit === e.limit) continue
-    const of = e.scope === "workspace" ? undefined : yield* memberName(sql, e.scope)
-    changes.push({ field: "limit", key: e.scope, of, before: was[i]!.limit, after: e.limit })
+  for (const e of entries) {
+    const member = e.scope === "workspace" ? null : e.scope
+    const row = saved.find((r) => r.memberId === member)
+    const was = euros(row?.limitMinor ?? null)
+    if (was === e.limit) continue
+    const of = member === null ? undefined : yield* memberName(sql, member)
+    changes.push({ field: "limit", key: e.scope, of, before: was, after: e.limit })
   }
   for (const e of entries) {
     const member = e.scope === "workspace" ? null : e.scope

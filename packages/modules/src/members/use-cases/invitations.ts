@@ -175,6 +175,8 @@ export const setRole = Effect.fn("Invitations.setRole")(function*(id: string, ro
       if (yield* beyondReach(sql, roleId, before.stores ?? "all")) {
         return yield* new Invalid({ fields: { stores: "forbidden" } })
       }
+      // The role it grants already: nothing changes, so nothing is written or logged.
+      if (before.roleId === roleId) return yield* readTeam(sql)
       yield* sql`update invitations set role_id = ${roleId} where id = ${id}`
       const labels = yield* roleLabels(sql, [before.roleId, roleId])
       yield* audit(sql, "member.invitation_role_changed", id, { role: [before.roleId, roleId] }, [{

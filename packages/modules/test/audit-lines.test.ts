@@ -1,5 +1,7 @@
 import { AGENT_ACTION_IDS, DEFAULT_LEVELS } from "@insyte/domain/AgentActions"
-import { AREA_IDS } from "@insyte/domain/Permissions"
+import { AREA_IDS, SPECIAL_IDS } from "@insyte/domain/Permissions"
+import { readdirSync, readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { policyChanges } from "../src/agent/use-cases/autonomy.ts"
 import {
@@ -21,6 +23,7 @@ import { eventsOf, prefChanges } from "../src/notifications/use-cases/prefs.ts"
 import { ReturnSettingsDoc } from "../src/returns/domain/Returns.ts"
 import { returnChanges } from "../src/returns/use-cases/settings.ts"
 import { rightsChanges } from "../src/roles/use-cases/roles.ts"
+import { RETENTION_CLASSES } from "../src/settings/domain/Settings.ts"
 import { changes as settingsChanges } from "../src/settings/use-cases/sections.ts"
 import { SHIP_STATUSES } from "../src/shared/domain/CustomerFacing.ts"
 import type { LogChange } from "../src/shared/use-cases/Audit.ts"
@@ -142,8 +145,8 @@ describe("pages", () => {
     expect(pageOf("retention", "retention.erased").id).toBe("privacy")
     expect(pageOf("retention", "workspace.retention_updated").id).toBe("account")
     expect(sectionsOfPage("privacy")).toEqual(["retention", "support"])
-    expect(changesOf({ section: "retention", action: "retention.erased", diff: { log: { name: "12 records" } } }))
-      .toEqual([{ field: "Verwijderd na de bewaartermijn", before: null, after: "12 records" }])
+    expect(changesOf({ section: "retention", action: "retention.erased", diff: { log: { name: "12 items" } } }))
+      .toEqual([{ field: "Verwijderd na de bewaartermijn", before: null, after: "12 items" }])
   })
 
   it("puts Insyte-support's consent and its looking along on Gegevens en privacy, as one sentence each", () => {
@@ -185,7 +188,48 @@ const expectLabelled = (section: string, changes: ReadonlyArray<LogChange>, fiel
     const [line] = changesOf({ section, action: `${section}.changed`, diff: { log: { changes: [c] } } })
     expect(line!.field, `${section}.${c.field}`).not.toBe(c.field)
     expect(line!.field, `${section}.${c.field}`).not.toMatch(/^[a-z]+([A-Z][a-z]*)+$|_|\(\)|: $|^:|^$/)
+    // One of many (a class, a kind, an area, a day) by the catalogue's name for it, where the change brings none.
+    const named = typeof c.of === "string" && c.of !== ""
+    if (c.key !== undefined && !named) {
+      expect(fieldSpec(section, c.field)?.items?.[String(c.key)], `${section}.${c.field} ${c.key}`).toBeDefined()
+    }
   }
+}
+
+/** The actions that change fields, read by them (`log.changes`, a per-field diff), not named as an event. */
+const CHANGES = new Set([
+  "member.role_changed",
+  "member.stores_changed",
+  "member.invitation_role_changed",
+  "workspace.account_updated",
+  "workspace.regional_updated",
+  "workspace.alerts_updated",
+  "workspace.retention_updated",
+  "workspace.export_schedule_updated",
+  "support.access_changed"
+])
+
+const SOURCES = fileURLToPath(new URL("../src/", import.meta.url))
+
+/**
+ * Every "<section> <action>" a writer puts in the Logboek, read from the source: an `Audit.write` with both, and each
+ * action handed to a slice's `audit` helper where that helper sets the section.
+ */
+const loggedActions = (): Array<string> => {
+  const found = new Set<string>()
+  const files = (readdirSync(SOURCES, { recursive: true }) as Array<string>).filter((f) => f.endsWith(".ts"))
+  for (const file of files) {
+    const source = readFileSync(SOURCES + file, "utf8")
+    for (const m of source.matchAll(/action: "([a-z_.]+)",(?:(?!action:|\}\))[\s\S]){0,400}?section: "([a-z_]+)"/g)) {
+      found.add(`${m[2]} ${m[1]}`)
+    }
+    const helper = /const audit = [\s\S]{0,700}?section: "([a-z_]+)"/.exec(source)
+    if (helper === null) continue
+    for (const call of source.matchAll(/audit\(\s*sql,\s*([^,]+?),/g)) {
+      for (const a of call[1]!.matchAll(/"([a-z_]+\.[a-z_.]+)"/g)) found.add(`${helper[1]} ${a[1]}`)
+    }
+  }
+  return [...found].sort()
 }
 
 describe("the catalogue", () => {
@@ -244,12 +288,14 @@ describe("the catalogue", () => {
         stores: [{ storeId: "sto_1", currency: "USD", vatOnShipping: true, refundInclVat: true }],
         oss: true,
         ossNumber: "NL1"
-      }),
+      }).map((c) => (c.key === undefined ? c : { ...c, of: "Hoofdwinkel" })), // the store's name, as `writeSection` adds it
       5
     )
     expectLabelled(
       "retention",
-      settingsChanges("retention", { classes: [{ id: "logs", months: 12 }] }, { classes: [{ id: "logs", months: 3 }] }),
+      settingsChanges("retention", { classes: RETENTION_CLASSES.map((id) => ({ id, months: 12 })) }, {
+        classes: RETENTION_CLASSES.map((id) => ({ id, months: 3 }))
+      }),
       1
     )
     expect(fieldSpec("retention", "erasing")).toBeDefined()
@@ -406,7 +452,7 @@ describe("the catalogue", () => {
       "roles",
       rightsChanges({ levels: {}, specials: {}, refundLimitMinor: null }, {
         levels: all3,
-        specials: ["refunds.write", "ai.autonomy"],
+        specials: [...SPECIAL_IDS],
         refundLimitMinor: 5000
       }),
       3
@@ -425,94 +471,49 @@ describe("the catalogue", () => {
       retry: 3,
       active: true
     }
-    expectLabelled(
-      "webhooks",
-      endpointChanges(endpoint, {
-        url: "https://b.nl/hook",
-        description: "Boekhouding",
-        events: ["order.created", "order.paid"],
-        apiVersion: "2026-06-01",
-        stores: ["sto_1"],
-        headers: [{ key: "X-Token", sealed: "…" }],
-        retry: 8,
-        active: false
-      }),
-      8
-    )
+    const moved = endpointChanges(endpoint, {
+      url: "https://hooks.example/services/T000/B000/geheim",
+      description: "Boekhouding",
+      events: ["order.created", "order.paid"],
+      apiVersion: "2026-06-01",
+      stores: ["sto_1"],
+      headers: [{ key: "X-Token", sealed: "…" }],
+      retry: 8,
+      active: false
+    }, { before: "Alle winkels", after: "Hoofdwinkel" })
+    expectLabelled("webhooks", moved, 8)
+    // The address is often the hook's password: the Logboek says it changed, never what it was or became.
+    expect(JSON.stringify(moved)).not.toMatch(/a\.nl|geheim|hooks\.example/)
+    const lines = changesOf({ section: "webhooks", action: "webhook.updated", diff: { log: { changes: moved } } })
+    expect(lines).toContainEqual({ field: "Adres", before: null, after: "gewijzigd" })
+    expect(lines).toContainEqual({
+      field: "Gebeurtenissen",
+      before: "Bestelling geplaatst",
+      after: "Bestelling geplaatst, Bestelling betaald"
+    })
+    expect(lines).toContainEqual({ field: "Winkels", before: "Alle winkels", after: "Hoofdwinkel" })
+    // Another store of as many is a change too.
+    expect(
+      endpointChanges({ ...endpoint, stores: ["sto_1"] }, { ...endpoint, stores: ["sto_2"] }, {
+        before: "Hoofdwinkel",
+        after: "Tweede winkel"
+      })
+    ).toEqual([{ field: "stores", before: "Hoofdwinkel", after: "Tweede winkel" }])
   })
 
   it("says every event its writers log in Dutch", () => {
-    const events: Record<string, ReadonlyArray<string>> = {
-      team: [
-        "member.invited",
-        "member.invitation_resent",
-        "member.invitation_resend_undone",
-        "member.invitation_revoked",
-        "member.invitation_restored",
-        "member.invitation_role_changed",
-        "member.invite_link_changed",
-        "member.invite_link_regenerated",
-        "member.invite_link_regenerate_undone",
-        "member.joined",
-        "member.left",
-        "member.deactivated",
-        "member.reactivated",
-        "member.removed",
-        "member.restored",
-        "workspace.ownership_transferred"
-      ],
-      roles: ["role.created", "role.renamed", "role.updated", "role.reset", "role.deleted", "role.restored"],
-      notifications: [
-        "notifications.prefs_changed",
-        "notifications.slack_connected",
-        "notifications.slack_disconnected",
-        "notifications.push_subscribed",
-        "notifications.push_unsubscribed"
-      ],
-      returns: ["returns.settings_updated"],
-      autonomy: ["autonomy_policy.changed"],
-      customer_agent: ["customer_agent.changed"],
-      ai_limits: ["ai_budget.changed"],
-      knowledge: [
-        "knowledge_article.created",
-        "knowledge_article.draft_saved",
-        "knowledge_article.published",
-        "knowledge_article.restored",
-        "knowledge_article.archived",
-        "knowledge_article.unarchived",
-        "knowledge_article.unpublished"
-      ],
-      api_keys: [
-        "api_key.created",
-        "api_key.updated",
-        "api_key.rescoped",
-        "api_key.rotated",
-        "api_key.grace_ended",
-        "api_key.revoked",
-        "api_key.restored"
-      ],
-      webhooks: [
-        "webhook.created",
-        "webhook.updated",
-        "webhook.enabled",
-        "webhook.paused",
-        "webhook.auto_disabled",
-        "webhook.removed",
-        "webhook.restored",
-        "webhook.purged",
-        "webhook.secret_revealed",
-        "webhook.secret_rotated",
-        "webhook.test_sent",
-        "webhook.redelivered"
-      ],
-      retention: ["retention.erased"]
+    const logged = loggedActions()
+    // The scan finds the writers: a direct `Audit.write`, a slice's `audit` helper, one spread over lines.
+    for (const known of ["team member.invited", "webhooks webhook.updated", "api_keys api_key.updated"]) {
+      expect(logged, known).toContain(known)
     }
-    for (const [section, actions] of Object.entries(events)) {
-      for (const action of actions) {
-        // `member.invitation_role_changed` is a change, read by its field; the rest say what happened.
-        if (action === "member.invitation_role_changed") continue
-        expect(eventLabel(section, action), action).toBeDefined()
-      }
+    expect(logged.length).toBeGreaterThan(60)
+    for (const entry of logged) {
+      const [section, action] = entry.split(" ") as [string, string]
+      expect(Object.keys(SECTIONS), entry).toContain(section)
+      // A change read by its fields (`settings.<section>.<field>`, a role, the account) has no event to name.
+      if (action.startsWith("settings.") || CHANGES.has(action)) continue
+      expect(eventLabel(section, action), entry).toBeDefined()
     }
   })
 })

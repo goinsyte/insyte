@@ -1,7 +1,7 @@
 import { FIRST_POLICY_VERSION } from "@insyte/modules/agent/domain/Autonomy"
 import { beforeAll, describe, expect, it } from "vitest"
 import { join, ok, pastUndo, person, relay, run } from "./journeys.ts"
-import { rpc, sessionMe } from "./support.ts"
+import { call, rpc, sessionMe } from "./support.ts"
 
 /*
  * The Logboek on every settings page that saves (M17 step 20.1a): Team, Rollen, Meldingen, Retouren, Insyte AI's
@@ -61,6 +61,9 @@ describe("the Logboek on every settings page", () => {
       ["Uitnodiging verstuurd", null, `${email} (Klantenservice)`]
     ])
     readable(lines)
+    // The role they have already: no line.
+    ok(await rpc("Members.setRole", { id: viewId, roleId: "service" }, owner))
+    expect(await on("team")).toHaveLength(lines.length)
   })
 
   it("logs Rollen: a role made, its rights changed, and removed", async () => {
@@ -161,8 +164,10 @@ describe("the Logboek on every settings page", () => {
       ["API-sleutel aangemaakt", null, "Boekhouding"]
     ])
 
+    // A hook's path is often its password (a Slack or Zapier hook): the Logboek names the host, never the address.
+    const host = `log-${run}.webhooks.example`
     const endpoint = {
-      url: `https://log-${run}.webhooks.example/hook`,
+      url: `https://${host}/services/T0001/B0001/geheim-${run}`,
       description: "",
       events: ["order.cancelled"],
       apiVersion: "2026-10-01",
@@ -172,16 +177,35 @@ describe("the Logboek on every settings page", () => {
       active: true
     }
     const id = ok(await rpc("Webhooks.create", endpoint, owner)).endpoint.id
-    ok(await rpc("Webhooks.update", { id, ...endpoint, description: "Voorraad", retry: 8 as const }, owner))
+    const moved = `https://${host}/services/T0001/B0002/ander-${run}`
+    ok(
+      await rpc("Webhooks.update", {
+        id,
+        ...endpoint,
+        url: moved,
+        description: "Voorraad",
+        events: ["order.cancelled", "order.created"],
+        retry: 8 as const
+      }, owner)
+    )
     ok(await rpc("Webhooks.rotateSecret", { id }, owner))
     ok(await rpc("Webhooks.remove", { id }, owner))
     const lines = await on("webhooks")
-    expect(lines.slice(0, 5)).toEqual([
-      ["Webhook verwijderd", null, endpoint.url],
-      ["Nieuw geheim gemaakt", null, endpoint.url],
-      [`${endpoint.url}: Omschrijving`, null, "ingevuld"],
-      [`${endpoint.url}: Opnieuw proberen`, "3 pogingen", "8 pogingen"],
-      ["Webhook toegevoegd", null, endpoint.url]
+    expect(lines.slice(0, 7)).toEqual([
+      ["Webhook verwijderd", null, "Voorraad"],
+      ["Nieuw geheim gemaakt", null, "Voorraad"],
+      ["Voorraad: Adres", null, "gewijzigd"],
+      ["Voorraad: Omschrijving", null, "ingevuld"],
+      ["Voorraad: Gebeurtenissen", "Bestelling geannuleerd", "Bestelling geannuleerd, Bestelling geplaatst"],
+      ["Voorraad: Opnieuw proberen", "3 pogingen", "8 pogingen"],
+      ["Webhook toegevoegd", null, host]
     ])
+
+    // Not in any audit row: neither address, nor its secret path.
+    const rows = JSON.stringify(
+      await (await call(`http://api.test/api/__dev/audit?workspace=${workspace}`)).json()
+    )
+    expect(rows).toContain(host)
+    for (const secret of [endpoint.url, moved, "geheim-", "ander-", "/services/"]) expect(rows).not.toContain(secret)
   })
 })

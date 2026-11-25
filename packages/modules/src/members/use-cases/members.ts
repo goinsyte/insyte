@@ -67,6 +67,8 @@ export const setRole = Effect.fn("Members.setRole")(function*(id: string, roleId
       if (!(yield* grantable(sql)).has(roleId)) return yield* new Invalid({ fields: { roleId: "unknown" } })
       const before = yield* target(sql, id)
       if (yield* beyondReach(sql, roleId, before.stores)) return yield* new Invalid({ fields: { stores: "forbidden" } })
+      // The role they have already: nothing changes, so nothing is written or logged.
+      if (before.roleId === roleId) return yield* readTeam(sql)
       yield* sql`update members set role_id = ${roleId} where id = ${id}`
       const labels = yield* roleLabels(sql, [before.roleId, roleId])
       yield* audit(sql, "member.role_changed", id, { role: [before.roleId, roleId] }, [

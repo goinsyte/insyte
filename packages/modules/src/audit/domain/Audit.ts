@@ -1,3 +1,4 @@
+import { webhookEventLabel } from "@insyte/domain/Webhooks"
 import { Schema } from "effect"
 
 /*
@@ -623,9 +624,10 @@ export const SECTIONS = {
   webhooks: {
     page: PAGE.webhooks,
     fields: {
-      url: { label: "Adres" },
+      // The address only as changed: its path is often the hook's password (`endpointChanges`).
+      url: { label: "Adres", happened: () => "gewijzigd" },
       description: { label: "Omschrijving", happened: textChanged },
-      events: { label: "Gebeurtenissen", format: (v) => String(v) },
+      events: { label: "Gebeurtenissen", format: (v) => webhookEventLabel(String(v)) },
       apiVersion: { label: "API-versie" },
       stores: { label: "Winkels" },
       headers: { label: "Extra headers" },
@@ -658,6 +660,9 @@ export const SECTIONS = {
   // Insyte-support's read-only look along (M18): the owner's consent, and each session's start, reads and end.
   support: { page: PAGE.privacy, whole: "Insyte-support mag meekijken" }
 } as const satisfies Readonly<Record<string, SectionSpec>>
+
+/** A section an audit row may name (`Audit.write`'s `section`): one with its page and its fields' words. */
+export type SectionId = keyof typeof SECTIONS
 
 /** A section as written; an unknown one is a page under its own name, which `audit-lines.test.ts` keeps from happening. */
 const sectionSpec = (section: string): SectionSpec =>
