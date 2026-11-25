@@ -28,14 +28,14 @@ export const senderProblems = (from: string, replyTo: string, domain: string): {
   return {
     ...(f === ""
       ? {}
-      : !EMAIL.test(f)
+      : f.length > 254 || !EMAIL.test(f)
       ? { from: "Dit is geen geldig e-mailadres." }
       : domain === ""
       ? { from: "Stel eerst je domein in; daarna mail je vanaf een adres op dat domein." }
       : !f.endsWith(`@${domain.toLowerCase()}`)
       ? { from: `Gebruik een adres op ${domain}.` }
       : {}),
-    ...(r === "" || EMAIL.test(r) ? {} : { replyTo: "Dit is geen geldig e-mailadres." })
+    ...(r === "" || (r.length <= 254 && EMAIL.test(r)) ? {} : { replyTo: "Dit is geen geldig e-mailadres." })
   }
 }
 

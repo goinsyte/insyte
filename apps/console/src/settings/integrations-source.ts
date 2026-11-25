@@ -68,7 +68,8 @@ const iso = (at: number | null) => (at === null ? {} : { syncedAt: new Date(at).
 /** The module's sentence after the description's dot, without its own full stop. */
 const after = (note: string) => note.replace(/\.$/, "")
 
-const itemOf = (row: Row): IntegrationItem => {
+/** `readsSupport`: the viewer's role reads Klantenservice, without which a mailbox's manage view and the inbox refuse. */
+const itemOf = (row: Row, readsSupport: boolean): IntegrationItem => {
   switch (row.provider) {
     case "shopify":
       return {
@@ -100,9 +101,11 @@ const itemOf = (row: Row): IntegrationItem => {
         category: "Email",
         status: row.status,
         ...iso(row.lastSyncedAt),
-        manage: row.status === "disconnected"
-          ? { to: "/inbox", search: { connect: "mailbox" } }
-          : { to: "/settings/integrations", search: { mailbox: row.id } }
+        ...(!readsSupport
+          ? {}
+          : row.status === "disconnected"
+          ? { manage: { to: "/inbox", search: { connect: "mailbox" } } }
+          : { manage: { to: "/settings/integrations", search: { mailbox: row.id } } })
       }
     case "resend":
       return {
@@ -192,13 +195,19 @@ const webchatOf = (chat: ChannelStatus | undefined, stores: number): ReadonlyArr
 const integrationsOf = (
   list: ConnectionList,
   chat: ChannelStatus | undefined,
-  stores: number
-): ReadonlyArray<IntegrationItem> => [...list.connections.map(itemOf), ...SOON, ...webchatOf(chat, stores)]
+  stores: number,
+  readsSupport: boolean
+): ReadonlyArray<IntegrationItem> => [
+  ...list.connections.map((row) => itemOf(row, readsSupport)),
+  ...SOON,
+  ...webchatOf(chat, stores)
+]
 
 export const consoleIntegrationsSource = (
   list: ConnectionList,
   chat?: ChannelStatus | undefined,
-  stores = 1
+  stores = 1,
+  readsSupport = true
 ): IntegrationsSource => ({
-  integrations: integrationsOf(list, chat, stores)
+  integrations: integrationsOf(list, chat, stores, readsSupport)
 })

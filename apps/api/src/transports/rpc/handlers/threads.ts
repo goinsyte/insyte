@@ -33,6 +33,7 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(Effect.gen(function*() {
     "Threads.discardDraft": (input) => inbox.discardDraft(input),
     "Channels.list": () => inbox.channels,
     "Channels.connect": (input) => inbox.connectChannel(input),
-    "Channels.disconnect": (input) => inbox.disconnectChannel(input)
+    "Channels.disconnect": (input) => inbox.disconnectChannel(input),
+    "Channels.setGreeting": (input) => inbox.setChannelGreeting(input)
   })
 }))

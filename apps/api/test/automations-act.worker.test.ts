@@ -493,6 +493,13 @@ describe("automations that act", () => {
         step("e", "action.check_eta"),
         mailTo("Ongelezen")
       ])
+      const unsubscribing = await flow("Met uitschrijflink", store.cookie, store.cookie, [
+        delayed,
+        step("m", "action.send_email", {
+          subject: `Uitschrijven {{order.number}} · ${run}`,
+          body: "Hoi {{customer.first_name}}.\n\nGeen mail meer? Schrijf je uit via {uitschrijf_link}"
+        })
+      ])
       const capped = await flow("Honderd per uur", store.cookie, store.cookie, [
         delayed,
         step("f", "condition.filter", { expression: "{{order.total}} > 99999999" }),
@@ -607,6 +614,31 @@ describe("automations that act", () => {
         explanation: expect.stringMatching(/^Mail “Ouder #1002/)
       })
 
+      // A mail asking for the unsubscribe link while Sjablonen holds none: skipped with why, the run not failed, the
+      // owner told once per version; once the link is saved, it mails.
+      const noLink =
+        "De mail vraagt om de uitschrijflink, maar die staat nog niet bij Instellingen › Sjablonen; de klant is niet gemaild."
+      for (let i = 0; i < 2; i++) {
+        const skipped = await finished(await started(admin, unsubscribing))
+        expect(skipped.run.status).toBe("succeeded")
+        expect(mailOf(skipped)).toMatchObject({ status: "skipped", explanation: noLink })
+      }
+      await relay(store.workspace)
+      const told = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
+      expect(told.filter((n) => JSON.stringify(n).includes("Instellingen › Sjablonen"))).toHaveLength(1)
+      const links = ok(await rpc("WorkspaceSettings.get", { section: "links" }, store.cookie))
+      ok(
+        await rpc("WorkspaceSettings.save", {
+          section: "links",
+          value: { review: "", unsubscribe: `https://act-${run}.example/uit`, restock: "" } as never,
+          baseVersion: links.version
+        }, store.cookie)
+      )
+      expect(mailOf(await finished(await started(admin, unsubscribing)))).toMatchObject({
+        status: "ok",
+        explanation: expect.stringMatching(/^Mail “Uitschrijven #1002/)
+      })
+
       // Every Workflow done; the one stopped in Runs ends terminated.
       for (const instance of await workflows.get()) await instance.waitForStatus("complete").catch(() => undefined)
       await pastUndo(store.workspace)
@@ -617,11 +649,16 @@ describe("automations that act", () => {
         .map((m) => m.subject ?? "")
         // The recorded shop's shoppers are every test's: this test's mails by their words.
         .filter((subject) =>
-          /^(Zonder|Elders|Teruggezet|Goedgekeurd|Ouder|Ongelezen|Nooit) /.test(subject) &&
+          /^(Zonder|Elders|Teruggezet|Goedgekeurd|Ouder|Ongelezen|Nooit|Uitschrijven) /.test(subject) &&
           subject.endsWith(` · ${run}`)
         )
         .toSorted()
-      expect(captured).toEqual([`Goedgekeurd #1002 · ${run}`, `Ouder #1002 · ${run}`, `Zonder #1002 · ${run}`])
+      expect(captured).toEqual([
+        `Goedgekeurd #1002 · ${run}`,
+        `Ouder #1002 · ${run}`,
+        `Uitschrijven #1002 · ${run}`,
+        `Zonder #1002 · ${run}`
+      ])
 
       // A flow that mails runs at most 100 times an hour, whatever its setting: the 101st start is skipped with why.
       for (let i = 0; i < 100; i++) expect((await startBy(admin, capped, order.id)).status).toBe(200)

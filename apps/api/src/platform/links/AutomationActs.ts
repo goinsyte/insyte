@@ -12,6 +12,7 @@ import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { emailCustomer } from "@insyte/modules/orders/use-cases/customer-mail"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { PendingEvents, type Relay } from "@insyte/modules/shared/domain/Outbox"
+import { unsubscribeMissing } from "@insyte/modules/shared/use-cases/CustomerFacing"
 import * as Outbox from "@insyte/modules/shared/use-cases/Outbox"
 import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
 import { fromMinor, toMinor } from "@insyte/modules/stores/domain/Mirror"
@@ -144,6 +145,50 @@ const uncheckedMail = Effect.fn("AutomationActs.uncheckedMail")(function*(sql: S
     output: { unchecked: true },
     explanation:
       "Deze versie is gepubliceerd voordat Insyte e-mails uit flows controleerde; de klant is niet gemaild. Publiceer de flow opnieuw."
+  } satisfies Did
+})
+
+/** Why a mail step that asks for the unsubscribe link while none is saved did not mail. */
+const NO_UNSUBSCRIBE_LINK =
+  "De mail vraagt om de uitschrijflink, maar die staat nog niet bij Instellingen › Sjablonen; de klant is niet gemaild."
+
+/**
+ * A mail step whose words ask for `{uitschrijf_link}` while Sjablonen holds none: the mail would be refused
+ * (`CustomerFacing.linkFiller`), so the step is skipped rather than failed, and whoever the flow tells (its settings,
+ * else its owner) hears it once per version, as for an unchecked mail. `undefined` where the mail can go.
+ */
+const unsubscribeLacking = Effect.fn("AutomationActs.unsubscribeLacking")(function*(
+  sql: SqlClient.SqlClient,
+  input: ActInput,
+  texts: ReadonlyArray<string>
+) {
+  if (!(yield* unsubscribeMissing(sql, texts))) return undefined
+  const { plan } = input
+  const [v] = yield* sql<{ notify: string | null; told: boolean }>`
+    select coalesce(s.notify_member_id, a.owner_member_id) as notify,
+           exists (select 1 from automation_run_steps st join automation_runs r on r.id = st.run_id
+                   where r.automation_id = a.id and r.version = ${plan.version}
+                     and st.variant = 'action.send_email' and st.output @> '{"noUnsubscribe": true}'::jsonb) as told
+    from automations a
+    left join automation_settings s on s.automation_id = a.id
+    where a.id = ${plan.automationId}`
+  if (v !== undefined && !v.told && v.notify !== null) {
+    const outboxId = yield* Outbox.write(sql, plan.workspaceId, {
+      type: "automation.notify",
+      workspaceId: plan.workspaceId,
+      userId: "system",
+      kind: "alert",
+      automationId: plan.automationId,
+      runId: plan.runId,
+      memberIds: [v.notify],
+      detail: `“E-mail versturen” is overgeslagen. ${NO_UNSUBSCRIBE_LINK} Vul de link in; daarna mailt de flow weer.`
+    })
+    ;(yield* PendingEvents)?.add(outboxId)
+  }
+  return {
+    status: "skipped" as const,
+    output: { noUnsubscribe: true },
+    explanation: NO_UNSUBSCRIBE_LINK
   } satisfies Did
 })
 
@@ -478,9 +523,12 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
             }
             const refusal = yield* mailRefusal(sql, input.plan, o.storeId)
             if (refusal !== undefined) return yield* fail(refusal)
+            const lacking = yield* unsubscribeLacking(sql, input, [input.text("subject"), input.text("body")])
+            if (lacking !== undefined) return { did: lacking } as const
             return { go: mailId } as const
           })
         )
+        if ("did" in state) return state.did
         if ("skip" in state) return { status: "skipped" as const, output: {}, explanation: state.skip }
         const queued = yield* asAccount(
           emailCustomer({ orderId, subject: input.text("subject"), body: input.text("body"), id: state.go })

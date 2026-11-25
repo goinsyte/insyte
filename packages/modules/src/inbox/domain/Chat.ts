@@ -52,6 +52,12 @@ export const ConnectChannelInput = Schema.Struct({
 
 export const ChannelIdInput = Schema.Struct({ id: Schema.String })
 
+/** The website chat's welcome text alone, as its manage dialog saves it. */
+export const ChannelGreetingInput = Schema.Struct({
+  id: Schema.String,
+  greeting: Schema.String.check(Schema.isMaxLength(GREETING_MAX))
+})
+
 /** A channel connected or disconnected, with the way back. */
 export class ChannelChange extends Schema.Class<ChannelChange>("inbox/ChannelChange")({
   channel: ChannelView,

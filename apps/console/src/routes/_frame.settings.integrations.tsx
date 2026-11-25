@@ -10,6 +10,7 @@ import { useMemo } from "react"
 import { frameAtom } from "../data/frame.ts"
 import { channelsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { connectionsAtom } from "../data/integrations.ts"
+import { useGate } from "../frame/refusals.ts"
 import { consoleIntegrationsSource } from "../settings/integrations-source.ts"
 import { MailboxManageDialog } from "../settings/mailbox.tsx"
 import { SettingsPage, SettingsPending } from "../settings/settings-page.tsx"
@@ -66,11 +67,13 @@ function IntegrationsRoute() {
 function Loaded({ list }: { list: ConnectionList }) {
   const chat = Option.getOrUndefined(AsyncResult.value(useAtomValue(channelsAtom)))
   const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(frameAtom)))?.stores.length ?? 1
+  // A mailbox is Klantenservice's: a role that cannot read it gets no Beheren on its row.
+  const readsSupport = useGate("support", 1).ok
   const { chat: managing, mailbox } = Route.useSearch()
   const navigate = Route.useNavigate()
   const source = useMemo(
-    () => ({ ...consoleIntegrationsSource(list, chat, stores), ChannelDialog: WebchatConnectDialog }),
-    [list, chat, stores]
+    () => ({ ...consoleIntegrationsSource(list, chat, stores, readsSupport), ChannelDialog: WebchatConnectDialog }),
+    [list, chat, stores, readsSupport]
   )
   return (
     <IntegrationsSourceProvider value={source}>

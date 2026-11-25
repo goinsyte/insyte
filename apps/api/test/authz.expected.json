@@ -1742,6 +1742,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Channels.setGreeting": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Home.work": {
     "owner": "allow",
     "admin": "allow",

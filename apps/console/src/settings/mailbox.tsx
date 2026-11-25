@@ -16,7 +16,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useState } from "react"
 import { toast } from "sonner"
 import { INBOX, inboxWrites, mailboxesAtom } from "../data/inbox.ts"
-import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
+import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
  * A forwarded mailbox on Koppelingen: "Beheren" opens what the server keeps of it (`?mailbox=`): the Insyte address to
@@ -48,6 +48,9 @@ export function MailboxManageDialog({ id, onClose }: { id: string | undefined; o
   const disconnect = useAtomSet(inboxWrites.disconnectMailbox, { mode: "promiseExit" })
   const setDefault = useAtomSet(inboxWrites.setDefaultMailbox, { mode: "promiseExit" })
   const setSignature = useAtomSet(inboxWrites.setSignature, { mode: "promiseExit" })
+  // Klantenservice · Volledig: what the signature, the default and Ontkoppelen each ask of the server.
+  const gate = useGate("support", 3)
+  const denied = gate.ok ? undefined : gate.reason
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const [signature, setSignatureDraft] = useState<string | null>(null)
@@ -130,6 +133,8 @@ export function MailboxManageDialog({ id, onClose }: { id: string | undefined; o
                   value={shown}
                   maxLength={2000}
                   rows={3}
+                  disabled={!gate.ok}
+                  title={denied}
                   onChange={(e) => setSignatureDraft(e.target.value)}
                   placeholder="Onder elk antwoord, elke doorgestuurde en elke nieuwe mail vanaf deze mailbox"
                   className="field rounded-md px-3 py-2 text-base text-ink leading-[1.5] outline-none focus:bg-paper"
@@ -139,7 +144,13 @@ export function MailboxManageDialog({ id, onClose }: { id: string | undefined; o
                 {box.isDefault
                   ? <span className="text-ink-2 text-sm">Nieuwe e-mails gaan van deze mailbox.</span>
                   : (
-                    <button type="button" disabled={busy} onClick={() => void makeDefault(box)} className={SMALL}>
+                    <button
+                      type="button"
+                      disabled={busy || !gate.ok}
+                      title={denied}
+                      onClick={() => void makeDefault(box)}
+                      className={SMALL}
+                    >
                       Als standaard instellen
                     </button>
                   )}
@@ -152,7 +163,8 @@ export function MailboxManageDialog({ id, onClose }: { id: string | undefined; o
           <DialogFooter className="gap-2 sm:justify-between">
             <button
               type="button"
-              disabled={busy || box === undefined}
+              disabled={busy || box === undefined || !gate.ok}
+              title={denied}
               onClick={() => setAsking(true)}
               className="flex h-9 items-center justify-center rounded-lg px-3.5 font-medium text-base text-signal-red transition-colors hover:bg-signal-red-bg disabled:opacity-50"
             >
@@ -162,7 +174,8 @@ export function MailboxManageDialog({ id, onClose }: { id: string | undefined; o
               <button type="button" onClick={close} className={QUIET}>Sluiten</button>
               <button
                 type="button"
-                disabled={busy || !changed}
+                disabled={busy || !changed || !gate.ok}
+                title={denied}
                 onClick={() => box !== undefined && void save(box)}
                 className="flex h-9 items-center justify-center gap-2 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
               >

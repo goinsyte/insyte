@@ -83,5 +83,6 @@ export const inboxWrites = {
   discardDraft: ConsoleClient.mutation("Threads.discardDraft"),
   connectChannel: ConsoleClient.mutation("Channels.connect"),
   disconnectChannel: ConsoleClient.mutation("Channels.disconnect"),
+  setChannelGreeting: ConsoleClient.mutation("Channels.setGreeting"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

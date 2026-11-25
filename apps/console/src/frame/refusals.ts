@@ -18,7 +18,7 @@ export const failureOf = <A, E>(exit: Exit.Failure<A, E>): unknown => {
 
 /** What any mail can be refused for, whichever screen sent it. */
 const INVALID: Record<string, string> = {
-  unsubscribe_link: "Deze mail vraagt om een uitschrijflink. Vul die eerst in bij Instellingen, Sjablonen."
+  unsubscribe_link: "Deze mail vraagt om een uitschrijflink. Vul die eerst in bij Instellingen › Sjablonen."
 }
 
 /** What any record's undo can answer. */

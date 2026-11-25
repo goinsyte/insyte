@@ -92,7 +92,10 @@ export const monthsOf = Effect.fn("Analytics.months")(function*(sql: SqlClient.S
   return offeredMonths((first?.month ?? null) as Month | null, ctx.current)
 })
 
-/** The months the pickers offer: the first order's month (in the role's stores) to the current one. */
+/**
+ * The months the pickers offer: the first order's month (in the role's stores) to the current one, and never fewer than
+ * two (`offeredMonths`), so a store new this month still compares it with the month before.
+ */
 export const periods = Effect.fn("Analytics.periods")(function*() {
   return yield* scoped((sql) =>
     Effect.gen(function*() {

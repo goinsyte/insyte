@@ -37,8 +37,13 @@ export class PortalStore extends Schema.Class<PortalStore>("returns/PortalStore"
    * path its logo is served from on this origin; none of either, the portal's own look.
    */
   look: Schema.Struct({ color: Schema.NullOr(Schema.String), logoUrl: Schema.NullOr(Schema.String) }),
-  /** Huisstijl's website and support address, at the page's foot; none of either where not saved. */
-  contact: Schema.Struct({ website: Schema.NullOr(Schema.String), support: Schema.NullOr(Schema.String) })
+  /**
+   * Huisstijl's website and support address, at the page's foot; none of either where not saved. Optional, so a
+   * console deployed before the API it reads still decodes the store.
+   */
+  contact: Schema.optional(
+    Schema.Struct({ website: Schema.NullOr(Schema.String), support: Schema.NullOr(Schema.String) })
+  )
 }) {}
 
 /** Why a line cannot go back for a kind, as facts: the screen writes the sentence. */

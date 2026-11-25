@@ -82,8 +82,8 @@ export function useConsolePortalSource(handle: string, store: PortalStore | null
           logo: store.look.logoUrl ?? undefined
         },
         contact: {
-          website: store.contact.website ?? undefined,
-          support: store.contact.support ?? undefined
+          website: store.contact?.website ?? undefined,
+          support: store.contact?.support ?? undefined
         }
       },
     numberPlaceholder: "#1042",

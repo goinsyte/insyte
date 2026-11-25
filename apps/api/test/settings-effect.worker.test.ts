@@ -119,6 +119,9 @@ describe("settings that take effect", () => {
     expect(unsaved.look).toEqual({ color: null, logoUrl: null })
     expect(unsaved.contact).toEqual({ website: null, support: null })
     const shopName = unsaved.name
+    // Huisstijl saved for its colour alone keeps the name the portal had: the sender starts as that name.
+    await save(store.cookie, "brand", (v: Record<string, unknown>) => ({ ...v, color: "#1f3a5f" }))
+    expect(ok(await rpc("Portal.store", { handle })).name).toBe(shopName)
 
     // Saved: Huisstijl (a logo and a dark colour), Verzending (every status worded), Sjablonen (the review link).
     const logo = await upload(store.cookie, "logo.png", "image/png", PNG)

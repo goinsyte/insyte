@@ -74,6 +74,14 @@ export const linkFiller = Effect.fn("CustomerFacing.linkFiller")(function*(
   return (text: string) => text.includes("_link}") ? fillLinks(text, links) : text
 })
 
+/** Whether these words (all of one mail) ask for the unsubscribe link while Sjablonen holds none. */
+export const unsubscribeMissing = Effect.fn("CustomerFacing.unsubscribeMissing")(function*(
+  sql: SqlClient.SqlClient,
+  texts: ReadonlyArray<string>
+) {
+  return lacksUnsubscribe(texts, linksOf(yield* section(sql, "links")))
+})
+
 /** The team's words with Sjablonen' links in; refused where they ask for an unsubscribe link none is saved for. */
 export const withLinks = Effect.fn("CustomerFacing.withLinks")(function*(sql: SqlClient.SqlClient, text: string) {
   if (!text.includes("_link}")) return text

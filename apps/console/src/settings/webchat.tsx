@@ -21,7 +21,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { frameAtom } from "../data/frame.ts"
 import { channelsAtom, INBOX, inboxWrites } from "../data/inbox.ts"
-import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
+import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
  * The website chat on Koppelingen (M15 step 8): "Koppelen" opens the design's two steps, with the store to put it on
@@ -203,8 +203,11 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
   const status = value(useAtomValue(channelsAtom))
   const disconnect = useAtomSet(inboxWrites.disconnectChannel, { mode: "promiseExit" })
   const connect = useAtomSet(inboxWrites.connectChannel, { mode: "promiseExit" })
+  const setChannelGreeting = useAtomSet(inboxWrites.setChannelGreeting, { mode: "promiseExit" })
   const done = useDone()
-  const [busy, setBusy] = useState(false)
+  // Koppelingen · Beheren: what every button here asks of the server.
+  const gate = useGate("integrations", 2)
+  const [busy, setBusy] = useState<"theme" | "save" | "disconnect" | null>(null)
   const channel: ChannelView | undefined = status?.channels.find((c) => c.id === id)
   const [greeting, setGreeting] = useState<string | null>(null)
   const shown = greeting ?? channel?.greeting ?? ""
@@ -215,32 +218,31 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
   }
   // The same connect again, greeting and colour kept: Shopify is asked once more where the embed loads the widget.
   const retryTheme = async (c: ChannelView) => {
-    setBusy(true)
+    setBusy("theme")
     const exit = await connect({ payload: { kind: "webchat", storeId: c.storeId }, ...keys })
-    setBusy(false)
+    setBusy(null)
     if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
     if (!exit.value.channel.themeUpdated) return themeNotUpdated()
     toast.success("Je thema is bijgewerkt", {
       description: "De chat staat nu op je winkel, als de app-embed aan staat."
     })
   }
-  // A connected store's connect again changes its greeting, with its Undo.
+  // The greeting alone, with its Undo: Shopify is not asked again (that is "Opnieuw proberen").
   const save = async (c: ChannelView) => {
-    setBusy(true)
-    const exit = await connect({
-      payload: { kind: "webchat", storeId: c.storeId, greeting: shown.trim() || DEFAULT_GREETING },
+    setBusy("save")
+    const exit = await setChannelGreeting({
+      payload: { id: c.id, greeting: shown.trim() || DEFAULT_GREETING },
       ...keys
     })
-    setBusy(false)
+    setBusy(null)
     if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
     setGreeting(null)
     done(exit.value, "Welkomsttekst opgeslagen")
-    if (!exit.value.channel.themeUpdated) themeNotUpdated()
   }
   const letGo = async (c: ChannelView) => {
-    setBusy(true)
+    setBusy("disconnect")
     const exit = await disconnect({ payload: { id: c.id }, ...keys })
-    setBusy(false)
+    setBusy(null)
     if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
     close()
     done(
@@ -272,6 +274,8 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
               <input
                 value={shown}
                 maxLength={200}
+                disabled={!gate.ok}
+                title={gate.ok ? undefined : gate.reason}
                 onChange={(e) => setGreeting(e.target.value)}
                 className="field h-10 rounded-md px-3 text-base text-ink outline-none focus:bg-paper"
               />
@@ -285,11 +289,12 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
                 </p>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy !== null || !gate.ok}
+                  title={gate.ok ? undefined : gate.reason}
                   onClick={() => void retryTheme(channel)}
-                  className="flex h-8 w-fit items-center rounded-md bg-ink/6 px-3 font-medium text-ink text-sm hover:bg-ink/10"
+                  className="flex h-8 w-fit items-center rounded-md bg-ink/6 px-3 font-medium text-ink text-sm hover:bg-ink/10 disabled:opacity-50"
                 >
-                  Opnieuw proberen
+                  {busy === "theme" ? "Opnieuw proberen…" : "Opnieuw proberen"}
                 </button>
               </div>
             )}
@@ -317,21 +322,23 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
         <DialogFooter className="gap-2 sm:justify-between">
           <button
             type="button"
-            disabled={busy || channel === undefined}
+            disabled={busy !== null || channel === undefined || !gate.ok}
+            title={gate.ok ? undefined : gate.reason}
             onClick={() => channel !== undefined && void letGo(channel)}
             className="flex h-9 items-center justify-center rounded-lg px-3.5 font-medium text-base text-signal-red transition-colors hover:bg-signal-red-bg disabled:opacity-50"
           >
-            {busy && !changed ? "Ontkoppelen…" : "Ontkoppelen"}
+            {busy === "disconnect" ? "Ontkoppelen…" : "Ontkoppelen"}
           </button>
           <span className="flex gap-2">
             <button type="button" onClick={close} className={QUIET}>Sluiten</button>
             <button
               type="button"
-              disabled={busy || !changed}
+              disabled={busy !== null || !changed || !gate.ok}
+              title={gate.ok ? undefined : gate.reason}
               onClick={() => channel !== undefined && void save(channel)}
               className="flex h-9 items-center justify-center gap-2 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy && changed ? "Opslaan…" : "Opslaan"}
+              {busy === "save" ? "Opslaan…" : "Opslaan"}
             </button>
           </span>
         </DialogFooter>

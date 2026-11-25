@@ -70,14 +70,22 @@ const RETENTION_START: RetentionValue = {
   }))
 }
 
+/**
+ * Huisstijl before it is saved. Its sender is the name the returns portal already shows, the one store's, else the
+ * workspace's, so saving the page for its colour alone does not rename the store to the shopper.
+ */
 const brandDefaults = (sql: SqlClient.SqlClient) =>
   Effect.map(
-    sql<{ name: string }>`select name from workspaces where id = app_workspace_id()`,
+    sql<{ name: string; stores: ReadonlyArray<string> }>`
+      select w.name, coalesce((select array_agg(s.name order by s.created_at) from (
+               select name, created_at from stores where status <> 'disconnected' order by created_at limit 2
+             ) s), '{}') as stores
+      from workspaces w where w.id = app_workspace_id()`,
     (rows): BrandValue => ({
       logoFileId: null,
       color: "#1F3A5F",
       font: "Systeem",
-      sender: rows[0]?.name ?? "",
+      sender: rows[0]?.stores.length === 1 ? rows[0].stores[0]! : rows[0]?.name ?? "",
       website: "",
       support: "",
       widget: "right"
