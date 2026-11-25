@@ -22,15 +22,19 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   expect: { timeout: EXPECT_TIMEOUT },
   timeout: 90_000,
+  // No HTML report through Access: it keeps every error's call log, and the log of a failed API request lists the
+  // headers it sent (the Access token, the session cookie). GitHub masks the token in a job's log but not in an
+  // artifact, and the repository is public. CI keeps only the screenshots and error contexts (`backend.yml`).
   reporter: process.env.CI
-    ? [["github"], ["html", { open: "never", outputFolder: "playwright-report-console" }]]
+    ? throughAccess
+      ? [["github"], ["dot"]]
+      : [["github"], ["html", { open: "never", outputFolder: "playwright-report-console" }]]
     : "list",
   use: {
     baseURL: external ?? `http://localhost:${port}`,
     // The Access service token goes to the preview's origin only (`e2e/console/access.ts`), not as `extraHTTPHeaders`,
-    // which every origin the page reaches would get. A trace records every request's headers, the token among them,
-    // and CI uploads the report from a public repository: against a preview there is no trace, only the screenshot and
-    // the error context.
+    // which every origin the page reaches would get. A trace records every request's headers, the token among them:
+    // against a preview there is no trace, only the screenshot and the error context.
     trace: throughAccess ? "off" : "retain-on-failure",
     screenshot: "only-on-failure"
   },
