@@ -69,7 +69,14 @@ export function DemoSettingsDepthSource({ children }: { children: ReactNode }) {
       const changes: ReadonlyArray<FieldChange> = log.changes.length > 0
         ? log.changes
         : [["Instellingen", "", "gewijzigd"]]
-      const undo = useSettingsDepth.getState().save(key, next, { who: me, ...log, changes })
+      // Periods saved since the count were not counted: the count goes, as the server's would no longer match.
+      const before = useSettingsDepth.getState().privacy
+      const periods = next as typeof before
+      const kept = key === "privacy" &&
+          periods.classes.some((c) => before.classes.find((b) => b.id === c.id)?.months !== c.months)
+        ? { classes: periods.classes, erasing: periods.erasing }
+        : next
+      const undo = useSettingsDepth.getState().save(key, kept as typeof next, { who: me, ...log, changes })
       undoable(said.label, undo, said.detail)
       return Promise.resolve(true)
     },

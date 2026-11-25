@@ -3,9 +3,9 @@ import { Clock, ExternalLink, LayoutList as Layers, ListFilter, MapPin, MessageS
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormDialog, TextAreaField, TextField } from "../common/form-dialog";
 import { PageGuide } from "../common/page-guide";
-import { FieldRow, INPUT_CLASS, UnsavedBar } from "../settings/form";
+import { type FieldControl, FieldRow, INPUT_CLASS, INVALID_CLASS, UnsavedBar, useFieldErrors } from "../settings/form";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "../settings/setting-card";
-import { type Carrier, type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnAddress, type ReturnSettings, type RuleKind } from "../lib/returns";
+import { type Carrier, type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnAddress, type ReturnSettings, type ReturnSettingsDraft, returnSettingsErrors, type RuleKind, type SpecialWindow, windowErrors } from "../lib/returns";
 import { countryName } from "../lib/format-flag";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
@@ -30,7 +30,7 @@ export function ReturnSettingsPage() {
 	const source = useReturnSettingsSource();
 	const saved = source.saved;
 	const savedKey = JSON.stringify(saved);
-	const [draft, setDraft] = useState<ReturnSettings>(saved);
+	const [draft, setDraft] = useState<ReturnSettingsDraft>(saved);
 	const last = useRef(savedKey);
 	useEffect(() => {
 		if (last.current !== savedKey) {
@@ -38,38 +38,55 @@ export function ReturnSettingsPage() {
 			setDraft(JSON.parse(savedKey) as ReturnSettings);
 		}
 	}, [savedKey]);
-	const dirty = JSON.stringify(draft) !== savedKey;
+	const draftKey = JSON.stringify(draft);
+	const dirty = draftKey !== savedKey;
+	const fe = useFieldErrors(returnSettingsErrors(draft), { draftKey });
 	const gate = source.gate;
 	const [addingRule, setAddingRule] = useState(false);
 	const [editingAddress, setEditingAddress] = useState<number | "new" | null>(null);
-	const set = <K extends keyof ReturnSettings>(k: K, v: ReturnSettings[K]) => setDraft((d) => ({ ...d, [k]: v }));
+	const [editingWindow, setEditingWindow] = useState<string | null>(null);
+	const set = <K extends keyof ReturnSettingsDraft>(k: K, v: ReturnSettingsDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
 	return (
 		<>
 			<SettingCard id="termijnen" title="Termijnen" icon={Clock}>
 				<div className="flex flex-col">
 					<FieldRow label="Retourtermijn">
-						<DaysField value={draft.returnDays} onChange={(v) => set("returnDays", v ?? 0)} label="Retourtermijn in dagen" />
+						<span className="flex flex-col gap-1.5">
+							<DaysField value={draft.returnDays} onChange={(v) => set("returnDays", v)} label="Retourtermijn in dagen" control={fe.control("returnDays")} />
+							{fe.message("returnDays")}
+						</span>
 					</FieldRow>
 					<FieldRow label="Claimtermijn">
-						<DaysField value={draft.claimDays} onChange={(v) => set("claimDays", v ?? 0)} label="Claimtermijn in dagen" />
+						<span className="flex flex-col gap-1.5">
+							<DaysField value={draft.claimDays} onChange={(v) => set("claimDays", v)} label="Claimtermijn in dagen" control={fe.control("claimDays")} />
+							{fe.message("claimDays")}
+						</span>
 					</FieldRow>
 					<FieldRow label="Speciale termijnen">
 						<div className="flex flex-col gap-1.5">
 							{draft.specialWindows.map((w) => (
-								<div key={w.id} className="flex items-center gap-2 rounded-md bg-paper px-3 py-2 text-sm">
-									<span className="font-medium text-ink">{w.label}</span>
-									<span className="text-ink-3">
-										besteld {md(w.from)} – {md(w.to)}, {w.days} dagen
-									</span>
-									<button type="button" aria-label={`${w.label} verwijderen`} onClick={() => set("specialWindows", draft.specialWindows.filter((x) => x.id !== w.id))} className="ml-auto rounded-sm p-1 text-ink-3 hover:bg-ink/6 hover:text-ink">
-										<Trash2 className="size-3.5" strokeWidth={1.75} />
-									</button>
+								<div key={w.id} className="flex flex-col gap-1">
+									<div {...fe.control(`specialWindows.${w.id}`)} tabIndex={-1} className={cn("flex items-center gap-2 rounded-md bg-paper px-3 py-2 text-sm outline-none", INVALID_CLASS)}>
+										<span className="font-medium text-ink">{w.label}</span>
+										<span className="text-ink-3">
+											besteld {md(w.from)} – {md(w.to)}, {w.days} dagen
+										</span>
+										<span className="ml-auto flex items-center">
+											<button type="button" aria-label={`${w.label} bewerken`} onClick={() => setEditingWindow(w.id)} className="rounded-sm p-1 text-ink-3 hover:bg-ink/6 hover:text-ink">
+												<Pencil className="size-3.5" strokeWidth={1.75} />
+											</button>
+											<button type="button" aria-label={`${w.label} verwijderen`} onClick={() => set("specialWindows", draft.specialWindows.filter((x) => x.id !== w.id))} className="rounded-sm p-1 text-ink-3 hover:bg-ink/6 hover:text-ink">
+												<Trash2 className="size-3.5" strokeWidth={1.75} />
+											</button>
+										</span>
+									</div>
+									{fe.message(`specialWindows.${w.id}`)}
 								</div>
 							))}
 							<button
 								type="button"
-								onClick={() => set("specialWindows", [...draft.specialWindows, { id: `w_${Date.now().toString(36)}`, label: "Zomeractie", days: 45, from: "07-01", to: "08-31" }])}
+								onClick={() => setEditingWindow("new")}
 								className="flex h-8 w-fit items-center gap-1.5 rounded-md px-2 font-medium text-arc-ink text-sm hover:bg-arc-tint"
 							>
 								<Plus className="size-3.5" strokeWidth={2} />
@@ -138,7 +155,10 @@ export function ReturnSettingsPage() {
 								<Switch checked={r.quality} onCheckedChange={(v) => set("reasons", draft.reasons.map((x, j) => (j === i ? { ...x, quality: v } : x)))} aria-label={`${r.label} telt mee voor kwaliteit`} />
 								Telt mee voor kwaliteit
 							</label>
-							<DaysField value={r.windowDays ?? null} onChange={(v) => set("reasons", draft.reasons.map((x, j) => (j === i ? { ...x, windowDays: v ?? undefined } : x)))} label={`Eigen termijn voor ${r.label}`} placeholder="Standaard" small />
+							<span className="flex flex-col gap-1">
+								<DaysField value={r.windowDays ?? null} onChange={(v) => set("reasons", draft.reasons.map((x, j) => (j === i ? { ...x, windowDays: v ?? undefined } : x)))} label={`Eigen termijn voor ${r.label}`} placeholder="Standaard" small control={fe.control(`reasons.${r.id}.windowDays`)} />
+								{fe.message(`reasons.${r.id}.windowDays`)}
+							</span>
 						</li>
 					))}
 				</BandedList>
@@ -165,10 +185,16 @@ export function ReturnSettingsPage() {
 						</div>
 					</FieldRow>
 					<FieldRow label="Bonus op een cadeaubon">
-						<NumberWell value={draft.giftCardBonus} onChange={(v) => set("giftCardBonus", v)} unit="%" label="Bonus in procent" />
+						<span className="flex flex-col gap-1.5">
+							<NumberWell value={draft.giftCardBonus} onChange={(v) => set("giftCardBonus", v)} unit="%" label="Bonus in procent" control={fe.control("giftCardBonus")} />
+							{fe.message("giftCardBonus")}
+						</span>
 					</FieldRow>
 					<FieldRow label="Ruilkosten" hint="0 is gratis ruilen">
-						<NumberWell value={draft.exchangeFee} onChange={(v) => set("exchangeFee", v)} unit="€" label="Ruilkosten in euro" />
+						<span className="flex flex-col gap-1.5">
+							<NumberWell value={draft.exchangeFee} onChange={(v) => set("exchangeFee", v)} unit="€" label="Ruilkosten in euro" control={fe.control("exchangeFee")} />
+							{fe.message("exchangeFee")}
+						</span>
 					</FieldRow>
 				</div>
 			</SettingCard>
@@ -226,14 +252,18 @@ export function ReturnSettingsPage() {
 			<SettingCard id="claims" title="Claimstappen" icon={MessageSquare}>
 				<ol className="flex max-w-[480px] flex-col gap-1.5">
 					{draft.claimSteps.map((step, i) => (
-						<li key={i} className="flex items-center gap-2">
-							<span className="w-5 text-right text-ink-3 text-sm tabular-nums">{i + 1}</span>
-							<input
-								value={step}
-								aria-label={`Stap ${i + 1}`}
-								onChange={(e) => set("claimSteps", draft.claimSteps.map((x, j) => (j === i ? e.target.value : x)))}
-								className={cn(INPUT_CLASS, "h-8 text-sm")}
-							/>
+						<li key={i} className="flex flex-col gap-1">
+							<span className="flex items-center gap-2">
+								<span className="w-5 text-right text-ink-3 text-sm tabular-nums">{i + 1}</span>
+								<input
+									{...fe.control(`claimSteps.${i}`)}
+									value={step}
+									aria-label={`Stap ${i + 1}`}
+									onChange={(e) => set("claimSteps", draft.claimSteps.map((x, j) => (j === i ? e.target.value : x)))}
+									className={cn(INPUT_CLASS, "h-8 text-sm", INVALID_CLASS)}
+								/>
+							</span>
+							<span className="pl-7">{fe.message(`claimSteps.${i}`)}</span>
 						</li>
 					))}
 				</ol>
@@ -262,10 +292,16 @@ export function ReturnSettingsPage() {
 						<span className="flex h-9 items-center text-ink-2 text-sm">{source.portalAddress?.(draft.portal.handle) ?? `goinsyte.com/retour/${draft.portal.handle}`}</span>
 					</FieldRow>
 					<FieldRow label="Welkomsttekst">
-						<TextAreaField value={draft.portal.intro} onChange={(intro) => set("portal", { ...draft.portal, intro })} rows={2} />
+						<span className="flex flex-col gap-1.5">
+							<TextAreaField {...fe.control("portal.intro")} value={draft.portal.intro} onChange={(intro) => set("portal", { ...draft.portal, intro })} rows={2} />
+							{fe.message("portal.intro")}
+						</span>
 					</FieldRow>
 					<FieldRow label="Na de aanvraag">
-						<TextAreaField value={draft.portal.done} onChange={(done) => set("portal", { ...draft.portal, done })} rows={3} />
+						<span className="flex flex-col gap-1.5">
+							<TextAreaField {...fe.control("portal.done")} value={draft.portal.done} onChange={(done) => set("portal", { ...draft.portal, done })} rows={3} />
+							{fe.message("portal.done")}
+						</span>
 					</FieldRow>
 				</div>
 			</SettingCard>
@@ -280,6 +316,16 @@ export function ReturnSettingsPage() {
 					setEditingAddress(null);
 				}}
 			/>
+			<WindowDialog
+				key={`w-${editingWindow}`}
+				editing={editingWindow === null ? null : editingWindow === "new" ? undefined : draft.specialWindows.find((w) => w.id === editingWindow)}
+				others={draft.specialWindows.filter((w) => w.id !== editingWindow)}
+				onClose={() => setEditingWindow(null)}
+				onSave={(w) => {
+					set("specialWindows", draft.specialWindows.some((x) => x.id === w.id) ? draft.specialWindows.map((x) => (x.id === w.id ? w : x)) : [...draft.specialWindows, w]);
+					setEditingWindow(null);
+				}}
+			/>
 			<RuleDialog
 				products={source.products}
 				open={addingRule}
@@ -292,7 +338,8 @@ export function ReturnSettingsPage() {
 			<UnsavedBar
 				visible={dirty && gate.ok}
 				onDiscard={() => setDraft(saved)}
-				onSave={() => source.save(draft, { label: "Retourinstellingen opgeslagen", detail: "Het portaal gebruikt ze meteen." })}
+				// The guard lets the draft through only with every number filled in, so it is the settings again.
+				onSave={fe.guard(() => source.save(draft as ReturnSettings, { label: "Retourinstellingen opgeslagen", detail: "Het portaal gebruikt ze meteen." }))}
 			/>
 			<PageGuide id="settings.returns" title="Retouren" steps={GUIDE} />
 		</>
@@ -443,17 +490,22 @@ function RuleDialog({ products, open, onClose, onAdd }: { products: ReadonlyArra
 	);
 }
 
-function DaysField({ value, onChange, label, placeholder, small = false }: { value: number | null; onChange: (v: number | null) => void; label: string; placeholder?: string; small?: boolean }) {
+/**
+ * A number of days. Only digits go in: a letter is ignored rather than turning the field into 0. Emptied, it is `null`:
+ * "Standaard" where the field has one (`placeholder`), otherwise a field still to fill in, said under it.
+ */
+function DaysField({ value, onChange, label, placeholder, small = false, control }: { value: number | null; onChange: (v: number | null) => void; label: string; placeholder?: string; small?: boolean; control?: FieldControl }) {
 	return (
-		<label className={cn("field flex items-center gap-2 rounded-md px-3 focus-within:bg-paper", small ? "h-8 w-[120px] text-sm" : "h-9 w-40 text-base")}>
+		<label className={cn("field flex items-center gap-2 rounded-md px-3 focus-within:bg-paper has-[[aria-invalid=true]]:bg-signal-red-bg", small ? "h-8 w-[120px] text-sm" : "h-9 w-40 text-base")}>
 			<input
+				{...control}
 				inputMode="numeric"
 				aria-label={label}
 				value={value === null ? "" : String(value)}
 				placeholder={placeholder}
 				onChange={(e) => {
 					const d = e.target.value.replace(/[^0-9]/g, "");
-					onChange(d === "" ? (placeholder ? null : 0) : Number(d));
+					onChange(d === "" ? null : Number(d));
 				}}
 				className="min-w-0 flex-1 bg-transparent text-ink tabular-nums outline-none placeholder:text-ink-3"
 			/>
@@ -462,22 +514,138 @@ function DaysField({ value, onChange, label, placeholder, small = false }: { val
 	);
 }
 
-function NumberWell({ value, onChange, unit, label }: { value: number; onChange: (v: number) => void; unit: string; label: string }) {
+/** "12,5" as 12.5; empty is `null`. */
+const parseAmount = (text: string) => {
+	const t = text.trim().replace(",", ".");
+	return t === "" || !/^\d+(\.\d*)?$/.test(t) ? null : Number(t);
+};
+const showAmount = (n: number | null) => (n === null ? "" : String(n).replace(".", ","));
+
+/**
+ * An amount or a percentage, with a decimal comma. What is typed stays as typed ("12," on the way to "12,5"); only
+ * digits and one comma go in, and an empty field is `null`, said under it.
+ */
+function NumberWell({ value, onChange, unit, label, control }: { value: number | null; onChange: (v: number | null) => void; unit: string; label: string; control?: FieldControl }) {
+	const [text, setText] = useState(showAmount(value));
+	// A value changed from outside (Negeren, a save that came back) replaces what was typed.
+	if (parseAmount(text) !== value) setText(showAmount(value));
 	return (
-		<label className="field flex h-9 w-32 items-center gap-2 rounded-md px-3 text-base focus-within:bg-paper">
+		<label className="field flex h-9 w-32 items-center gap-2 rounded-md px-3 text-base focus-within:bg-paper has-[[aria-invalid=true]]:bg-signal-red-bg">
 			{unit === "€" ? <span className="text-ink-3">€</span> : null}
 			<input
+				{...control}
 				inputMode="decimal"
 				aria-label={label}
-				value={String(value).replace(".", ",")}
+				value={text}
 				onChange={(e) => {
-					const n = Number(e.target.value.replace(",", ".").replace(/[^0-9.]/g, ""));
-					if (!Number.isNaN(n)) onChange(n);
+					const next = e.target.value.replace(/\./g, ",").replace(/[^0-9,]/g, "").replace(/^([^,]*,[^,]*),.*$/, "$1");
+					setText(next);
+					onChange(parseAmount(next));
 				}}
 				className="min-w-0 flex-1 bg-transparent text-ink tabular-nums outline-none"
 			/>
 			{unit === "%" ? <span className="text-ink-3">%</span> : null}
 		</label>
+	);
+}
+
+const MONTH_NAMES = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
+
+/** A day of the year, by day and month: a special window comes back every year. */
+function MonthDayField({ value, onChange, label, control }: { value: string; onChange: (v: string) => void; label: string; control: FieldControl }) {
+	const [m = 1, d = 1] = value.split("-").map(Number);
+	const put = (month: number, day: number) => onChange(`${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+	return (
+		<span className="grid grid-cols-[80px_minmax(0,1fr)] gap-2">
+			<select {...control} aria-label={`${label}: dag`} value={d} onChange={(e) => put(m, Number(e.target.value))} className={cn(INPUT_CLASS, "h-11", INVALID_CLASS)}>
+				{Array.from({ length: 31 }, (_, i) => i + 1).map((n) => (
+					<option key={n} value={n}>
+						{n}
+					</option>
+				))}
+			</select>
+			<select aria-label={`${label}: maand`} value={m} onChange={(e) => put(Number(e.target.value), d)} className={cn(INPUT_CLASS, "h-11")}>
+				{MONTH_NAMES.map((name, i) => (
+					<option key={name} value={i + 1}>
+						{name}
+					</option>
+				))}
+			</select>
+		</span>
+	);
+}
+
+/**
+ * "Periode toevoegen" and its edit: a name, the order dates it covers and how many days a return may take for an order
+ * placed in it, and not the same period twice, by name or by dates. A wrong field is said once it is left, or all of
+ * them when the button is pressed, with the focus on the first.
+ */
+function WindowDialog({ editing, others, onClose, onSave }: { editing: SpecialWindow | null | undefined; others: ReadonlyArray<SpecialWindow>; onClose: () => void; onSave: (w: SpecialWindow) => void }) {
+	const open = editing !== null;
+	const [label, setLabel] = useState(editing?.label ?? "");
+	const [from, setFrom] = useState(editing?.from ?? "07-01");
+	const [to, setTo] = useState(editing?.to ?? "08-31");
+	const [days, setDays] = useState<number | null>(editing?.days ?? null);
+	const [seen, setSeen] = useState<ReadonlySet<string> | "all">(() => new Set());
+	const all = windowErrors({ id: editing?.id ?? "", label, from, to, days }, others);
+	const shown = seen === "all" ? all : Object.fromEntries(Object.entries(all).filter(([k]) => seen.has(k)));
+	const fe = useFieldErrors(shown, { draftKey: "" });
+	const left = (k: string) => setSeen((s) => (s === "all" ? s : new Set([...s, k])));
+	return (
+		<FormDialog
+			open={open}
+			onOpenChange={(o) => !o && onClose()}
+			title={editing ? "Periode bewerken" : "Periode toevoegen"}
+			description="Voor bestellingen in deze periode geldt een eigen retourtermijn, elk jaar opnieuw."
+			primaryLabel={editing ? "Opslaan" : "Periode toevoegen"}
+			onSubmit={() => {
+				if (days === null || Object.keys(all).length > 0) {
+					setSeen("all");
+					requestAnimationFrame(() => fe.focusFirst(all));
+					return;
+				}
+				onSave({ id: editing?.id ?? `w_${Date.now().toString(36)}`, label: label.trim(), from, to, days });
+			}}
+		>
+			<label className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Naam</span>
+				<input {...fe.control("label")} value={label} onChange={(e) => setLabel(e.target.value)} onBlur={() => left("label")} placeholder="Bijvoorbeeld: Feestdagen" className={cn(INPUT_CLASS, "h-11", INVALID_CLASS)} />
+				{fe.message("label")}
+			</label>
+			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+				<div className="flex flex-col gap-1.5">
+					<span className="font-medium text-ink-3 text-sm">Besteld vanaf</span>
+					<MonthDayField
+						value={from}
+						onChange={(v) => {
+							setFrom(v);
+							left("from");
+						}}
+						label="Besteld vanaf"
+						control={fe.control("from")}
+					/>
+					{fe.message("from")}
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<span className="font-medium text-ink-3 text-sm">Tot en met</span>
+					<MonthDayField
+						value={to}
+						onChange={(v) => {
+							setTo(v);
+							left("to");
+						}}
+						label="Tot en met"
+						control={fe.control("to")}
+					/>
+					{fe.message("to")}
+				</div>
+			</div>
+			<div className="flex flex-col gap-1.5" onBlur={() => left("days")}>
+				<span className="font-medium text-ink-3 text-sm">Retourtermijn voor deze bestellingen</span>
+				<DaysField value={days} onChange={setDays} label="Retourtermijn voor deze periode in dagen" control={fe.control("days")} />
+				{fe.message("days")}
+			</div>
+		</FormDialog>
 	);
 }
 
