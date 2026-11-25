@@ -5,6 +5,7 @@ import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_LINES } from "@insyte/integrations-shopify/RecordedStore"
 import { addLine, emptyBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
+import { storesToReconcile, sweepStores } from "@insyte/modules/stores/use-cases/reconcile"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
@@ -138,6 +139,28 @@ const StoreSeed = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/stores/reconcile?workspace=<id>&store=<id>`: the 15-minute reconcile sweep's run (M6.3) as the cron
+ * starts it, narrowed to that one store, so a worker test waits on its own store's sweep and not on every other store
+ * the shared test database holds (a store just imported is the last the cron reads). Answers whether the cron lists the
+ * store and how many stores the run swept. Refused in production.
+ */
+const StoreReconcile = HttpRouter.add(
+  "POST",
+  "/api/__dev/stores/reconcile",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const store = new URL(request.url, "http://local").searchParams.get("store") ?? ""
+    const listed = (yield* storesToReconcile()).filter((s) => s.workspaceId === workspace && s.storeId === store)
+    const swept = yield* sweepStores(listed)
+    return HttpServerResponse.jsonUnsafe({ listed: listed.length > 0, swept })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
  * `POST /api/__dev/stores/unmake?workspace=<id>&product=<id>`: a product made in Insyte and not yet Shopify's, gone from
  * Insyte as an undo from the agent log leaves it, so the create tests can stand between a try whose answer was lost and
  * the next. Answers whether it was there. Refused in production.
@@ -160,4 +183,4 @@ const StoreUnmake = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
-export const StoreRoutes = Layer.mergeAll(StoreSeed, StoreConnection, StoreMirror, StoreUnmake)
+export const StoreRoutes = Layer.mergeAll(StoreSeed, StoreConnection, StoreMirror, StoreReconcile, StoreUnmake)
