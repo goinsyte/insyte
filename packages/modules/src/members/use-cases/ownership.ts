@@ -3,6 +3,7 @@ import { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { memberName } from "../../shared/use-cases/LogNames.ts"
 import { readTeam } from "./team.ts"
 
 /*
@@ -40,7 +41,9 @@ export const transferOwnership = Effect.fn("Members.transferOwnership")(function
         action: "workspace.ownership_transferred",
         subjectType: "member",
         subjectId: id,
-        diff: { owner: [principal.id, id], role: [target.roleId, "owner"], formerOwnerRole: FORMER_OWNER_ROLE }
+        section: "team",
+        diff: { owner: [principal.id, id], role: [target.roleId, "owner"], formerOwnerRole: FORMER_OWNER_ROLE },
+        log: { name: yield* memberName(sql, id) }
       })
       return yield* readTeam(sql)
     })

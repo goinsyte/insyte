@@ -21,7 +21,8 @@ export type Vat = { stores: StoreVat[]; oss: boolean; ossNumber: string };
 export type Retention = { id: string; label: string; detail: string; months: number | null; count: number };
 export type Privacy = { classes: Retention[]; erasing: boolean; countedAt?: string };
 
-export type AuditEntry = { id: string; at: string; who: string; page: string; to: string; field: string; before: string; after: string };
+/** One line of the Logboek; `before` is `null` for an event ("API-sleutel aangemaakt"), which has nothing it was. */
+export type AuditEntry = { id: string; at: string; who: string; page: string; to: string; field: string; before: string | null; after: string };
 export type TrashItem = { id: string; kind: "ticket" | "klant" | "automatisering" | "rekenblad" | "sjabloon" | "notitie" | "cursus" | "webhook" | "kostenpost" | "leverancier"; title: string; by: string; at: string; /** When it goes for good, where that is not `at` + TRASH_DAYS (a kind that joined the trash later). */ purgeAt?: string };
 
 export type GoTo = { id: string; label: string; to: string; key: string };

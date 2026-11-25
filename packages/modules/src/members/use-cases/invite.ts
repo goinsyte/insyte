@@ -8,6 +8,7 @@ import type { SqlClient } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { narrowStores, type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { roleLabel } from "../../shared/use-cases/LogNames.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
 import { type InviteRow, SeatLimitReached } from "../domain/Team.ts"
@@ -122,7 +123,9 @@ export const send = Effect.fn("Invitations.send")(function*(rows: ReadonlyArray<
           action: "member.invited",
           subjectType: "invitation",
           subjectId: id,
-          diff: { role: row.roleId }
+          section: "team",
+          diff: { role: row.roleId },
+          log: { name: `${row.email} (${yield* roleLabel(sql, row.roleId)})` }
         })
         queued.push(yield* mailLater(sql, id, round))
       }

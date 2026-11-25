@@ -249,6 +249,73 @@ const write = Effect.fn("Returns.writeSettings")(function*(sql: SqlClient.SqlCli
   yield* sql`update claim_flows set steps = ${[...doc.claimSteps]}::text[]`
 })
 
+/** A rule's subject as the page shows it: the product's or variant's name, or the tag. */
+const ruleName = (r: ReturnSettingsDoc["rules"][number]) =>
+  r.target.by === "tag" ? `Label “${r.target.tag}”` : r.target.label
+
+/** Items of a list matched by id: the ones added, gone, and in both. */
+const matched = <T>(before: ReadonlyArray<T>, after: ReadonlyArray<T>, id: (t: T) => string) => {
+  const was = new Map(before.map((t) => [id(t), t]))
+  const is = new Map(after.map((t) => [id(t), t]))
+  return {
+    added: after.filter((t) => !was.has(id(t))),
+    gone: before.filter((t) => !is.has(id(t))),
+    both: after.flatMap((t) => (was.has(id(t)) ? [[was.get(id(t))!, t] as const] : []))
+  }
+}
+
+/**
+ * What a save of the page changed, as the Logboek lists it: the terms and money as they were and became, a reason,
+ * rule, address or special term added or taken away by its name, and a reason's switches per reason.
+ */
+export const returnChanges = (before: ReturnSettingsDoc, after: ReturnSettingsDoc): Array<Audit.LogChange> => {
+  const flat = (d: ReturnSettingsDoc) => ({
+    returnDays: d.returnDays,
+    claimDays: d.claimDays,
+    offered: OFFERED.filter((o) => d.offered.includes(o)),
+    giftCardBonusPct: d.giftCardBonusPct,
+    exchangeFeeMinor: d.exchangeFeeMinor,
+    portalOn: d.portal.on,
+    portalIntro: d.portal.intro,
+    portalDone: d.portal.done,
+    claimSteps: d.claimSteps,
+    rejectReasons: d.rejectReasons
+  })
+  const listed = <T>(
+    field: string,
+    list: (d: ReturnSettingsDoc) => ReadonlyArray<T>,
+    id: (t: T) => string,
+    name: (t: T) => string
+  ) => {
+    const m = matched(list(before), list(after), id)
+    return [
+      ...m.added.map((t) => ({ field, key: id(t), of: name(t), before: null, after: id(t) })),
+      ...m.gone.map((t) => ({ field, key: id(t), of: name(t), before: id(t), after: null })),
+      ...(field === "reason" ? [] : m.both)
+        .filter(([was, is]) => JSON.stringify(was) !== JSON.stringify(is))
+        .map(([, is]) => ({ field, key: id(is), of: name(is), before: id(is), after: id(is) }))
+    ]
+  }
+  const reasons = matched(before.reasons, after.reasons, (r) => r.id)
+  const asReason = (r: ReturnSettingsDoc["reasons"][number]) => ({
+    reasonLabel: r.label,
+    reasonClaim: r.claim,
+    reasonPhoto: r.photoRequired,
+    reasonQuality: r.quality,
+    reasonDays: r.windowDays
+  })
+  return [
+    ...Audit.fieldChanges(flat(before), flat(after), Object.keys(flat(after))),
+    ...listed("specialWindow", (d) => d.specialWindows, (w) => w.id, (w) => w.label),
+    ...listed("reason", (d) => d.reasons, (r) => r.id, (r) => r.label),
+    ...reasons.both.flatMap(([was, is]) =>
+      Audit.fieldChanges(asReason(was), asReason(is), Object.keys(asReason(is)), { key: is.id, of: is.label })
+    ),
+    ...listed("rule", (d) => d.rules, (r) => JSON.stringify(r.target), ruleName),
+    ...listed("address", (d) => d.addresses, (a) => a.country, (a) => a.label)
+  ]
+}
+
 const invalid = (doc: ReturnSettingsDoc): Record<string, string> | null => {
   const fields: Record<string, string> = {}
   if (new Set(doc.reasons.map((r) => r.id)).size !== doc.reasons.length) fields["reasons"] = "duplicate"
@@ -270,7 +337,9 @@ export const set = Effect.fn("Returns.settings.set")(function*(doc: ReturnSettin
         action: "returns.settings_updated",
         subjectType: "workspace",
         subjectId: principal.workspaceId,
-        diff: { returnDays: doc.returnDays, claimDays: doc.claimDays, portalOn: doc.portal.on }
+        section: "returns",
+        diff: { returnDays: doc.returnDays, claimDays: doc.claimDays, portalOn: doc.portal.on },
+        log: { changes: returnChanges(before, doc) }
       })
       const document = yield* Schema.encodeEffect(ReturnSettingsDoc)(before).pipe(Effect.orDie)
       const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { kind: "settings", document } })
@@ -287,5 +356,16 @@ export const restoreSettings = Effect.fn("Returns.restoreSettings")(function*(
   document: unknown
 ) {
   yield* Policy.require("returns", 3)
-  yield* write(sql, yield* decodeDoc(document).pipe(Effect.orDie))
+  const principal = yield* CurrentPrincipal
+  const before = toDoc(yield* load(sql))
+  const doc = yield* decodeDoc(document).pipe(Effect.orDie)
+  yield* write(sql, doc)
+  yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
+    action: "returns.settings_updated",
+    subjectType: "workspace",
+    subjectId: principal.workspaceId,
+    section: "returns",
+    diff: { returnDays: doc.returnDays, claimDays: doc.claimDays, portalOn: doc.portal.on, undo: true },
+    log: { changes: returnChanges(before, doc) }
+  })
 })

@@ -119,18 +119,44 @@ export const readOne = (sql: SqlClient.SqlClient, id: string) =>
         : Effect.succeed(toView(row))
   )
 
-const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
-  Effect.flatMap(
-    Effect.service(CurrentPrincipal),
-    (p) =>
-      Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, {
-        action,
-        subjectType: "webhook_endpoint",
-        subjectId,
-        section: "webhooks",
-        diff
-      })
-  )
+/** In the Logboek on Webhooks, by the endpoint's address. */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  subjectId: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
+  Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    const [endpoint] = yield* sql<{ url: string }>`select url from webhook_endpoints where id = ${subjectId}`
+    yield* Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, {
+      action,
+      subjectType: "webhook_endpoint",
+      subjectId,
+      section: "webhooks",
+      diff,
+      log: { name: endpoint?.url, changes }
+    })
+  })
+
+/** What a save of the form changed, as the Logboek lists it; a header by its name only, never its value. */
+export const endpointChanges = (
+  before: Omit<Settings, "autoDisabledAt" | "consecutiveFailures">,
+  after: Omit<Settings, "autoDisabledAt" | "consecutiveFailures">
+): Array<Audit.LogChange> => {
+  const flat = (s: Omit<Settings, "autoDisabledAt" | "consecutiveFailures">) => ({
+    url: s.url,
+    description: s.description,
+    events: [...s.events].sort(),
+    apiVersion: s.apiVersion,
+    stores: s.stores === "all" ? "Alle winkels" : `${s.stores.length} winkels`,
+    headers: s.headers.map((h) => h.key).sort(),
+    retry: s.retry,
+    active: s.active
+  })
+  return Audit.fieldChanges(flat(before), flat(after), Object.keys(flat(after)))
+}
 
 /** What the form may not hold, field by field (widgets/05 §5.3, Forms). */
 const checkInput = (sql: SqlClient.SqlClient, input: EndpointInput) =>
@@ -257,7 +283,7 @@ export const update = Effect.fn("Webhooks.update")(function*(input: UpdateEndpoi
       const headers = yield* sealHeaders(input.headers, before.headers)
       // Switching an endpoint on from the form clears Insyte's own switch-off, as "Weer aanzetten" does.
       const reopened = input.active && (!before.active || before.autoDisabledAt !== null)
-      yield* writeSettings(sql, input.id, {
+      const next: Settings = {
         url: input.url.trim(),
         description: input.description.trim(),
         events: [...new Set(input.events)],
@@ -268,8 +294,15 @@ export const update = Effect.fn("Webhooks.update")(function*(input: UpdateEndpoi
         active: input.active,
         autoDisabledAt: reopened ? null : before.autoDisabledAt,
         consecutiveFailures: reopened && before.autoDisabledAt !== null ? 0 : before.consecutiveFailures
-      })
-      yield* audit(sql, "webhook.updated", input.id, { url: before.url === input.url.trim() ? undefined : "changed" })
+      }
+      yield* writeSettings(sql, input.id, next)
+      yield* audit(
+        sql,
+        "webhook.updated",
+        input.id,
+        { url: before.url === input.url.trim() ? undefined : "changed" },
+        endpointChanges(before, next)
+      )
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
         compensation: { op: "settings", id: input.id, before: snapshot(before) }
@@ -499,14 +532,16 @@ export const purgeIn = Effect.fn("Webhooks.purge")(function*(
   actor: Audit.Actor
 ) {
   if (ids.length === 0) return
-  const gone = yield* sql<{ id: string }>`
-    delete from webhook_endpoints where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id`
+  const gone = yield* sql<{ id: string; url: string }>`
+    delete from webhook_endpoints where id in ${sql.in([...new Set(ids)])} and deleted_at is not null
+    returning id, url`
   for (const e of gone) {
     yield* Audit.write(sql, workspaceId, actor, {
       action: "webhook.purged",
       subjectType: "webhook_endpoint",
       subjectId: e.id,
-      section: "webhooks"
+      section: "webhooks",
+      log: { name: e.url }
     })
   }
 })

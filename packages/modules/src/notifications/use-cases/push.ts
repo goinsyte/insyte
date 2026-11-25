@@ -86,7 +86,9 @@ export const subscribe = Effect.fn("Notifications.subscribePush")(function*(inpu
         action: "notifications.push_subscribed",
         subjectType: "push_subscription",
         subjectId: row!.id,
-        diff: { label: input.label.trim() }
+        section: "notifications",
+        diff: { label: input.label.trim() },
+        log: { name: input.label.trim() }
       })
       return deviceOf(row!)
     })
@@ -105,7 +107,8 @@ export const unsubscribe = Effect.fn("Notifications.unsubscribePush")(function*(
         yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
           action: "notifications.push_unsubscribed",
           subjectType: "push_subscription",
-          subjectId: deviceId
+          subjectId: deviceId,
+          section: "notifications"
         })
       }
       return yield* devicesIn(sql, principal.id)

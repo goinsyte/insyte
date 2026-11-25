@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { memberName, roleLabels, storesSaid } from "../../shared/use-cases/LogNames.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
 import { closeSockets } from "./access-ended.ts"
 import { beyondReach, grantable } from "./invite.ts"
@@ -38,12 +39,25 @@ const target = (sql: SqlClient.SqlClient, id: string) =>
     return row
   })
 
-const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
-  Effect.flatMap(
-    Effect.service(CurrentPrincipal),
-    (p) =>
-      Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, { action, subjectType: "member", subjectId, diff })
-  )
+/** In the Logboek on Team, by the member's name. */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  subjectId: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
+  Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    yield* Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, {
+      action,
+      subjectType: "member",
+      subjectId,
+      section: "team",
+      diff,
+      log: { name: yield* memberName(sql, subjectId), changes }
+    })
+  })
 
 export const setRole = Effect.fn("Members.setRole")(function*(id: string, roleId: string) {
   yield* Policy.require("team", 3)
@@ -54,7 +68,10 @@ export const setRole = Effect.fn("Members.setRole")(function*(id: string, roleId
       const before = yield* target(sql, id)
       if (yield* beyondReach(sql, roleId, before.stores)) return yield* new Invalid({ fields: { stores: "forbidden" } })
       yield* sql`update members set role_id = ${roleId} where id = ${id}`
-      yield* audit(sql, "member.role_changed", id, { role: [before.roleId, roleId] })
+      const labels = yield* roleLabels(sql, [before.roleId, roleId])
+      yield* audit(sql, "member.role_changed", id, { role: [before.roleId, roleId] }, [
+        { field: "role", before: labels.get(before.roleId) ?? before.roleId, after: labels.get(roleId) ?? roleId }
+      ])
       return yield* readTeam(sql)
     })
   )
@@ -88,7 +105,9 @@ export const setStores = Effect.fn("Members.setStores")(function*(id: string, st
       }
       if (JSON.stringify(before.stores) === JSON.stringify(next)) return yield* readTeam(sql)
       yield* sql`update members set stores = ${JSON.stringify(next)}::jsonb where id = ${id}`
-      yield* audit(sql, "member.stores_changed", id, { stores: [before.stores, next] })
+      yield* audit(sql, "member.stores_changed", id, { stores: [before.stores, next] }, [
+        { field: "stores", before: yield* storesSaid(sql, before.stores), after: yield* storesSaid(sql, next) }
+      ])
       return yield* readTeam(sql)
     })
   )
