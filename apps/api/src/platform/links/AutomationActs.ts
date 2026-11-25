@@ -49,6 +49,13 @@ const money = (minor: number, currency: string) => {
   return `${SYMBOL[currency.toUpperCase()] ?? currency.toUpperCase()} ${text}`
 }
 
+/**
+ * `limitMinor` in `from` (the workspace's currency) as an amount in `to` (the order's), at `rate` (1 `to` = rate
+ * `from`), rounded down: a flow never refunds more than it may.
+ */
+export const limitIn = (limitMinor: number, from: string, to: string, rate: number) =>
+  from === to ? limitMinor : Math.floor((limitMinor / toMinor("1", from) / rate) * toMinor("1", to) + 1e-6)
+
 const fail = (explanation: string, terminal = true) => Effect.fail(new StepFailed({ explanation, terminal }))
 
 /** The run's order, or the step cannot do anything: a mail or a stock run has none. */
@@ -639,26 +646,39 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
                 explanation: `${money(amountMinor, currency)} terugbetaald; Shopify verwerkt het.`
               }
             }
-            if (currency !== o.workspaceCurrency.trim().toUpperCase() || THREE_DECIMALS.has(currency)) {
+            if (THREE_DECIMALS.has(currency)) {
+              return yield* fail(`Deze bestelling is in ${currency}; daarin betaalt een flow niet terug. Doe het zelf.`)
+            }
+            // The limits are in the workspace's currency; the order is refunded in its own, at the latest ECB rate.
+            const own = o.workspaceCurrency.trim().toUpperCase()
+            const [fx] = currency === own ? [{ rate: "1" }] : yield* sql<{ rate: string }>`
+              select rate::text as rate from fx_rates
+              where base = ${currency} and quote = ${own} and day <= current_date order by day desc limit 1`
+            if (fx === undefined) {
               return yield* fail(
-                `Deze bestelling is in ${currency}; een flow betaalt alleen terug in ${o.workspaceCurrency.trim()}. Doe het zelf.`
+                `Er is nog geen wisselkoers van ${currency} naar ${own}, dus de flow kan zijn limiet niet toetsen. Doe het zelf.`
               )
             }
+            const rate = Number(fx.rate)
             const asked = amountOf(input.text("amount"), currency)
             if (asked === undefined) {
               return yield* fail(`“${input.text("amount")}” is geen bedrag; schrijf “volledig” of “25,00”.`)
             }
-            const capMinor = toMinor(String(FLOW_REFUND_CAP), currency)
-            const limit = yield* limitOf(sql, input.plan, o.storeId, capMinor)
-            if ("refused" in limit) return yield* fail(limit.refused)
+            const capMinor = toMinor(String(FLOW_REFUND_CAP), own)
+            const allowed = yield* limitOf(sql, input.plan, o.storeId, capMinor)
+            if ("refused" in allowed) return yield* fail(allowed.refused)
+            const limit = { limitMinor: limitIn(allowed.limitMinor, own, currency, rate) }
+            const limitText = currency === own
+              ? money(limit.limitMinor, currency)
+              : `${money(limit.limitMinor, currency)}, ${money(allowed.limitMinor, own)} tegen de ECB-koers`
             const balance = Number(o.balanceMinor)
             const amountMinor = asked === "full" ? balance : asked
             if (amountMinor <= 0) return yield* fail("De bestelling is al volledig terugbetaald.")
             if (amountMinor > limit.limitMinor) {
               return yield* fail(
-                `${money(amountMinor, currency)} is meer dan de flow per bestelling mag terugbetalen (${
-                  money(limit.limitMinor, currency)
-                }). Doe het zelf, of vraag eerst goedkeuring.`
+                `${
+                  money(amountMinor, currency)
+                } is meer dan de flow per bestelling mag terugbetalen (${limitText}). Doe het zelf, of vraag eerst goedkeuring.`
               )
             }
             const byFlows = Number(o.byFlowsMinor)
@@ -666,9 +686,7 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
               return yield* fail(
                 `Flows betaalden op deze bestelling al ${money(byFlows, currency)} terug; met ${
                   money(amountMinor, currency)
-                } erbij is het meer dan flows per bestelling mogen (${
-                  money(limit.limitMinor, currency)
-                }). Doe het zelf, of vraag eerst goedkeuring.`
+                } erbij is het meer dan flows per bestelling mogen (${limitText}). Doe het zelf, of vraag eerst goedkeuring.`
               )
             }
             const done = yield* refundOn(sql, { id: orderId, refundId: refundId as never, amountMinor, note }).pipe(

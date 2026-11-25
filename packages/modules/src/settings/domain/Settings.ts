@@ -67,11 +67,13 @@ export type UploadedLogo = typeof UploadedLogo.Type
 
 /* ── Btw ──────────────────────────────────────────────────────────────────────────────────────── */
 
-export const VAT_CURRENCIES = ["EUR", "USD", "GBP"] as const
-
 export const StoreVat = Schema.Struct({
   storeId: Schema.String,
-  currency: Schema.Literals(VAT_CURRENCIES),
+  /**
+   * What the store sells in: Shopify's (`stores.currency`), shown beside its VAT and never set here. A save ignores
+   * what it is sent; `null` while the store has not said yet.
+   */
+  currency: Schema.NullOr(Schema.String),
   vatOnShipping: Schema.Boolean,
   refundInclVat: Schema.Boolean
 })

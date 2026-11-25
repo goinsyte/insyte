@@ -106,13 +106,20 @@ const statsOf = Effect.fn("Chargebacks.statsOf")(function*(sql: SqlClient.SqlCli
   const scope = yield* caseScope(sql)
   const [w] = yield* sql<{ currency: string }>`select currency from workspaces where id = app_workspace_id()`
   const currency = (w?.currency ?? "EUR").trim()
+  // Recovered: the cases won, each converted into the workspace's currency at the rate of the day it was decided (a
+  // case in a currency without a rate is left out).
   const [row] = yield* sql<{ open: number; won: number; decided: number; recovered: string }>`
     select count(*) filter (where c.status in ('open', 'awaiting_evidence'))::int as open,
            count(*) filter (where c.status = 'won')::int as won,
            count(*) filter (where c.status in ('won', 'lost'))::int as decided,
-           coalesce(sum(c.amount_minor) filter (where c.status = 'won' and c.currency = ${currency}), 0)::bigint
-             as recovered
-    from chargebacks c where ${scope}`
+           coalesce(round(sum(c.amount_minor * fx.rate) filter (where c.status = 'won')), 0)::bigint as recovered
+    from chargebacks c
+    left join lateral (
+      select case when c.currency = ${currency} then 1::numeric else (
+        select x.rate from fx_rates x
+        where x.base = c.currency and x.quote = ${currency} and x.day <= coalesce(c.outcome_at, c.opened_at)::date
+        order by x.day desc limit 1) end as rate) fx on true
+    where ${scope}`
   const won = row?.won ?? 0
   const decided = row?.decided ?? 0
   return new ChargebackStats({

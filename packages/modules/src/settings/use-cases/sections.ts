@@ -28,7 +28,6 @@ import {
   type SaveSection,
   type SettingsSectionId,
   ShippingValue,
-  VAT_CURRENCIES,
   type VatStore,
   VatValue
 } from "../domain/Settings.ts"
@@ -92,20 +91,22 @@ const brandDefaults = (sql: SqlClient.SqlClient) =>
     })
   )
 
-/** Every store with its saved settings, or what a new one starts from: its Shopify currency, VAT counted both ways. */
+/**
+ * Every store with its saved settings, or what a new one starts from (VAT counted both ways), and always the currency
+ * it sells in as Shopify has it now: a currency saved here once (the page used to offer a choice) no longer counts.
+ */
 const vatOf = (raw: unknown, stores: ReadonlyArray<{ id: string; currency: string | null }>): VatValue => {
   const saved = decodeOr(VatValue, raw, { stores: [], oss: false, ossNumber: "" })
   return {
-    stores: stores.map((s) =>
-      saved.stores.find((v) => v.storeId === s.id) ?? {
+    stores: stores.map((s) => {
+      const own = saved.stores.find((v) => v.storeId === s.id)
+      return {
         storeId: s.id,
-        currency: (VAT_CURRENCIES as ReadonlyArray<string>).includes(s.currency ?? "")
-          ? (s.currency as VatValue["stores"][number]["currency"])
-          : "EUR",
-        vatOnShipping: true,
-        refundInclVat: true
+        currency: s.currency?.trim() ?? null,
+        vatOnShipping: own?.vatOnShipping ?? true,
+        refundInclVat: own?.refundInclVat ?? true
       }
-    ),
+    }),
     oss: saved.oss,
     ossNumber: saved.ossNumber
   }
@@ -233,7 +234,7 @@ const changes = (section: SettingsSectionId, before: unknown, after: unknown): A
       const prev = (a as VatValue).stores
       for (const s of (b as VatValue).stores) {
         const o = prev.find((x) => x.storeId === s.storeId)
-        field("currency", o?.currency, s.currency, s.storeId)
+        // The currency is Shopify's, not a setting of this page: no line of its own.
         field("vatOnShipping", o?.vatOnShipping, s.vatOnShipping, s.storeId)
         field("refundInclVat", o?.refundInclVat, s.refundInclVat, s.storeId)
       }
@@ -280,7 +281,7 @@ const check = (sql: SqlClient.SqlClient, section: SettingsSectionId, value: unkn
         return checkSenders(value, domain, yield* mailboxesOf(sql)) as Checked<unknown>
       }
       case "vat":
-        return checkVat(value, (yield* storesOf(sql)).map((s) => s.id)) as Checked<unknown>
+        return checkVat(value, yield* storesOf(sql)) as Checked<unknown>
       case "retention":
         return checkRetention(value) as Checked<unknown>
     }

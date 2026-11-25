@@ -12,6 +12,7 @@ import {
   returnRate,
   reviewDeadline,
   ruleFor,
+  shopperCurrency,
   windowCheck,
   windowDaysFor
 } from "../src/app/lib/returns.ts"
@@ -102,6 +103,19 @@ describe("money", () => {
     expect(resolutionAmount("gift_card", 100, { giftCardBonus: 10, exchangeFee: 0 })).toBe(110)
     expect(resolutionAmount("exchange", 100, { giftCardBonus: 10, exchangeFee: 4.95 })).toBe(4.95)
     expect(resolutionAmount("refund", 89, { giftCardBonus: 10, exchangeFee: 0 })).toBe(89)
+  })
+
+  it("asks the exchange fee in the currency the stores sell in", () => {
+    expect(shopperCurrency([{ currency: "USD", status: "connected" }])).toBe("USD")
+    expect(shopperCurrency([{ currency: "USD", status: "connected" }, { currency: "USD " }])).toBe("USD")
+    // Stores in two currencies: the same amount holds in each one's.
+    expect(shopperCurrency([{ currency: "USD", status: "connected" }, { currency: "EUR", status: "connected" }]))
+      .toBeNull()
+    // A disconnected store, or one that has not said, does not count.
+    expect(shopperCurrency([{ currency: "USD", status: "connected" }, { currency: "EUR", status: "disconnected" }]))
+      .toBe("USD")
+    expect(shopperCurrency([{ currency: null, status: "connecting" }])).toBeUndefined()
+    expect(shopperCurrency([])).toBeUndefined()
   })
 
   it("reads a rate over units sold, zero when nothing sold", () => {

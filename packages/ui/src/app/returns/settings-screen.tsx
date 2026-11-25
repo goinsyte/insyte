@@ -6,6 +6,7 @@ import { PageGuide } from "../common/page-guide";
 import { type FieldControl, FieldRow, INPUT_CLASS, INVALID_CLASS, UnsavedBar, useFieldErrors } from "../settings/form";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "../settings/setting-card";
 import { type Carrier, type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnAddress, type ReturnSettings, type ReturnSettingsDraft, returnSettingsErrors, type RuleKind, type SpecialWindow, windowErrors } from "../lib/returns";
+import { currencySymbol } from "../lib/format";
 import { countryName } from "../lib/format-flag";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
@@ -190,9 +191,15 @@ export function ReturnSettingsPage() {
 							{fe.message("giftCardBonus")}
 						</span>
 					</FieldRow>
-					<FieldRow label="Ruilkosten" hint="0 is gratis ruilen">
+					<FieldRow label="Ruilkosten" hint={exchangeFeeHint(source.currency)}>
 						<span className="flex flex-col gap-1.5">
-							<NumberWell value={draft.exchangeFee} onChange={(v) => set("exchangeFee", v)} unit="€" label="Ruilkosten in euro" control={fe.control("exchangeFee")} />
+							<NumberWell
+								value={draft.exchangeFee}
+								onChange={(v) => set("exchangeFee", v)}
+								unit={source.currency === null ? "" : currencySymbol(source.currency ?? "EUR")}
+								label="Ruilkosten in de valuta van de winkel"
+								control={fe.control("exchangeFee")}
+							/>
 							{fe.message("exchangeFee")}
 						</span>
 					</FieldRow>
@@ -514,6 +521,10 @@ function DaysField({ value, onChange, label, placeholder, small = false, control
 	);
 }
 
+/** The shopper pays the fee in the store's own currency; with stores in several, the same amount in each one's. */
+const exchangeFeeHint = (currency: string | null | undefined) =>
+	currency === null ? "0 is gratis ruilen. Het bedrag geldt in de valuta van elke winkel." : "0 is gratis ruilen";
+
 /** "12,5" as 12.5; empty is `null`. */
 const parseAmount = (text: string) => {
 	const t = text.trim().replace(",", ".");
@@ -532,7 +543,7 @@ function NumberWell({ value, onChange, unit, label, control }: { value: number |
 	if (parseAmount(text) !== value) setText(showAmount(value));
 	return (
 		<label className="field flex h-9 w-32 items-center gap-2 rounded-md px-3 text-base focus-within:bg-paper has-[[aria-invalid=true]]:bg-signal-red-bg">
-			{unit === "€" ? <span className="text-ink-3">€</span> : null}
+			{unit !== "%" && unit !== "" ? <span className="text-ink-3">{unit}</span> : null}
 			<input
 				{...control}
 				inputMode="decimal"

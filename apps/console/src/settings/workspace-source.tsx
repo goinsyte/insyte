@@ -9,7 +9,11 @@ import type {
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useState } from "react"
+import { ANALYTICS } from "../data/analytics.ts"
+import { COSTS } from "../data/costs.ts"
 import { FRAME } from "../data/frame.ts"
+import { HOME } from "../data/home.ts"
+import { LIVE } from "../data/live.ts"
 import { storesAtom } from "../data/stores.ts"
 import { teamAtom } from "../data/team.ts"
 import { WORKSPACE, workspaceWrites } from "../data/workspace.ts"
@@ -164,7 +168,8 @@ export function useConsoleRegionalSource(saved: Regional): RegionalSource {
           weekStart: next.weekStart,
           timezone: next.timezone
         },
-        reactivityKeys: [...WORKSPACE]
+        // The frame carries the notation; Start, Analyse, Kosten and Live count in the reporting currency.
+        reactivityKeys: [...WORKSPACE, ...FRAME, ...HOME, ...ANALYTICS, ...COSTS, ...LIVE]
       })
       if (Exit.isFailure(exit)) {
         sayRefusal(failureOf(exit), COPY)

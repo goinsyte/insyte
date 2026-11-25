@@ -32,7 +32,7 @@ import { ProductThumb } from "../product/product-thumb"
 import { useAskInsyte } from "../shell/ask-insyte-context"
 import { OrderTags } from "./order-tags"
 
-import { formatCurrency, initials, ZONE } from "../lib/format"
+import { formatCurrency, formatDate, initials } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
 import type { Address } from "../lib/types/domain"
 import type { Currency } from "../lib/types/domain"
@@ -615,15 +615,7 @@ const PAYMENT_STATUS_LABEL: Record<string, string> = {
   voided: "Vervallen"
 }
 
-/** A moment as the record writes it, in Dutch time on the server and in the browser alike. */
+/** A moment as the record writes it, in Dutch time and the workspace's notation, on the server and in the browser alike. */
 export function formatLong(iso: string): string {
-  return new Intl.DateTimeFormat("nl-NL", {
-    timeZone: ZONE,
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(new Date(iso))
+  return formatDate(iso, { hour: "2-digit", minute: "2-digit", hour12: false })
 }
