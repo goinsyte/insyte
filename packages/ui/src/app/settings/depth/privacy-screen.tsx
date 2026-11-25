@@ -3,6 +3,7 @@ import { Switch } from "../../../components/switch"
 import { Shield, Trash2 } from "../../../icons"
 import { ConfirmDialog } from "../../common/confirm-dialog"
 import { formatRelative } from "../../lib/format"
+import type { Privacy } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
 import { UnsavedBar } from "../form"
 import { SettingCard } from "../setting-card"
@@ -20,26 +21,52 @@ const PERIODS: ReadonlyArray<{ months: number | null; label: string }> = [
 ]
 const label = (m: number | null) => PERIODS.find((p) => p.months === m)?.label ?? `${m} maanden`
 
+const months = (p: Privacy) => p.classes.map((c) => `${c.id}:${c.months}`).join()
+
+/**
+ * A count (or the switch) changes the saved section under a draft: the periods being chosen stay. Periods saved
+ * meanwhile, or undone, replace them.
+ */
+const keepPeriods = (saved: Privacy, draft: Privacy, before: Privacy): Privacy =>
+  months(saved) === months(before) ? { ...saved, classes: draft.classes } : saved
+
 /**
  * Gegevens en privacy (`/settings/privacy`, PLAN 43): how long each kind of data is kept, a dry run
  * that counts what would go, and only then the switch that erases it every night. Turning erasing
  * on asks first, because what it removes cannot be brought back. The count and the switch are the host's
  * (`SettingsDepthSource.privacy`); a period changed since the count shows no figure until it is counted again.
+ * "Nu tellen" counts the periods as the page shows them and keeps any not saved yet; the switch goes on only
+ * once the saved periods are the ones counted, so a save after the count asks for a count again.
  */
 export function PrivacyPage() {
-  const s = useSection("privacy", "Gegevens en privacy", (a, b) =>
-    b.classes.flatMap((c) => {
-      const o = a.classes.find((x) => x.id === c.id)
-      return o && o.months !== c.months
-        ? [[`Bewaren: ${c.label}`, label(o.months), label(c.months)] as [string, string, string]]
-        : []
-    }), 3)
+  const s = useSection(
+    "privacy",
+    "Gegevens en privacy",
+    (a, b) =>
+      b.classes.flatMap((c) => {
+        const o = a.classes.find((x) => x.id === c.id)
+        return o && o.months !== c.months
+          ? [[`Bewaren: ${c.label}`, label(o.months), label(c.months)] as [string, string, string]]
+          : []
+      }),
+    3,
+    keepPeriods
+  )
   const source = useSettingsDepthSource()
   const privacy = source.privacy!
   const live = { erasing: privacy.erasing }
   const counted = privacy.countedAt
   const [confirm, setConfirm] = useState(false)
   const total = s.draft.classes.reduce((n, c) => n + (privacy.countOf(c, c.months) ?? 0), 0)
+  // The last count is of the saved periods: only then may erasing go on.
+  const countedSaved = counted !== null && s.saved.classes.every((c) => privacy.countOf(c, c.months) !== null)
+  const why = !counted
+    ? "Tel eerst wat er weg zou gaan"
+    : s.dirty
+    ? "Sla eerst de termijnen op"
+    : !countedSaved
+    ? "Tel eerst de opgeslagen termijnen"
+    : undefined
 
   const count = () => privacy.count(s.draft.classes)
   const setErasing = (on: boolean) =>
@@ -114,8 +141,15 @@ export function PrivacyPage() {
               {counted
                 ? (
                   <span className="text-ink-2">
-                    Bij de huidige termijnen gaan {total.toLocaleString("nl-NL")} items weg (geteld{" "}
+                    {" "}Bij de huidige termijnen gaan {total.toLocaleString("nl-NL")} items weg (geteld{" "}
                     {formatRelative(counted)}).
+                  </span>
+                )
+                : null}
+              {counted && !s.dirty && !countedSaved && !live.erasing
+                ? (
+                  <span className="text-ink-2">
+                    {" "}De telling hoort niet bij de opgeslagen termijnen. Tel opnieuw.
                   </span>
                 )
                 : null}
@@ -138,8 +172,8 @@ export function PrivacyPage() {
               (
                 <button
                   type="button"
-                  disabled={!s.canEdit || !counted || s.dirty}
-                  title={!counted ? "Tel eerst wat er weg zou gaan" : s.dirty ? "Sla eerst de termijnen op" : undefined}
+                  disabled={!s.canEdit || why !== undefined}
+                  title={why}
                   onClick={() => setConfirm(true)}
                   className="flex h-8 items-center gap-1.5 rounded-md bg-signal-red px-2.5 font-medium text-mesh-ink text-sm transition-colors hover:bg-signal-red/90 disabled:opacity-45"
                 >

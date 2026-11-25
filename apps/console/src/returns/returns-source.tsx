@@ -3,7 +3,7 @@ import type { ReturnDetail, ReturnList, ReturnRow, ReturnSettingsDoc } from "@in
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { useGateRole } from "@insyte/ui/app/access/gate-role"
 import { OPEN_AS_MODAL } from "@insyte/ui/app/common/detail-shell"
-import type { ReasonDef, ReturnSettings } from "@insyte/ui/app/lib/returns"
+import { type ReasonDef, type ReturnSettings, shopperCurrency } from "@insyte/ui/app/lib/returns"
 import type { Order } from "@insyte/ui/app/lib/types/domain"
 import {
   CustomerReturnsPanel,
@@ -269,11 +269,15 @@ export function useConsoleReturnSettingsSource(saved: ReturnSettingsDoc): Return
   const draft: ReturnSettings = useMemo(() => settingsOf(saved), [saved])
   const options = useMemo(() => products?.rows.map((p) => ({ id: p.id, title: p.title })) ?? [], [products])
   const host = useHost()
+  // The exchange fee is charged on the order, in the currency its store sells in.
+  const frame = value(useAtomValue(frameAtom))
+  const currency = useMemo(() => shopperCurrency(frame?.stores ?? []), [frame])
   return {
     saved: draft,
     save: (next, s) => void commands.save(next, saved, s),
     gate,
     products: options,
+    currency,
     portalHref,
     portalAddress: (handle) => `${host}/retour/${handle}`
   }

@@ -211,6 +211,20 @@ export function resolutionAmount(
   return amount
 }
 
+/**
+ * What a shopper pays a return's fees in: the currency the stores sell in (Shopify's), one code when they share it;
+ * `null` when they sell in more than one; `undefined` before any store has said. A disconnected store no longer counts.
+ */
+export function shopperCurrency(
+  stores: ReadonlyArray<{ readonly currency: string | null; readonly status?: string }>
+): string | null | undefined {
+  const codes = new Set(
+    stores.flatMap((s) => (s.status === "disconnected" || s.currency === null ? [] : [s.currency.trim()]))
+  )
+  if (codes.size === 0) return undefined
+  return codes.size === 1 ? [...codes][0] : null
+}
+
 /** The share of units sold that came back, as a fraction. Nothing sold reads as zero, not as a hole. */
 export function returnRate(returnedUnits: number, soldUnits: number): number {
   return soldUnits <= 0 ? 0 : returnedUnits / soldUnits
@@ -337,6 +351,127 @@ export type ReturnSettings = {
   addresses: Array<ReturnAddress>
   claimSteps: string[]
   portal: { on: boolean; handle: string; intro: string; done: string }
+}
+
+/** A special window: a period of order dates, by month and day every year, with its own number of days. */
+export type SpecialWindow = ReturnSettings["specialWindows"][number]
+
+/** Retouren's draft: a number field may be empty while it is typed in; saving waits until it is not. */
+export type ReturnSettingsDraft =
+  & Omit<ReturnSettings, "returnDays" | "claimDays" | "giftCardBonus" | "exchangeFee">
+  & { returnDays: number | null; claimDays: number | null; giftCardBonus: number | null; exchangeFee: number | null }
+
+/** The days in each month, February at 29: a period comes back every year. */
+const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+/** `MM-DD` for a day that exists in some year. */
+export const isMonthDay = (md: string) => {
+  const m = /^(\d{2})-(\d{2})$/.exec(md)
+  if (m === null) return false
+  const [month, day] = [Number(m[1]), Number(m[2])]
+  return month >= 1 && month <= 12 && day >= 1 && day <= MONTH_DAYS[month - 1]!
+}
+
+const daysError = (n: number | null, min: number) =>
+  n === null
+    ? "Vul een aantal dagen in."
+    : n < min
+    ? "Minimaal 1 dag. Wil je geen retouren meer? Zet dan het retourportaal uit."
+    : n > 365
+    ? "Hoogstens 365 dagen."
+    : undefined
+
+/**
+ * One special window against the others: a name, at most 365 days, days that exist, and not the same period twice, by
+ * name or by dates (the server's rule, `returns/use-cases/settings.ts`). Keyed `label`, `days`, `from`, `to`.
+ */
+export function windowErrors(
+  w: Omit<SpecialWindow, "days"> & { days: number | null },
+  others: ReadonlyArray<SpecialWindow>
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  const label = w.label.trim()
+  if (label === "") out["label"] = "Geef de periode een naam."
+  else if (label.length > 80) out["label"] = "Hoogstens 80 tekens."
+  else if (others.some((o) => o.label.trim().toLowerCase() === label.toLowerCase())) {
+    out["label"] = `Er is al een periode met de naam ${label}.`
+  }
+  const days = w.days === null
+    ? "Vul een aantal dagen in."
+    : w.days < 1
+    ? "Minimaal 1 dag."
+    : w.days > 365
+    ? "Hoogstens 365 dagen."
+    : undefined
+  if (days !== undefined) out["days"] = days
+  if (!isMonthDay(w.from)) out["from"] = "Die dag bestaat niet."
+  if (!isMonthDay(w.to)) out["to"] = "Die dag bestaat niet."
+  else if (out["from"] === undefined && others.some((o) => o.from === w.from && o.to === w.to)) {
+    out["to"] = "Er is al een periode met deze data."
+  }
+  return out
+}
+
+/**
+ * What is wrong with Retouren's draft, by field (`returnDays`, `reasons.<id>.windowDays`, `claimSteps.<i>`, …), in the
+ * words the page says under it: the document's schema (`returns/domain/Returns.ts`) and the server's own rules.
+ */
+export function returnSettingsErrors(d: ReturnSettingsDraft): Record<string, string> {
+  const out: Record<string, string> = {}
+  const put = (key: string, error: string | undefined) => {
+    if (error !== undefined) out[key] = error
+  }
+  put("returnDays", daysError(d.returnDays, 1))
+  put("claimDays", daysError(d.claimDays, 1))
+  d.specialWindows.forEach((w, i) => {
+    const wrong = Object.values(windowErrors(w, d.specialWindows.slice(0, i)))
+    if (wrong.length > 0) out[`specialWindows.${w.id}`] = wrong.join(" ")
+  })
+  for (const r of d.reasons) {
+    const n = r.windowDays
+    if (n !== undefined) {
+      put(
+        `reasons.${r.id}.windowDays`,
+        n < 1 ? "Minimaal 1 dag, of leeg voor de standaard." : n > 365 ? "Hoogstens 365 dagen." : undefined
+      )
+    }
+  }
+  put(
+    "giftCardBonus",
+    d.giftCardBonus === null
+      ? "Vul een percentage in, of 0 voor geen bonus."
+      : d.giftCardBonus > 100
+      ? "Kies 0 tot 100%."
+      : undefined
+  )
+  put(
+    "exchangeFee",
+    d.exchangeFee === null
+      ? "Vul een bedrag in, of 0 voor gratis ruilen."
+      : !/^\d+(\.\d{1,2})?$/.test(String(d.exchangeFee))
+      ? "Hoogstens twee cijfers achter de komma."
+      : undefined
+  )
+  d.claimSteps.forEach((step, i) => {
+    // As the schema counts it: the step as it is sent, spaces and all; only an empty one is said as empty.
+    put(
+      `claimSteps.${i}`,
+      step.trim() === ""
+        ? "Zeg in een paar woorden wat de klant hier doet."
+        : step.length > 200
+        ? "Hoogstens 200 tekens."
+        : undefined
+    )
+  })
+  put(
+    "portal.intro",
+    d.portal.intro.length > 500 ? `Hoogstens 500 tekens; dit zijn er ${d.portal.intro.length}.` : undefined
+  )
+  put(
+    "portal.done",
+    d.portal.done.length > 1000 ? `Hoogstens 1000 tekens; dit zijn er ${d.portal.done.length}.` : undefined
+  )
+  return out
 }
 
 export const amountOf = (r: Pick<ReturnRecord, "items" | "amount">) =>

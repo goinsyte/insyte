@@ -15,11 +15,18 @@ export type Brand = { logo?: string; color: string; font: "Systeem" | "Inter" | 
 export type DnsRecord = { id: string; type: "MX" | "TXT" | "CNAME"; name: string; value: string; status: "found" | "missing" | "pending"; why?: string };
 export type Domain = { domain: string; records: DnsRecord[]; checkedAt: string; checks: number; from: string; replyTo: string };
 
-export type StoreVat = { storeId: string; currency: "EUR" | "USD" | "GBP"; vatOnShipping: boolean; refundInclVat: boolean };
+/** `currency`: what the store sells in, Shopify's (shown, never set here); `null` until the store has said. */
+export type StoreVat = { storeId: string; currency: string | null; vatOnShipping: boolean; refundInclVat: boolean };
 export type Vat = { stores: StoreVat[]; oss: boolean; ossNumber: string };
 
 export type Retention = { id: string; label: string; detail: string; months: number | null; count: number };
-export type Privacy = { classes: Retention[]; erasing: boolean; countedAt?: string };
+export type Privacy = {
+	classes: Retention[];
+	erasing: boolean;
+	countedAt?: string;
+	/** The period each class was counted with, by id (the design's store); absent, the count was of the saved ones. */
+	countedPeriods?: Record<string, number | null>;
+};
 
 export type AuditEntry = { id: string; at: string; who: string; page: string; to: string; field: string; before: string; after: string };
 export type TrashItem = { id: string; kind: "ticket" | "klant" | "automatisering" | "rekenblad" | "sjabloon" | "notitie" | "cursus" | "webhook" | "kostenpost" | "leverancier"; title: string; by: string; at: string; /** When it goes for good, where that is not `at` + TRASH_DAYS (a kind that joined the trash later). */ purgeAt?: string };
@@ -105,3 +112,57 @@ export function contrast(a: string, b: string): number {
 }
 
 export const isHex = (s: string) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s.trim());
+
+/*
+ * What is wrong with a draft, by the field name the server uses (`statuses.<id>.label`, `ossNumber`, …), in the words
+ * the page says under the field. The server's rules (`settings/domain/Check.ts`), checked as the draft changes, so a
+ * save that would be refused does not go out.
+ */
+
+/** The `{…}` in a sentence that are not {vervoerder}: they would reach the customer as written. */
+export const unknownVariables = (label: string) => (label.match(/\{[^{}]*\}/g) ?? []).filter((v) => !/^\{vervoerder\}$/i.test(v));
+
+export const SHIP_LABEL_MAX = 120;
+
+export function shippingErrors(rows: ReadonlyArray<Pick<ShipStatus, "id" | "label">>): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const r of rows) {
+		const label = r.label.trim();
+		const unknown = unknownVariables(label);
+		const key = `statuses.${r.id}.label`;
+		if (label === "") out[key] = "Geef een zin die de klant leest.";
+		else if (label.length > SHIP_LABEL_MAX) out[key] = `Hoogstens ${SHIP_LABEL_MAX} tekens; dit zijn er ${label.length}.`;
+		else if (unknown.length > 0) out[key] = `Onbekend: ${unknown.join(", ")}. Je kunt {vervoerder} gebruiken.`;
+	}
+	return out;
+}
+
+/** An OSS number: the country code and then eight to twelve digits or letters, spaces taken out. */
+export const ossValid = (n: string) => /^[A-Z]{2}[0-9A-Z]{8,12}$/.test(n.replace(/\s/g, "").toUpperCase());
+
+/** Required with OSS on; a number kept with it off must be right too, or it comes back wrong when OSS goes on. */
+export function vatErrors(v: Pick<Vat, "oss" | "ossNumber">): Record<string, string> {
+	const n = v.ossNumber.trim();
+	if (v.oss && n === "") return { ossNumber: "Vul je OSS-nummer in, of zet OSS uit." };
+	if (n !== "" && !ossValid(n)) return { ossNumber: "Een nummer als NL123456789B01: landcode en dan cijfers." };
+	return {};
+}
+
+const HTTPS = /^https:\/\/[^\s.]+\.[^\s]+$/;
+const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i;
+
+export function brandErrors(b: Pick<Brand, "color" | "sender" | "website" | "support">): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!isHex(b.color)) out["color"] = `Een kleur als ${BRAND_DEFAULT_COLOR}.`;
+	const sender = b.sender.trim();
+	if (sender === "") out["sender"] = "Geef de naam waar je mails van komen.";
+	else if (sender.length > 60) out["sender"] = `Hoogstens 60 tekens; dit zijn er ${sender.length}.`;
+	const website = b.website.trim();
+	if (website !== "" && (website.length > 500 || !HTTPS.test(website))) out["website"] = "Een link die begint met https:// en een domein heeft.";
+	const support = b.support.trim();
+	if (support !== "" && (support.length > 254 || !EMAIL.test(support))) out["support"] = "Een e-mailadres als klantenservice@jouwwinkel.nl.";
+	return out;
+}
+
+/** White text on a brand colour reads from 4.5:1; below it, mails and the returns portal keep Insyte's own colour. */
+export const BRAND_MIN_CONTRAST = 4.5;

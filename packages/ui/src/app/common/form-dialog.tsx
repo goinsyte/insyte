@@ -156,19 +156,21 @@ export function TextAreaField({
 	onChange,
 	placeholder,
 	rows = 3,
+	...rest
 }: {
 	value: string;
 	onChange: (v: string) => void;
 	placeholder?: string;
 	rows?: number;
-}) {
+} & Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "id" | "aria-invalid" | "aria-describedby" | "aria-label">) {
 	return (
 		<textarea
+			{...rest}
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder={placeholder}
 			rows={rows}
-			className={cn(FIELD_BASE, "py-2.5 leading-[1.55]")}
+			className={cn(FIELD_BASE, "py-2.5 leading-[1.55] aria-[invalid=true]:bg-signal-red-bg")}
 		/>
 	);
 }

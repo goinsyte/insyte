@@ -1,4 +1,5 @@
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
+import { formatDate } from "@insyte/ui/app/lib/format"
 import type { Address, Order } from "@insyte/ui/app/lib/types/domain"
 import type { OrderDetailSource, TimelineStep } from "@insyte/ui/app/orders/detail-source"
 import { useKnownOrderTags, useOrderCommands, useOrderGate, useRefundGate } from "./order-writes.ts"
@@ -15,17 +16,8 @@ import { orderOf } from "./orders-source.ts"
  * The agents' rows under the timeline are `AgentLog.list` for the order (`../agent/record-rows.tsx`).
  */
 
-/* `formatLong`'s format, kept here because the screen module is the relaxed program's (`tsconfig.strict.json`). */
-const long = (ms: number) =>
-  new Intl.DateTimeFormat("nl-NL", {
-    timeZone: "Europe/Amsterdam",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(new Date(ms))
+/* `formatLong`'s format (the screen module is the relaxed program's, `tsconfig.strict.json`), in the notation. */
+const long = (ms: number) => formatDate(new Date(ms), { hour: "2-digit", minute: "2-digit", hour12: false })
 
 const GATEWAY: Record<string, string> = {
   shopify_payments: "Shopify Payments",

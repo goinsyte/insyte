@@ -11,7 +11,6 @@ import {
   type RetentionValue,
   type ShippingValue,
   type StoreVat,
-  VAT_CURRENCIES,
   type VatValue,
   WIDGET_SIDES
 } from "./Settings.ts"
@@ -42,6 +41,8 @@ const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 /** An OSS number: the country code and then eight to twelve digits or letters, spaces taken out. */
 const OSS = /^[A-Z]{2}[0-9A-Z]{8,12}$/
+/** The one variable a carrier status's sentence knows; any other `{…}` would reach the shopper as written. */
+const SHIP_VARIABLE = /^\{vervoerder\}$/i
 
 export const checkShipping = (value: unknown): Checked<ShippingValue> => {
   const rows = isRecord(value) && Array.isArray(value["statuses"]) ? value["statuses"] : undefined
@@ -65,6 +66,9 @@ export const checkShipping = (value: unknown): Checked<ShippingValue> => {
     const label = text(row["label"])
     if (label === undefined || label === "") fields[`statuses.${s.id}.label`] = "required"
     else if (label.length > 120) fields[`statuses.${s.id}.label`] = "too_long"
+    else if ((label.match(/\{[^{}]*\}/g) ?? []).some((v) => !SHIP_VARIABLE.test(v))) {
+      fields[`statuses.${s.id}.label`] = "unknown_variable"
+    }
     if (!oneOf(SHIP_SHOWS, row["show"])) fields[`statuses.${s.id}.show`] = "invalid"
   }
   return done(fields, () => ({
@@ -115,8 +119,14 @@ export const checkBrand = (value: unknown): Checked<BrandValue> => {
   }))
 }
 
-/** `storeIds`: the workspace's stores; one not among them is `unknown`, one left out keeps its defaults. */
-export const checkVat = (value: unknown, storeIds: ReadonlyArray<string>): Checked<VatValue> => {
+/**
+ * `stores`: the workspace's, with the currency each sells in (Shopify's); one not among them is `unknown`, one left out
+ * keeps its defaults. The currency is the store's whatever the page sends: it is Shopify's to set, not Btw's.
+ */
+export const checkVat = (
+  value: unknown,
+  known: ReadonlyArray<{ readonly id: string; readonly currency: string | null }>
+): Checked<VatValue> => {
   const rows = isRecord(value) && Array.isArray(value["stores"]) ? value["stores"] : undefined
   if (rows === undefined || !isRecord(value)) return { fields: { stores: "required" } }
   const fields: Record<string, string> = {}
@@ -124,16 +134,15 @@ export const checkVat = (value: unknown, storeIds: ReadonlyArray<string>): Check
   for (const row of rows) {
     if (!isRecord(row) || typeof row["storeId"] !== "string") return { fields: { stores: "invalid" } }
     const id = row["storeId"]
-    if (!storeIds.includes(id)) fields[`stores.${id}`] = "unknown"
+    const store = known.find((s) => s.id === id)
+    if (store === undefined) fields[`stores.${id}`] = "unknown"
     else if (stores.some((s) => s.storeId === id)) fields[`stores.${id}`] = "duplicate"
-    else if (
-      !oneOf(VAT_CURRENCIES, row["currency"]) || typeof row["vatOnShipping"] !== "boolean" ||
-      typeof row["refundInclVat"] !== "boolean"
-    ) fields[`stores.${id}`] = "invalid"
-    else {
+    else if (typeof row["vatOnShipping"] !== "boolean" || typeof row["refundInclVat"] !== "boolean") {
+      fields[`stores.${id}`] = "invalid"
+    } else {
       stores.push({
         storeId: id,
-        currency: row["currency"],
+        currency: store.currency,
         vatOnShipping: row["vatOnShipping"],
         refundInclVat: row["refundInclVat"]
       })
@@ -141,7 +150,8 @@ export const checkVat = (value: unknown, storeIds: ReadonlyArray<string>): Check
   }
   if (typeof value["oss"] !== "boolean") fields["oss"] = "invalid"
   const ossNumber = (text(value["ossNumber"]) ?? "").replace(/\s/g, "").toUpperCase()
-  if (value["oss"] === true && !OSS.test(ossNumber)) fields["ossNumber"] = "format"
+  // Required with OSS on; a number kept with it off is checked all the same, or it comes back when OSS goes on again.
+  if ((value["oss"] === true || ossNumber !== "") && !OSS.test(ossNumber)) fields["ossNumber"] = "format"
   return done(fields, () => ({ stores, oss: value["oss"] as boolean, ossNumber }))
 }
 
