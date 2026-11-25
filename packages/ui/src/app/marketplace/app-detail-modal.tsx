@@ -7,6 +7,7 @@ import { useMarketplaceState } from "../shell/state"
 import {
   FEATURES_FOR,
   formatInstalls,
+  INSTALL_NOTE_FOR,
   KIND_FOR,
   KIND_LABEL,
   KIND_STYLE,
@@ -167,7 +168,7 @@ export function AppDetailModal({
               ) :
               later ?
               <span className="text-sm text-ink-2">Deze app kun je nog niet installeren.</span> :
-              <span className="text-sm text-ink-2">Binnen seconden geïnstalleerd. Geen developer nodig.</span>}
+              <span className="text-sm text-ink-2">{INSTALL_NOTE_FOR[ext.id] ?? ""}</span>}
             <div className="flex items-center gap-1.5">
               {installed ?
                 (

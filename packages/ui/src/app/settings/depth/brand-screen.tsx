@@ -156,7 +156,7 @@ export function BrandPage() {
           </SettingCard>
           <SettingCard title="Afzender" subtitle="Wie de mail stuurt en waar een antwoord heen gaat.">
             <div className="flex flex-col">
-              <FieldRow label="Afzendernaam">
+              <FieldRow label="Afzendernaam" hint="Boven het retourportaal, als er geen logo is.">
                 <input
                   value={d.sender}
                   disabled={!s.canEdit}
@@ -175,7 +175,7 @@ export function BrandPage() {
                   className={WELL}
                 />
               </FieldRow>
-              <FieldRow label="Supportadres" hint="Staat onder elke mail en in het retourportaal.">
+              <FieldRow label="Supportadres" hint="Staat onderaan het retourportaal, met de website.">
                 <input
                   value={d.support}
                   disabled={!s.canEdit}

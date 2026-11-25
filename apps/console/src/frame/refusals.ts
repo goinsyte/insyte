@@ -16,6 +16,11 @@ export const failureOf = <A, E>(exit: Exit.Failure<A, E>): unknown => {
   return failure === undefined ? Cause.squash(exit.cause) : failure.error
 }
 
+/** What any mail can be refused for, whichever screen sent it. */
+const INVALID: Record<string, string> = {
+  unsubscribe_link: "Deze mail vraagt om een uitschrijflink. Vul die eerst in bij Instellingen, Sjablonen."
+}
+
 /** What any record's undo can answer. */
 const UNDO: Record<string, [string, string]> = {
   already_sent: ["Te laat om ongedaan te maken", "De wijziging is al naar Shopify gegaan."],
@@ -54,8 +59,9 @@ export const sayRefusal = (error: unknown, copy: RefusalCopy) => {
     }
     case "Invalid": {
       const fields = tagged["fields"] as Record<string, string>
-      const said = Object.entries(fields).map(([field, reason]) => copy.invalid?.[field] ?? copy.invalid?.[reason])
-        .find(Boolean)
+      const said = Object.entries(fields).map(([field, reason]) =>
+        copy.invalid?.[field] ?? copy.invalid?.[reason] ?? INVALID[field]
+      ).find(Boolean)
       return void toast.error("Dat kan zo niet", { description: said ?? "Kijk de invoer nog eens na." })
     }
     case "NotFound":

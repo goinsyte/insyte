@@ -25,6 +25,8 @@ export type PortalStoreView = {
   claimSteps: ReadonlyArray<string>
   /** The store's Huisstijl: its logo at the head and its colour on the buttons; absent, the portal's own look. */
   look?: { color?: string | undefined; logo?: string | undefined } | undefined
+  /** Huisstijl's website and support address, at the foot; absent, only "Mogelijk gemaakt door Insyte". */
+  contact?: { website?: string | undefined; support?: string | undefined } | undefined
 }
 
 /** Why a line cannot go back for a kind. */

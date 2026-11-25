@@ -15,6 +15,30 @@ export type Brand = { logo?: string; color: string; font: "Systeem" | "Inter" | 
 export type DnsRecord = { id: string; type: "MX" | "TXT" | "CNAME"; name: string; value: string; status: "found" | "missing" | "pending"; why?: string };
 export type Domain = { domain: string; records: DnsRecord[]; checkedAt: string; checks: number; from: string; replyTo: string };
 
+/** A plain address, as the server's check (`settings/domain/Check.ts`) takes one. */
+const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i
+
+/**
+ * What is wrong with the senders as typed, in the page's words, as the server would refuse them: "Mails van Insyte" on
+ * the domain set up here, "Antwoorden naar" an address (that it is a connected mailbox only the server knows).
+ */
+export const senderProblems = (from: string, replyTo: string, domain: string): { from?: string; replyTo?: string } => {
+  const f = from.trim().toLowerCase()
+  const r = replyTo.trim().toLowerCase()
+  return {
+    ...(f === ""
+      ? {}
+      : !EMAIL.test(f)
+      ? { from: "Dit is geen geldig e-mailadres." }
+      : domain === ""
+      ? { from: "Stel eerst je domein in; daarna mail je vanaf een adres op dat domein." }
+      : !f.endsWith(`@${domain.toLowerCase()}`)
+      ? { from: `Gebruik een adres op ${domain}.` }
+      : {}),
+    ...(r === "" || EMAIL.test(r) ? {} : { replyTo: "Dit is geen geldig e-mailadres." })
+  }
+}
+
 export type StoreVat = { storeId: string; currency: "EUR" | "USD" | "GBP"; vatOnShipping: boolean; refundInclVat: boolean };
 export type Vat = { stores: StoreVat[]; oss: boolean; ossNumber: string };
 

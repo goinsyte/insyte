@@ -137,7 +137,7 @@ export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: 
       }
       if (order.email === null) return yield* new CustomerMailRefused({ orderId: order.id, reason: "no_email" })
       // Sjablonen' links in, subject and body, as the shopper will read them; the limits hold for what goes out.
-      const fill = yield* CustomerFacing.linkFiller(sql)
+      const fill = yield* CustomerFacing.linkFiller(sql, [input.subject, input.body])
       const filled = { subject: fill(input.subject), body: fill(input.body) }
       const refused = refusedFields(filled.subject, filled.body)
       if (Object.keys(refused).length > 0) return yield* new Invalid({ fields: refused })

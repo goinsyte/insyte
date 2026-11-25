@@ -40,8 +40,8 @@ import {
   type DisputesCell,
   footnote,
   hoursOf,
-  monthsBetween,
   namesOf,
+  offeredMonths,
   ordersBy,
   placedRefundedOrderIds,
   recordsOf,
@@ -82,15 +82,14 @@ const pairOf = Effect.fn("Analytics.pair")(function*(sql: SqlClient.SqlClient, i
   return { ctx, ...spans }
 })
 
-/** Every month from the first order's (in the role's stores) to the current one, oldest first. */
+/** Every month from the first order's (in the role's stores) to the current one, and the one before, oldest first. */
 export const monthsOf = Effect.fn("Analytics.months")(function*(sql: SqlClient.SqlClient, ctx: Context) {
   const scope = yield* inScope(sql, "o.store_id")
   const [first] = yield* sql<{ month: string | null }>`
     select to_char(min(o.placed_at at time zone coalesce(s.timezone, w.timezone)), 'YYYY-MM') as month
     from orders o join stores s on s.id = o.store_id join workspaces w on w.id = o.workspace_id
     where not o.is_draft and ${scope}`
-  const from = (first?.month ?? ctx.current) as Month
-  return monthsBetween(from < ctx.current ? from : ctx.current, ctx.current)
+  return offeredMonths((first?.month ?? null) as Month | null, ctx.current)
 })
 
 /** The months the pickers offer: the first order's month (in the role's stores) to the current one. */

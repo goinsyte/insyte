@@ -80,6 +80,10 @@ export function useConsolePortalSource(handle: string, store: PortalStore | null
         look: {
           color: store.look.color ?? undefined,
           logo: store.look.logoUrl ?? undefined
+        },
+        contact: {
+          website: store.contact.website ?? undefined,
+          support: store.contact.support ?? undefined
         }
       },
     numberPlaceholder: "#1042",

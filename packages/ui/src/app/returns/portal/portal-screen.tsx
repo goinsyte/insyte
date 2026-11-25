@@ -11,7 +11,8 @@ import { type LineRefusal, type PortalLine, type PortalMade, type PortalOrderVie
  * The public returns portal (`/retour/$storeHandle`, PLAN 25, design §1): where a shopper starts a
  * return or reports a problem, on their phone, without an account. It is the store's page, not
  * Insyte's: the store's logo or name at the head and its colour on the buttons (Huisstijl), its words
- * from Instellingen → Retouren, and only "Mogelijk gemaakt door Insyte" at the foot. Its own small
+ * from Instellingen → Retouren, and at the foot its support address and website (Huisstijl) above
+ * "Mogelijk gemaakt door Insyte". Its own small
  * shell — nothing from the console's chrome.
  *
  * The rules are the console's (`lib/returns.ts`): the window from delivery, the product rules, the
@@ -87,7 +88,7 @@ export function ReturnPortal() {
 
 	if (!store.on) {
 		return (
-			<PortalShell storeName={store.name} look={store.look}>
+			<PortalShell storeName={store.name} look={store.look} contact={store.contact}>
 				<Card>
 					<span className="flex size-10 items-center justify-center rounded-lg bg-mist text-ink-2">
 						<Lock className="size-5" strokeWidth={1.75} />
@@ -162,7 +163,7 @@ export function ReturnPortal() {
 	const claimStep = (i: number) => (kind === "claim" ? <p className="text-ink-3 text-sm">Stap {i} van {store.claimSteps.length} · {store.claimSteps[i - 1]}</p> : null);
 
 	return (
-		<PortalShell storeName={store.name} look={store.look}>
+		<PortalShell storeName={store.name} look={store.look} contact={store.contact}>
 			<div ref={top} className="scroll-mt-4" />
 			<AnimatePresence mode="wait" initial={false}>
 				<motion.div
@@ -464,7 +465,17 @@ export function ReturnPortal() {
 /** The store's Huisstijl, for the buttons inside the shell. */
 const LookContext = createContext<PortalStoreView["look"]>(undefined);
 
-function PortalShell({ storeName, look, children }: { storeName: string; look?: PortalStoreView["look"]; children: ReactNode }) {
+function PortalShell({
+	storeName,
+	look,
+	contact,
+	children,
+}: {
+	storeName: string;
+	look?: PortalStoreView["look"];
+	contact?: PortalStoreView["contact"];
+	children: ReactNode;
+}) {
 	return (
 		<LookContext.Provider value={look}>
 			<div className="flex min-h-svh flex-col bg-glacier text-base text-ink">
@@ -472,7 +483,24 @@ function PortalShell({ storeName, look, children }: { storeName: string; look?: 
 					{look?.logo ? <img src={look.logo} alt={storeName} className="max-h-10 max-w-48 object-contain" /> : <span className="font-medium text-ink text-lg tracking-tight">{storeName}</span>}
 				</header>
 				<main className="mx-auto flex w-full max-w-[480px] flex-1 flex-col px-4 pb-10">{children}</main>
-				<footer className="flex justify-center px-4 pb-6 text-ink-3 text-xs">Mogelijk gemaakt door Insyte</footer>
+				<footer className="flex flex-col items-center gap-1.5 px-4 pb-6 text-ink-3 text-xs">
+					{/* Huisstijl's way to reach the store, where it is set: a question that is no return goes there. */}
+					{contact?.support || contact?.website ? (
+						<p className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-ink-2 text-sm">
+							{contact.support ? (
+								<a href={`mailto:${contact.support}`} className="underline-offset-2 hover:underline">
+									{contact.support}
+								</a>
+							) : null}
+							{contact.website ? (
+								<a href={contact.website} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+									{contact.website.replace(/^https:\/\//, "").replace(/\/$/, "")}
+								</a>
+							) : null}
+						</p>
+					) : null}
+					<span>Mogelijk gemaakt door Insyte</span>
+				</footer>
 			</div>
 		</LookContext.Provider>
 	);

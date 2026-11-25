@@ -6,6 +6,15 @@ import { STEPS, WidgetPreview } from "@insyte/ui/app/inbox/chat-views"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { cn } from "@insyte/ui/app/lib/utils"
 import type { ChatChannel } from "@insyte/ui/app/settings/integrations-source"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@insyte/ui/components/dialog"
+import { Link } from "@tanstack/react-router"
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useState } from "react"
@@ -18,8 +27,8 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
  * The website chat on Koppelingen (M15 step 8): "Koppelen" opens the design's two steps, with the store to put it on
  * where the workspace has more than one, the greeting and the widget's preview; the server turns the store's chat on
  * and gives the theme editor's page where the operator switches the app embed on (Shopify keeps that switch, Insyte
- * cannot flip it). A connected store's "Beheren" opens what it has: the greeting, the way to the theme, Ontkoppelen
- * with its Undo.
+ * cannot flip it). A connected store's "Beheren" opens what it has: the greeting to change, the way to the theme and to
+ * where the rest is set, Ontkoppelen with its Undo.
  */
 
 const keys = { reactivityKeys: [...INBOX] }
@@ -182,7 +191,14 @@ export function WebchatConnectDialog({ channel, onClose }: { channel: ChatChanne
   )
 }
 
-/** A connected store's website chat: its greeting, the way to the theme, and Ontkoppelen. */
+/** The secondary button of the manage dialogs. */
+const QUIET =
+  "flex h-9 items-center justify-center rounded-lg px-3.5 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink"
+
+/**
+ * A connected store's website chat: the greeting to change and save, the way to the theme and to where its answers are
+ * set (Klantagent), and Ontkoppelen as a quiet red button, not the primary, with its Undo; "Sluiten" closes.
+ */
 export function WebchatManageDialog({ id, onClose }: { id: string | undefined; onClose: () => void }) {
   const status = value(useAtomValue(channelsAtom))
   const disconnect = useAtomSet(inboxWrites.disconnectChannel, { mode: "promiseExit" })
@@ -190,6 +206,13 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
   const done = useDone()
   const [busy, setBusy] = useState(false)
   const channel: ChannelView | undefined = status?.channels.find((c) => c.id === id)
+  const [greeting, setGreeting] = useState<string | null>(null)
+  const shown = greeting ?? channel?.greeting ?? ""
+  const changed = channel !== undefined && greeting !== null && greeting.trim() !== channel.greeting.trim()
+  const close = () => {
+    setGreeting(null)
+    onClose()
+  }
   // The same connect again, greeting and colour kept: Shopify is asked once more where the embed loads the widget.
   const retryTheme = async (c: ChannelView) => {
     setBusy(true)
@@ -201,63 +224,118 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
       description: "De chat staat nu op je winkel, als de app-embed aan staat."
     })
   }
+  // A connected store's connect again changes its greeting, with its Undo.
+  const save = async (c: ChannelView) => {
+    setBusy(true)
+    const exit = await connect({
+      payload: { kind: "webchat", storeId: c.storeId, greeting: shown.trim() || DEFAULT_GREETING },
+      ...keys
+    })
+    setBusy(false)
+    if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
+    setGreeting(null)
+    done(exit.value, "Welkomsttekst opgeslagen")
+    if (!exit.value.channel.themeUpdated) themeNotUpdated()
+  }
+  const letGo = async (c: ChannelView) => {
+    setBusy(true)
+    const exit = await disconnect({ payload: { id: c.id }, ...keys })
+    setBusy(false)
+    if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
+    close()
+    done(
+      exit.value,
+      `Websitechat van ${c.storeName} ontkoppeld`,
+      "De chat verdwijnt van je winkel. De gesprekken blijven in de inbox."
+    )
+  }
   return (
-    <FormDialog
+    <Dialog
       open={id !== undefined && channel !== undefined}
       onOpenChange={(o) => {
-        if (!o) onClose()
-      }}
-      title={channel === undefined ? "Websitechat" : `Websitechat · ${channel.storeName}`}
-      description={channel === undefined
-        ? undefined
-        : `${channel.threads} ${channel.threads === 1 ? "gesprek" : "gesprekken"} in de inbox`}
-      primaryLabel={busy ? "Ontkoppelen…" : "Ontkoppelen"}
-      disabled={busy || channel === undefined}
-      onSubmit={async () => {
-        if (channel === undefined) return
-        setBusy(true)
-        const exit = await disconnect({ payload: { id: channel.id }, ...keys })
-        setBusy(false)
-        if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
-        onClose()
-        done(
-          exit.value,
-          `Websitechat van ${channel.storeName} ontkoppeld`,
-          "De chat verdwijnt van je winkel. De gesprekken blijven in de inbox."
-        )
+        if (!o) close()
       }}
     >
-      {channel === undefined ? null : (
-        <div className="flex flex-col gap-4">
-          <WidgetPreview greeting={channel.greeting} store={channel.storeName} />
-          {channel.themeUpdated ? null : (
-            <div className="flex flex-col gap-2 rounded-md bg-paper p-3">
-              <p className="font-medium text-ink text-sm">{THEME_NOT_UPDATED}</p>
-              <p className="text-ink-2 text-sm leading-relaxed">
-                Je winkel toont de chat pas als Shopify weet waar Insyte staat.
-              </p>
+      <DialogContent style={{ maxWidth: 560 }}>
+        <DialogHeader>
+          <DialogTitle>{channel === undefined ? "Websitechat" : `Websitechat · ${channel.storeName}`}</DialogTitle>
+          {channel === undefined ? null : (
+            <DialogDescription>
+              {`${channel.threads} ${channel.threads === 1 ? "gesprek" : "gesprekken"} in de inbox`}
+            </DialogDescription>
+          )}
+        </DialogHeader>
+        {channel === undefined ? null : (
+          <div className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="font-medium text-ink-3 text-sm">Welkomsttekst</span>
+              <input
+                value={shown}
+                maxLength={200}
+                onChange={(e) => setGreeting(e.target.value)}
+                className="field h-10 rounded-md px-3 text-base text-ink outline-none focus:bg-paper"
+              />
+            </label>
+            <WidgetPreview greeting={shown} store={channel.storeName} />
+            {channel.themeUpdated ? null : (
+              <div className="flex flex-col gap-2 rounded-md bg-paper p-3">
+                <p className="font-medium text-ink text-sm">{THEME_NOT_UPDATED}</p>
+                <p className="text-ink-2 text-sm leading-relaxed">
+                  Je winkel toont de chat pas als Shopify weet waar Insyte staat.
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void retryTheme(channel)}
+                  className="flex h-8 w-fit items-center rounded-md bg-ink/6 px-3 font-medium text-ink text-sm hover:bg-ink/10"
+                >
+                  Opnieuw proberen
+                </button>
+              </div>
+            )}
+            <p className="text-ink-2 text-sm leading-relaxed">
+              Staat de chat nog niet op je winkel? Zet de app-embed van Insyte aan in je thema. Wat Insyte in de chat
+              antwoordt, stel je in bij Klantagent.
+            </p>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void retryTheme(channel)}
-                className="flex h-8 w-fit items-center rounded-md bg-ink/6 px-3 font-medium text-ink text-sm hover:bg-ink/10"
+                onClick={() => openTheme(channel.activateUrl)}
+                className="flex h-8 w-fit items-center rounded-md bg-paper px-3 font-medium text-ink text-sm hover:bg-ink/6"
               >
-                Opnieuw proberen
+                Thema openen
               </button>
+              <Link
+                to="/settings/ai/customer-agent"
+                className="flex h-8 w-fit items-center rounded-md bg-paper px-3 font-medium text-ink text-sm hover:bg-ink/6"
+              >
+                Klantagent
+              </Link>
             </div>
-          )}
-          <p className="text-ink-2 text-sm leading-relaxed">
-            Staat de chat nog niet op je winkel? Zet de app-embed van Insyte aan in je thema.
-          </p>
+          </div>
+        )}
+        <DialogFooter className="gap-2 sm:justify-between">
           <button
             type="button"
-            onClick={() => openTheme(channel.activateUrl)}
-            className="flex h-8 w-fit items-center rounded-md bg-paper px-3 font-medium text-ink text-sm hover:bg-ink/6"
+            disabled={busy || channel === undefined}
+            onClick={() => channel !== undefined && void letGo(channel)}
+            className="flex h-9 items-center justify-center rounded-lg px-3.5 font-medium text-base text-signal-red transition-colors hover:bg-signal-red-bg disabled:opacity-50"
           >
-            Thema openen
+            {busy && !changed ? "Ontkoppelen…" : "Ontkoppelen"}
           </button>
-        </div>
-      )}
-    </FormDialog>
+          <span className="flex gap-2">
+            <button type="button" onClick={close} className={QUIET}>Sluiten</button>
+            <button
+              type="button"
+              disabled={busy || !changed}
+              onClick={() => channel !== undefined && void save(channel)}
+              className="flex h-9 items-center justify-center gap-2 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy && changed ? "Opslaan…" : "Opslaan"}
+            </button>
+          </span>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

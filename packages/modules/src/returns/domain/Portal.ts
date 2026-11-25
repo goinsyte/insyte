@@ -36,7 +36,9 @@ export class PortalStore extends Schema.Class<PortalStore>("returns/PortalStore"
    * Huisstijl (M17 step 20.1b): the brand's colour for the page's button, only where white text reads on it, and the
    * path its logo is served from on this origin; none of either, the portal's own look.
    */
-  look: Schema.Struct({ color: Schema.NullOr(Schema.String), logoUrl: Schema.NullOr(Schema.String) })
+  look: Schema.Struct({ color: Schema.NullOr(Schema.String), logoUrl: Schema.NullOr(Schema.String) }),
+  /** Huisstijl's website and support address, at the page's foot; none of either where not saved. */
+  contact: Schema.Struct({ website: Schema.NullOr(Schema.String), support: Schema.NullOr(Schema.String) })
 }) {}
 
 /** Why a line cannot go back for a kind, as facts: the screen writes the sentence. */

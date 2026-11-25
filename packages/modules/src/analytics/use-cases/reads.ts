@@ -65,6 +65,16 @@ export const previous = (month: Month): Month => {
 }
 
 /**
+ * The months the pickers offer: from the first order's month (none: no order yet) to the current one, and never fewer
+ * than two. A store whose first order is in the current month compares it with the month before, with nothing in it,
+ * rather than with itself.
+ */
+export const offeredMonths = (first: Month | null, current: Month): ReadonlyArray<Month> => {
+  const before = previous(current)
+  return monthsBetween(first !== null && first < before ? first : before, current)
+}
+
+/**
  * Both months cut to the shorter one's elapsed days (§B.0.2): the month under way runs to today, a whole month to its
  * end. A month after the current one has not begun; `undefined`.
  */
