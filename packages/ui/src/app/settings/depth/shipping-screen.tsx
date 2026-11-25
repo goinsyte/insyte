@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { ArrowRight, Check, Truck } from "../../../icons"
-import { filled, type ShipStatus } from "../../lib/settings-depth"
+import { filled, SHIP_LABEL_MAX, shippingErrors, type ShipStatus } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
 import { BrandLogo } from "../../marketplace/brand-logos"
-import { UnsavedBar } from "../form"
+import { INVALID_CLASS, UnsavedBar, useFieldErrors } from "../form"
 import { BandedList, BandedRow, SettingCard } from "../setting-card"
 import { useSection } from "./kit"
 import { useSettingsDepthSource } from "./source"
@@ -13,6 +13,14 @@ const SHOW: Record<ShipStatus["show"], string> = {
   all: "Overal",
   line: "Alleen in de statusregel",
   hidden: "Niet tonen"
+}
+
+/** What the server's reason codes at a row mean, where the page did not catch them itself. */
+const SERVER_SAYS: Record<string, string> = {
+  required: "Geef een zin die de klant leest.",
+  too_long: `Hoogstens ${SHIP_LABEL_MAX} tekens.`,
+  unknown_variable: "Alleen {vervoerder} kan in de zin.",
+  invalid: "Kies waar de klant deze zin ziet."
 }
 
 /**
@@ -30,6 +38,10 @@ export function ShippingPage() {
       if (o && o.show !== x.show) out.push([`Tonen: ${x.carrier}`, SHOW[o.show], SHOW[x.show]])
       return out
     }))
+  const fe = useFieldErrors(shippingErrors(s.draft), {
+    draftKey: JSON.stringify(s.draft),
+    say: (_, code) => SERVER_SAYS[code] ?? "Dit klopt nog niet."
+  })
   const [pick, setPick] = useState(s.draft.find((x) => x.id === "local")?.id ?? s.draft[0]?.id)
   const set = (id: string, patch: Partial<ShipStatus>) =>
     s.setDraft(s.draft.map((x) => (x.id === id ? { ...x, ...patch } : x)))
@@ -66,26 +78,47 @@ export function ShippingPage() {
               >
                 <span className="truncate text-ink-2">{x.carrier}</span>
                 <ArrowRight className="size-3.5 text-ink-4" strokeWidth={1.75} />
-                <input
-                  value={x.label}
-                  disabled={!s.canEdit}
-                  onChange={(e) => set(x.id, { label: e.target.value })}
-                  aria-label={`Wat de klant leest bij ${x.carrier}`}
-                  className="h-8 w-full rounded-md bg-paper px-2.5 text-ink outline-none shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_7%,transparent)] focus:shadow-[inset_0_0_0_1px_var(--arc)]"
-                />
-                <select
-                  value={x.show}
-                  disabled={!s.canEdit}
-                  onChange={(e) => set(x.id, { show: e.target.value as ShipStatus["show"] })}
-                  aria-label={`Waar bij ${x.carrier}`}
-                  className="field h-8 rounded-md px-2 text-ink text-sm outline-none focus:bg-paper"
-                >
-                  {(Object.keys(SHOW) as Array<ShipStatus["show"]>).map((k) => (
-                    <option key={k} value={k}>
-                      {SHOW[k]}
-                    </option>
-                  ))}
-                </select>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <input
+                    {...fe.control(`statuses.${x.id}.label`)}
+                    value={x.label}
+                    disabled={!s.canEdit}
+                    onChange={(e) => set(x.id, { label: e.target.value })}
+                    aria-label={`Wat de klant leest bij ${x.carrier}`}
+                    className={cn(
+                      "h-8 w-full rounded-md bg-paper px-2.5 text-ink outline-none shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_7%,transparent)] focus:shadow-[inset_0_0_0_1px_var(--arc)]",
+                      INVALID_CLASS
+                    )}
+                  />
+                  {fe.message(`statuses.${x.id}.label`) ??
+                    (x.label.trim().length > SHIP_LABEL_MAX - 20
+                      ? (
+                        <span className="text-ink-3 text-xs tabular-nums">
+                          {x.label.trim().length} van {SHIP_LABEL_MAX} tekens
+                        </span>
+                      )
+                      : null)}
+                </span>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <select
+                    {...fe.control(`statuses.${x.id}.show`)}
+                    value={x.show}
+                    disabled={!s.canEdit}
+                    onChange={(e) => set(x.id, { show: e.target.value as ShipStatus["show"] })}
+                    aria-label={`Waar bij ${x.carrier}`}
+                    className={cn(
+                      "field h-8 rounded-md px-2 text-ink text-sm outline-none focus:bg-paper",
+                      INVALID_CLASS
+                    )}
+                  >
+                    {(Object.keys(SHOW) as Array<ShipStatus["show"]>).map((k) => (
+                      <option key={k} value={k}>
+                        {SHOW[k]}
+                      </option>
+                    ))}
+                  </select>
+                  {fe.message(`statuses.${x.id}.show`)}
+                </span>
                 <span className="text-right text-ink-3 tabular-nums">{x.orders}</span>
               </div>
             ))}
@@ -154,11 +187,12 @@ export function ShippingPage() {
       <UnsavedBar
         visible={s.dirty && s.canEdit}
         onDiscard={s.discard}
-        onSave={() =>
+        onSave={fe.guard(() =>
           s.save(
             "Verzendstatussen opgeslagen",
             "Klanten lezen de nieuwe zinnen vanaf de volgende update van hun zending."
-          )}
+          )
+        )}
       />
     </>
   )

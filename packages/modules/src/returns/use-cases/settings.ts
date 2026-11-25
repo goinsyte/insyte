@@ -249,8 +249,30 @@ const write = Effect.fn("Returns.writeSettings")(function*(sql: SqlClient.SqlCli
   yield* sql`update claim_flows set steps = ${[...doc.claimSteps]}::text[]`
 })
 
-const invalid = (doc: ReturnSettingsDoc): Record<string, string> | null => {
+/** The days in each month, February at 29: a period is by month and day, every year. */
+const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+const isDay = (md: string) => {
+  const [m, d] = md.split("-").map(Number)
+  return d! <= MONTH_DAYS[m! - 1]!
+}
+
+/**
+ * What the document's schema cannot say alone: a window of no days (nobody could return anything; the portal switch is
+ * how a shop closes returns), a period on a day that does not exist, and the same period twice, by name or by dates.
+ */
+export const invalid = (doc: ReturnSettingsDoc): Record<string, string> | null => {
   const fields: Record<string, string> = {}
+  if (doc.returnDays < 1) fields["returnDays"] = "too_small"
+  if (doc.claimDays < 1) fields["claimDays"] = "too_small"
+  const seen: Array<{ label: string; period: string }> = []
+  for (const w of doc.specialWindows) {
+    const label = w.label.trim().toLowerCase()
+    const period = `${w.from}/${w.to}`
+    if (label === "") fields[`specialWindows.${w.id}`] = "required"
+    else if (!isDay(w.from) || !isDay(w.to)) fields[`specialWindows.${w.id}`] = "date"
+    else if (seen.some((x) => x.label === label || x.period === period)) fields[`specialWindows.${w.id}`] = "duplicate"
+    seen.push({ label, period })
+  }
   if (new Set(doc.reasons.map((r) => r.id)).size !== doc.reasons.length) fields["reasons"] = "duplicate"
   if (new Set(doc.addresses.map((a) => a.country)).size !== doc.addresses.length) fields["addresses"] = "duplicate"
   return Object.keys(fields).length === 0 ? null : fields

@@ -1,10 +1,17 @@
 import { useRef } from "react"
 import { toast } from "sonner"
 import { MessageCircle, Palette, Upload, X } from "../../../icons"
-import { BRAND_DEFAULT_COLOR, BRAND_WHITE, contrast, isHex } from "../../lib/settings-depth"
+import {
+  BRAND_DEFAULT_COLOR,
+  BRAND_MIN_CONTRAST,
+  BRAND_WHITE,
+  brandErrors,
+  contrast,
+  isHex
+} from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
 import { Segmented } from "../../team/bits"
-import { FieldRow, UnsavedBar } from "../form"
+import { FieldRow, INVALID_CLASS, UnsavedBar, useFieldErrors } from "../form"
 import { SettingCard } from "../setting-card"
 import { useSection, WELL } from "./kit"
 import { useSettingsDepthSource } from "./source"
@@ -18,7 +25,9 @@ const FONT_STACK = {
 /**
  * Huisstijl (`/settings/brand`, PLAN 43): what the customer sees of the shop in mail, on the
  * website chat and on the returns portal. The colour is checked against white as it is set,
- * because a brand colour on a button is text on a colour, and it has to read.
+ * because a brand colour on a button is text on a colour, and it has to read. A colour under 4.5:1
+ * is saved (widgets/05 §7.3: contrast only warns) but never drawn under white text: mails and the
+ * portal keep Insyte's own button colour for it (`buttonColorOf`), and the page says so and shows it.
  */
 export function BrandPage() {
   const s = useSection("brand", "Huisstijl", (a, b) => {
@@ -37,9 +46,12 @@ export function BrandPage() {
   const upload = useSettingsDepthSource().uploadLogo
   const d = s.draft
   const file = useRef<HTMLInputElement>(null)
+  const fe = useFieldErrors(brandErrors(d), { draftKey: JSON.stringify(d) })
   const hexOk = isHex(d.color)
   const ratio = hexOk ? contrast(d.color, BRAND_WHITE) : 0
   const color = hexOk ? d.color : BRAND_DEFAULT_COLOR
+  // What a button in a mail or the portal is drawn in: the colour where white reads on it, Insyte's own otherwise.
+  const readable = hexOk && ratio >= BRAND_MIN_CONTRAST
   const set = (p: Partial<typeof d>) => s.setDraft({ ...d, ...p })
   const pick = (f: File | undefined) => {
     if (!f) return
@@ -117,28 +129,23 @@ export function BrandPage() {
                       className="h-9 w-11 cursor-pointer rounded-md bg-transparent p-0.5"
                     />
                     <input
+                      {...fe.control("color")}
                       value={d.color}
                       disabled={!s.canEdit}
                       onChange={(e) => set({ color: e.target.value })}
                       aria-label="Hexcode"
-                      aria-invalid={!hexOk}
-                      className={cn(WELL, "w-32 tabular-nums aria-[invalid=true]:bg-signal-red-bg")}
+                      className={cn(WELL, "w-32 tabular-nums", INVALID_CLASS)}
                     />
                   </span>
-                  <span
-                    className={cn(
-                      "text-xs",
-                      !hexOk ? "text-signal-red" : ratio >= 4.5 ? "text-ink-2" : "text-signal-red"
-                    )}
-                  >
-                    {!hexOk
-                      ? `Een kleur als ${BRAND_DEFAULT_COLOR}.`
-                      : ratio >= 4.5
-                      ? `Contrast met wit ${ratio.toFixed(1).replace(".", ",")}:1, goed leesbaar op knoppen.`
-                      : `Contrast met wit ${
-                        ratio.toFixed(1).replace(".", ",")
-                      }:1. Dat is te licht voor witte tekst; kies een donkerdere tint.`}
-                  </span>
+                  {fe.message("color") ?? (
+                    <span className={cn("text-xs", readable ? "text-ink-2" : "text-signal-amber")}>
+                      {readable
+                        ? `Contrast met wit ${ratio.toFixed(1).replace(".", ",")}:1, goed leesbaar op knoppen.`
+                        : `Contrast met wit ${
+                          ratio.toFixed(1).replace(".", ",")
+                        }:1, te licht voor witte tekst. Knoppen in mails en het retourportaal houden dan de kleur van Insyte; kies een donkerdere tint voor je eigen kleur.`}
+                    </span>
+                  )}
                 </span>
               </FieldRow>
               <FieldRow label="Lettertype in mails">
@@ -157,33 +164,45 @@ export function BrandPage() {
           <SettingCard title="Afzender" subtitle="Wie de mail stuurt en waar een antwoord heen gaat.">
             <div className="flex flex-col">
               <FieldRow label="Afzendernaam" hint="Boven het retourportaal, als er geen logo is.">
-                <input
-                  value={d.sender}
-                  disabled={!s.canEdit}
-                  onChange={(e) => set({ sender: e.target.value })}
-                  aria-label="Afzendernaam"
-                  className={WELL}
-                />
+                <span className="flex flex-col gap-1.5">
+                  <input
+                    {...fe.control("sender")}
+                    value={d.sender}
+                    disabled={!s.canEdit}
+                    onChange={(e) => set({ sender: e.target.value })}
+                    aria-label="Afzendernaam"
+                    className={cn(WELL, INVALID_CLASS)}
+                  />
+                  {fe.message("sender")}
+                </span>
               </FieldRow>
               <FieldRow label="Website">
-                <input
-                  value={d.website}
-                  disabled={!s.canEdit}
-                  onChange={(e) => set({ website: e.target.value })}
-                  aria-label="Website"
-                  inputMode="url"
-                  className={WELL}
-                />
+                <span className="flex flex-col gap-1.5">
+                  <input
+                    {...fe.control("website")}
+                    value={d.website}
+                    disabled={!s.canEdit}
+                    onChange={(e) => set({ website: e.target.value })}
+                    aria-label="Website"
+                    inputMode="url"
+                    className={cn(WELL, INVALID_CLASS)}
+                  />
+                  {fe.message("website")}
+                </span>
               </FieldRow>
               <FieldRow label="Supportadres" hint="Staat onderaan het retourportaal, met de website.">
-                <input
-                  value={d.support}
-                  disabled={!s.canEdit}
-                  onChange={(e) => set({ support: e.target.value })}
-                  aria-label="Supportadres"
-                  type="email"
-                  className={WELL}
-                />
+                <span className="flex flex-col gap-1.5">
+                  <input
+                    {...fe.control("support")}
+                    value={d.support}
+                    disabled={!s.canEdit}
+                    onChange={(e) => set({ support: e.target.value })}
+                    aria-label="Supportadres"
+                    type="email"
+                    className={cn(WELL, INVALID_CLASS)}
+                  />
+                  {fe.message("support")}
+                </span>
               </FieldRow>
               <FieldRow label="Chatvenster op de website">
                 <Segmented
@@ -214,8 +233,11 @@ export function BrandPage() {
             <div className="flex flex-col gap-3 p-5 text-md text-ink leading-[1.55]">
               <p>Hoi Lena, je retour is goedgekeurd. Print het label en breng het pakket naar een PostNL-punt.</p>
               <span
-                className="w-fit rounded-md px-3.5 py-2 font-medium text-sm text-white"
-                style={{ background: color }}
+                className={cn(
+                  "w-fit rounded-md px-3.5 py-2 font-medium text-sm",
+                  readable ? "text-white" : "bg-abyss text-mesh-ink"
+                )}
+                style={readable ? { background: color } : undefined}
               >
                 Label downloaden
               </span>
@@ -246,10 +268,11 @@ export function BrandPage() {
         </aside>
       </div>
       <UnsavedBar
-        visible={s.dirty && s.canEdit && hexOk}
+        visible={s.dirty && s.canEdit}
         onDiscard={s.discard}
-        onSave={() =>
-          s.save("Huisstijl opgeslagen", "Nieuwe mails, de chat en het retourportaal gebruiken hem meteen.")}
+        onSave={fe.guard(() =>
+          s.save("Huisstijl opgeslagen", "Nieuwe mails, de chat en het retourportaal gebruiken hem meteen.")
+        )}
       />
     </>
   )

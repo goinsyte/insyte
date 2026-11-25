@@ -1,8 +1,8 @@
 import { Switch } from "../../../components/switch"
 import { Receipt } from "../../../icons"
-import type { StoreVat } from "../../lib/settings-depth"
+import { ossValid, type StoreVat, vatErrors } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
-import { FieldRow, UnsavedBar } from "../form"
+import { FieldRow, INVALID_CLASS, UnsavedBar, useFieldErrors } from "../form"
 import { SettingCard } from "../setting-card"
 import { useSection, WELL } from "./kit"
 import { useSettingsDepthSource } from "./source"
@@ -36,7 +36,21 @@ export function VatPage() {
   })
   const set = (id: string, p: Partial<StoreVat>) =>
     s.setDraft({ ...s.draft, stores: s.draft.stores.map((x) => (x.storeId === id ? { ...x, ...p } : x)) })
-  const ossBad = s.draft.oss && !/^[A-Z]{2}[0-9A-Z]{8,12}$/.test(s.draft.ossNumber.replace(/\s/g, ""))
+  const fe = useFieldErrors(vatErrors(s.draft), { draftKey: JSON.stringify(s.draft) })
+  /*
+   * OSS off takes a number that is not right with it (back to the saved one where that is right), so a number nobody
+   * sees any more is never saved, and does not come back wrong when OSS goes on again.
+   */
+  const setOss = (oss: boolean) =>
+    s.setDraft({
+      ...s.draft,
+      oss,
+      ossNumber: oss || ossValid(s.draft.ossNumber)
+        ? s.draft.ossNumber
+        : ossValid(s.saved.ossNumber)
+        ? s.saved.ossNumber
+        : ""
+    })
   return (
     <>
       <SettingCard
@@ -103,30 +117,24 @@ export function VatPage() {
               <Switch
                 checked={s.draft.oss}
                 disabled={!s.canEdit}
-                onCheckedChange={(oss) => s.setDraft({ ...s.draft, oss })}
+                onCheckedChange={setOss}
               />
               <span className="text-ink text-sm">{s.draft.oss ? "Geregistreerd" : "Niet geregistreerd"}</span>
             </label>
           </FieldRow>
-          {s.draft.oss ?
+          {s.draft.oss || fe.errors["ossNumber"] !== undefined ?
             (
               <FieldRow label="OSS-nummer" hint="Je btw-nummer met landcode.">
                 <span className="flex flex-col gap-1">
                   <input
+                    {...fe.control("ossNumber")}
                     value={s.draft.ossNumber}
                     disabled={!s.canEdit}
                     onChange={(e) => s.setDraft({ ...s.draft, ossNumber: e.target.value.toUpperCase() })}
-                    aria-invalid={ossBad}
                     aria-label="OSS-nummer"
-                    className={cn(WELL, "tabular-nums aria-[invalid=true]:bg-signal-red-bg")}
+                    className={cn(WELL, "tabular-nums", INVALID_CLASS)}
                   />
-                  {ossBad
-                    ? (
-                      <span className="text-signal-red text-xs">
-                        Een nummer als NL123456789B01: landcode en dan cijfers.
-                      </span>
-                    )
-                    : null}
+                  {fe.message("ossNumber")}
                 </span>
               </FieldRow>
             ) :
@@ -134,9 +142,9 @@ export function VatPage() {
         </div>
       </SettingCard>
       <UnsavedBar
-        visible={s.dirty && s.canEdit && !ossBad}
+        visible={s.dirty && s.canEdit}
         onDiscard={s.discard}
-        onSave={() => s.save("Btw opgeslagen", "Analyse en nieuwe terugbetalingen rekenen er vanaf nu mee.")}
+        onSave={fe.guard(() => s.save("Btw opgeslagen", "Analyse en nieuwe terugbetalingen rekenen er vanaf nu mee."))}
       />
     </>
   )
