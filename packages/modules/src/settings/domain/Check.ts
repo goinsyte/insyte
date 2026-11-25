@@ -11,7 +11,6 @@ import {
   type RetentionValue,
   type ShippingValue,
   type StoreVat,
-  VAT_CURRENCIES,
   type VatValue,
   WIDGET_SIDES
 } from "./Settings.ts"
@@ -115,8 +114,14 @@ export const checkBrand = (value: unknown): Checked<BrandValue> => {
   }))
 }
 
-/** `storeIds`: the workspace's stores; one not among them is `unknown`, one left out keeps its defaults. */
-export const checkVat = (value: unknown, storeIds: ReadonlyArray<string>): Checked<VatValue> => {
+/**
+ * `stores`: the workspace's, with the currency each sells in (Shopify's); one not among them is `unknown`, one left out
+ * keeps its defaults. The currency is the store's whatever the page sends: it is Shopify's to set, not Btw's.
+ */
+export const checkVat = (
+  value: unknown,
+  known: ReadonlyArray<{ readonly id: string; readonly currency: string | null }>
+): Checked<VatValue> => {
   const rows = isRecord(value) && Array.isArray(value["stores"]) ? value["stores"] : undefined
   if (rows === undefined || !isRecord(value)) return { fields: { stores: "required" } }
   const fields: Record<string, string> = {}
@@ -124,16 +129,15 @@ export const checkVat = (value: unknown, storeIds: ReadonlyArray<string>): Check
   for (const row of rows) {
     if (!isRecord(row) || typeof row["storeId"] !== "string") return { fields: { stores: "invalid" } }
     const id = row["storeId"]
-    if (!storeIds.includes(id)) fields[`stores.${id}`] = "unknown"
+    const store = known.find((s) => s.id === id)
+    if (store === undefined) fields[`stores.${id}`] = "unknown"
     else if (stores.some((s) => s.storeId === id)) fields[`stores.${id}`] = "duplicate"
-    else if (
-      !oneOf(VAT_CURRENCIES, row["currency"]) || typeof row["vatOnShipping"] !== "boolean" ||
-      typeof row["refundInclVat"] !== "boolean"
-    ) fields[`stores.${id}`] = "invalid"
-    else {
+    else if (typeof row["vatOnShipping"] !== "boolean" || typeof row["refundInclVat"] !== "boolean") {
+      fields[`stores.${id}`] = "invalid"
+    } else {
       stores.push({
         storeId: id,
-        currency: row["currency"],
+        currency: store.currency,
         vatOnShipping: row["vatOnShipping"],
         refundInclVat: row["refundInclVat"]
       })

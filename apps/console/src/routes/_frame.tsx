@@ -6,6 +6,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { admit } from "../auth/gate.ts"
 import { frameAtom } from "../data/frame.ts"
 import { ConsoleFrame } from "../frame/console-frame.tsx"
+import { applyNotation } from "../frame/notation.ts"
 
 /**
  * The signed-in frame (step 7.4c, M5.3): every screen of a member in a finished workspace sits in it. The gate is the
@@ -31,5 +32,7 @@ function FrameRoute() {
       </main>
     )
   }
+  // Before the screens inside render: they write dates in the workspace's notation.
+  applyNotation(frame.notation)
   return <ConsoleFrame frame={frame} />
 }

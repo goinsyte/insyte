@@ -128,15 +128,27 @@ describe("the workspace's settings", () => {
     }
     expect(ok(await rpc("Workspaces.saveRegional", next, owner.cookie))).toMatchObject(next)
     expect(ok(await rpc("Workspaces.getRegional", undefined, owner.cookie))).toMatchObject(next)
+    // The currency is the workspace's reporting currency: what Account's thresholds, Analyse and Kosten count in.
+    expect(ok(await rpc("Workspaces.getAccount", undefined, owner.cookie)).currency).toBe("GBP")
+    expect(ok(await rpc("Costs.list", {}, owner.cookie)).currency).toBe("GBP")
+    // The notation reaches every screen through the frame.
+    expect(ok(await rpc("Shell.frame", undefined, owner.cookie)).notation).toEqual({
+      dateFormat: "YYYY-MM-DD",
+      timeFormat: "12h"
+    })
     expect(failure(await rpc("Workspaces.saveRegional", { ...next, timezone: "Mars/Olympus" }, owner.cookie)))
       .toMatchObject({ _tag: "Invalid", fields: { timezone: "invalid" } })
     expect(failure(await rpc("Workspaces.saveRegional", { ...next, weekStart: "wed" }, owner.cookie)))
       .toMatchObject({ fields: { weekStart: "invalid" } })
+    // A currency without cents is not a reporting currency: the conversions count in minor units.
+    expect(failure(await rpc("Workspaces.saveRegional", { ...next, currencyDisplay: "JPY" }, owner.cookie)))
+      .toMatchObject({ fields: { currencyDisplay: "invalid" } })
   })
 
   it("lets a read-only colleague read both pages and change neither", async () => {
     expect(ok(await rpc("Workspaces.getAccount", undefined, viewer)).name).toBe("Instellingen B.V.")
     expect(ok(await rpc("Workspaces.getRegional", undefined, viewer)).timezone).toBe("Europe/London")
+    expect(ok(await rpc("Shell.frame", undefined, viewer)).notation.dateFormat).toBe("YYYY-MM-DD")
     const refusals = [
       failure(
         await rpc("Workspaces.saveAccount", {

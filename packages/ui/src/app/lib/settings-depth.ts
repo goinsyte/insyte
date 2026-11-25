@@ -15,7 +15,8 @@ export type Brand = { logo?: string; color: string; font: "Systeem" | "Inter" | 
 export type DnsRecord = { id: string; type: "MX" | "TXT" | "CNAME"; name: string; value: string; status: "found" | "missing" | "pending"; why?: string };
 export type Domain = { domain: string; records: DnsRecord[]; checkedAt: string; checks: number; from: string; replyTo: string };
 
-export type StoreVat = { storeId: string; currency: "EUR" | "USD" | "GBP"; vatOnShipping: boolean; refundInclVat: boolean };
+/** `currency`: what the store sells in, Shopify's (shown, never set here); `null` until the store has said. */
+export type StoreVat = { storeId: string; currency: string | null; vatOnShipping: boolean; refundInclVat: boolean };
 export type Vat = { stores: StoreVat[]; oss: boolean; ossNumber: string };
 
 export type Retention = { id: string; label: string; detail: string; months: number | null; count: number };

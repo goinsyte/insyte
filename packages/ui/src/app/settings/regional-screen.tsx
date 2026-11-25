@@ -12,11 +12,11 @@ const LANGUAGES = [
   { value: "de-DE", label: "Deutsch" },
   { value: "fr-FR", label: "Français" }
 ]
+/* The reporting currency (`workspaces.currency`): what the figures are counted in. Each store sells in Shopify's. */
 const CURRENCIES = [
   { value: "EUR", label: "EUR · euro" },
   { value: "USD", label: "USD · Amerikaanse dollar" },
-  { value: "GBP", label: "GBP · Brits pond" },
-  { value: "JPY", label: "JPY · Japanse yen" }
+  { value: "GBP", label: "GBP · Brits pond" }
 ]
 const DATE_FORMATS = ["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"]
 const TIME_FORMATS = [{ value: "24h", label: "24-uurs" }, { value: "12h", label: "12-uurs" }]
@@ -62,7 +62,10 @@ export function RegionalPage() {
           <FieldRow label="Taal">
             <SelectInput value={form.language} onChange={(v) => set("language", v)} options={LANGUAGES} />
           </FieldRow>
-          <FieldRow label="Valuta">
+          <FieldRow
+            label="Valuta"
+            hint="Start, Analyse en Kosten rekenen hierin, tegen de ECB-koers van de dag. Je winkel verkoopt in de valuta uit Shopify."
+          >
             <SelectInput value={form.currency} onChange={(v) => set("currency", v)} options={CURRENCIES} />
           </FieldRow>
           <FieldRow label="Datumnotatie">

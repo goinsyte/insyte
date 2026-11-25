@@ -1,4 +1,4 @@
-import type { Currency } from "./types/domain";
+import type { Currency } from "./types/domain.ts";
 
 export function formatCurrency(
 	value: number,
@@ -11,6 +11,16 @@ export function formatCurrency(
 		maximumFractionDigits: 0,
 		...options,
 	}).format(value);
+}
+
+/** The sign an amount in `currency` is written with in Dutch: "€", "US$", "£"; the code itself for one Intl lacks. */
+export function currencySymbol(currency: string) {
+	try {
+		const parts = new Intl.NumberFormat("nl-NL", { style: "currency", currency }).formatToParts(0);
+		return parts.find((p) => p.type === "currency")?.value ?? currency;
+	} catch {
+		return currency;
+	}
 }
 
 export function formatCompactNumber(value: number) {
@@ -34,27 +44,115 @@ export function formatPercent(value: number, fractionDigits = 1) {
  */
 export const ZONE = "Europe/Amsterdam";
 
+/** How a date and a time are written: the workspace's choice at Instellingen → Regio. */
+export interface Notation {
+	readonly dateFormat: "DD MMM YYYY" | "MMM DD, YYYY" | "YYYY-MM-DD";
+	readonly timeFormat: "24h" | "12h";
+}
+
+/** "22 nov 2026, 13:09": Dutch, and what a host that names no notation (the design app) writes. */
+export const DEFAULT_NOTATION: Notation = { dateFormat: "DD MMM YYYY", timeFormat: "24h" };
+
+let currentNotation: () => Notation = () => DEFAULT_NOTATION;
+
+/**
+ * Where the formatters read the notation from. The host sets it once: the console reads the request's on its server
+ * (one isolate serves many workspaces) and the tab's in the browser. Nothing read: the default.
+ */
+export function readNotationFrom(read: () => Notation | undefined) {
+	currentNotation = () => read() ?? DEFAULT_NOTATION;
+}
+
+const partOf = (parts: ReadonlyArray<Intl.DateTimeFormatPart>, type: Intl.DateTimeFormatPartTypes) =>
+	parts.find((p) => p.type === type)?.value;
+
+/**
+ * The 12-hour clock's "a.m." and "p.m." written by Insyte rather than by the runtime's ICU, which says "PM" in one
+ * engine and "p.m." in another, with a plain or a narrow space before it: the server and the browser write the same.
+ */
+function dayPeriodOf(parts: Array<Intl.DateTimeFormatPart>, d: Date, timeZone: string | undefined) {
+	const i = parts.findIndex((p) => p.type === "dayPeriod");
+	if (i < 0) return;
+	const hour = Number(
+		new Intl.DateTimeFormat("en-GB", { timeZone, hour: "numeric", hourCycle: "h23" }).format(d),
+	);
+	parts[i] = { type: "dayPeriod", value: hour < 12 ? "a.m." : "p.m." };
+	const before = parts[i - 1];
+	if (before?.type === "literal") parts[i - 1] = { type: "literal", value: " " };
+}
+
+/**
+ * A date, and its time when `options` ask for the hour, in the notation: day-month-year as Intl writes it in Dutch,
+ * month first ("nov 22, 2026"), or numbers year first ("2026-11-22"); the clock in 24 or 12 hours. The options say
+ * which parts to show, as for `Intl.DateTimeFormat`.
+ */
 export function formatDate(
 	value: string | Date,
 	options?: Intl.DateTimeFormatOptions,
+	notation: Notation = currentNotation(),
 ) {
 	const d = typeof value === "string" ? new Date(value) : value;
-	return new Intl.DateTimeFormat("nl-NL", {
+	const opts: Intl.DateTimeFormatOptions = {
 		month: "short",
 		day: "numeric",
 		year: "numeric",
 		timeZone: ZONE,
 		...options,
-	}).format(d);
+	};
+	// The 24-hour clock is Dutch's own, so only the 12-hour one is asked for.
+	const twelve = opts.hour !== undefined && notation.timeFormat === "12h";
+	if (twelve) {
+		delete opts.hourCycle;
+		opts.hour12 = true;
+	}
+	const format = new Intl.DateTimeFormat("nl-NL", opts);
+	if (notation.dateFormat === "DD MMM YYYY" && !twelve) return format.format(d);
+	const parts = format.formatToParts(d);
+	if (twelve) dayPeriodOf(parts, d, opts.timeZone);
+	const whole = parts.map((p) => p.value).join("");
+	if (notation.dateFormat === "DD MMM YYYY") return whole;
+	const firstTime = parts.findIndex((p) => p.type === "hour");
+	const dateParts = firstTime < 0 ? parts : parts.slice(0, firstTime);
+	const day = partOf(dateParts, "day");
+	const month = partOf(dateParts, "month");
+	const year = partOf(dateParts, "year");
+	if (day === undefined && month === undefined && year === undefined) return whole;
+	let date: string;
+	if (notation.dateFormat === "YYYY-MM-DD") {
+		const numbers = new Intl.DateTimeFormat("nl-NL", {
+			timeZone: opts.timeZone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+		}).formatToParts(d);
+		date = [
+			year === undefined ? undefined : partOf(numbers, "year"),
+			month === undefined ? undefined : partOf(numbers, "month"),
+			day === undefined ? undefined : partOf(numbers, "day"),
+		]
+			.filter((p) => p !== undefined)
+			.join("-");
+	} else {
+		const monthDay = [month, day].filter((p) => p !== undefined).join(" ");
+		date = year === undefined ? monthDay : monthDay === "" ? year : `${monthDay}, ${year}`;
+	}
+	const weekday = partOf(dateParts, "weekday");
+	if (weekday !== undefined) date = `${weekday} ${date}`;
+	const time = firstTime < 0 ? "" : parts.slice(firstTime).map((p) => p.value).join("");
+	return time === "" ? date : `${date}, ${time}`;
 }
 
-export function formatDateTime(value: string | Date) {
-	return formatDate(value, {
-		month: "short",
-		day: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-	});
+export function formatDateTime(value: string | Date, notation?: Notation) {
+	return formatDate(
+		value,
+		{
+			month: "short",
+			day: "numeric",
+			hour: "numeric",
+			minute: "2-digit",
+		},
+		notation,
+	);
 }
 
 const RELATIVE_THRESHOLDS: Array<[number, "second" | "minute" | "hour" | "day" | "week" | "month" | "year"]> = [

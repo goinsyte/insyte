@@ -1,6 +1,7 @@
 import { CONSOLE_ROUTES, safeRedirect } from "@insyte/domain/Redirect"
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server"
 import { env } from "cloudflare:workers"
+import type { RequestContext } from "./frame/notation.ts"
 import { newNonce, securityHeaders } from "./security-headers.ts"
 
 /*
@@ -41,8 +42,10 @@ export default {
     if (isApi(new URL(request.url).pathname)) return env.API.fetch(request)
     // One nonce per page for Start's inline scripts (`router.tsx` hands it to the router); none under `vite dev`.
     const nonce = import.meta.env.DEV ? undefined : newNonce()
-    const response = signInFirst(request) ??
-      await start(request, nonce === undefined ? undefined : { context: { nonce } })
+    // This page's own holder for the workspace's notation, which its frame fills (`frame/notation.ts`).
+    const notation = {}
+    const context: RequestContext = nonce === undefined ? { notation } : { nonce, notation }
+    const response = signInFirst(request) ?? await start(request, { context })
     const secured = new Response(response.body, response)
     for (const [name, value] of Object.entries(securityHeaders({ nonce, environment: env.ENVIRONMENT }))) {
       secured.headers.set(name, value)

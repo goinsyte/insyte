@@ -9,10 +9,16 @@ import { useSettingsDepthSource } from "./source"
 
 const yes = (b: boolean) => (b ? "aan" : "uit")
 
+const CURRENCY_NAME: Record<string, string> = { EUR: "euro", USD: "dollar", GBP: "pond" }
+
+/** "USD · dollar", or the code alone for a currency without a Dutch name here; "—" before the store says. */
+const currencyLabel = (code: string | null) =>
+  code === null ? "—" : CURRENCY_NAME[code] === undefined ? code : `${code} · ${CURRENCY_NAME[code]}`
+
 /**
- * Btw (`/settings/vat`, PLAN 43): per store the currency it sells in and how VAT is counted on
- * shipping and refunds, and the OSS registration for selling across the EU. Analyse and the
- * refund amounts read these.
+ * Btw (`/settings/vat`, PLAN 43): per store how VAT is counted on shipping and refunds, beside the
+ * currency it sells in (Shopify's, shown and not set here), and the OSS registration for selling
+ * across the EU. Analyse and the refund amounts read these.
  */
 export function VatPage() {
   const stores = useSettingsDepthSource().stores ?? []
@@ -22,7 +28,6 @@ export function VatPage() {
       const o = a.stores.find((x) => x.storeId === st.storeId)
       const name = stores.find((x) => x.id === st.storeId)?.name ?? st.storeId
       if (!o) continue
-      if (o.currency !== st.currency) out.push([`${name}: valuta`, o.currency, st.currency])
       if (o.vatOnShipping !== st.vatOnShipping) {
         out.push([`${name}: btw over verzending`, yes(o.vatOnShipping), yes(st.vatOnShipping)])
       }
@@ -62,17 +67,7 @@ export function VatPage() {
               <span className="truncate font-medium text-ink">
                 {stores.find((x) => x.id === v.storeId)?.name ?? v.storeId}
               </span>
-              <select
-                value={v.currency}
-                disabled={!s.canEdit}
-                onChange={(e) => set(v.storeId, { currency: e.target.value as StoreVat["currency"] })}
-                aria-label="Valuta"
-                className="field h-8 rounded-md px-2 text-ink text-sm outline-none focus:bg-paper"
-              >
-                <option value="EUR">EUR · euro</option>
-                <option value="USD">USD · dollar</option>
-                <option value="GBP">GBP · pond</option>
-              </select>
+              <span className="text-ink-2 tabular-nums" title="Uit Shopify">{currencyLabel(v.currency)}</span>
               <label className="flex items-center gap-2 text-ink-2">
                 <Switch
                   checked={v.vatOnShipping}
@@ -92,6 +87,10 @@ export function VatPage() {
             </div>
           ))}
         </div>
+        <p className="mt-2 text-ink-3 text-xs">
+          De valuta van een winkel komt uit Shopify. Start, Analyse en Kosten rekenen om naar de valuta die je onder
+          Regio kiest.
+        </p>
       </SettingCard>
       <SettingCard
         title="Verkopen in de EU"

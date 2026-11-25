@@ -211,6 +211,20 @@ export function resolutionAmount(
   return amount
 }
 
+/**
+ * What a shopper pays a return's fees in: the currency the stores sell in (Shopify's), one code when they share it;
+ * `null` when they sell in more than one; `undefined` before any store has said. A disconnected store no longer counts.
+ */
+export function shopperCurrency(
+  stores: ReadonlyArray<{ readonly currency: string | null; readonly status?: string }>
+): string | null | undefined {
+  const codes = new Set(
+    stores.flatMap((s) => (s.status === "disconnected" || s.currency === null ? [] : [s.currency.trim()]))
+  )
+  if (codes.size === 0) return undefined
+  return codes.size === 1 ? [...codes][0] : null
+}
+
 /** The share of units sold that came back, as a fraction. Nothing sold reads as zero, not as a hole. */
 export function returnRate(returnedUnits: number, soldUnits: number): number {
   return soldUnits <= 0 ? 0 : returnedUnits / soldUnits

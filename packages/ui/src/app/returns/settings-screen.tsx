@@ -6,6 +6,7 @@ import { PageGuide } from "../common/page-guide";
 import { FieldRow, INPUT_CLASS, UnsavedBar } from "../settings/form";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "../settings/setting-card";
 import { type Carrier, type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnAddress, type ReturnSettings, type RuleKind } from "../lib/returns";
+import { currencySymbol } from "../lib/format";
 import { countryName } from "../lib/format-flag";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
@@ -167,8 +168,13 @@ export function ReturnSettingsPage() {
 					<FieldRow label="Bonus op een cadeaubon">
 						<NumberWell value={draft.giftCardBonus} onChange={(v) => set("giftCardBonus", v)} unit="%" label="Bonus in procent" />
 					</FieldRow>
-					<FieldRow label="Ruilkosten" hint="0 is gratis ruilen">
-						<NumberWell value={draft.exchangeFee} onChange={(v) => set("exchangeFee", v)} unit="€" label="Ruilkosten in euro" />
+					<FieldRow label="Ruilkosten" hint={exchangeFeeHint(source.currency)}>
+						<NumberWell
+							value={draft.exchangeFee}
+							onChange={(v) => set("exchangeFee", v)}
+							unit={source.currency === null ? "" : currencySymbol(source.currency ?? "EUR")}
+							label="Ruilkosten in de valuta van de winkel"
+						/>
 					</FieldRow>
 				</div>
 			</SettingCard>
@@ -462,10 +468,14 @@ function DaysField({ value, onChange, label, placeholder, small = false }: { val
 	);
 }
 
+/** The shopper pays the fee in the store's own currency; with stores in several, the same amount in each one's. */
+const exchangeFeeHint = (currency: string | null | undefined) =>
+	currency === null ? "0 is gratis ruilen. Het bedrag geldt in de valuta van elke winkel." : "0 is gratis ruilen";
+
 function NumberWell({ value, onChange, unit, label }: { value: number; onChange: (v: number) => void; unit: string; label: string }) {
 	return (
 		<label className="field flex h-9 w-32 items-center gap-2 rounded-md px-3 text-base focus-within:bg-paper">
-			{unit === "€" ? <span className="text-ink-3">€</span> : null}
+			{unit !== "%" && unit !== "" ? <span className="text-ink-3">{unit}</span> : null}
 			<input
 				inputMode="decimal"
 				aria-label={label}
