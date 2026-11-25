@@ -98,6 +98,36 @@ export const relay = async (workspace: string) => {
   }
   throw new Error(`the outbox of ${workspace} did not drain`)
 }
+
+const pendingTasksOf = async (workspace: string) =>
+  (await (await call(`http://api.test/api/__dev/pending-tasks?workspace=${workspace}`)).json() as {
+    tasks: Array<{ kind: string; ref: string }>
+  }).tasks
+
+/**
+ * Until nothing runs in the background for these workspaces any more: every due event relayed, and every task kept for
+ * the queue (`pending_tasks`: an agent's turn, a ticket to classify) run. The Worker's own kicks reach the queue's real
+ * consumer a second or so after a write and what it runs logs; a file that ends meanwhile has that line arrive while
+ * vitest closes the file ("Closing rpc while onUserConsoleLog was pending"), which fails the run with every test
+ * passed. A file whose writes kick the queue waits for this in its `afterAll`.
+ */
+export const quiet = async (workspaces: Iterable<string>) => {
+  for (const workspace of workspaces) {
+    for (let attempt = 0;; attempt++) {
+      await relay(workspace)
+      const tasks = await pendingTasksOf(workspace)
+      if (
+        tasks.length === 0 && (await outboxOf(workspace)).every((e) => e.relayedAt !== null || e.cancelled || !e.due)
+      ) {
+        break
+      }
+      if (attempt === 100) {
+        throw new Error(`${workspace} still has tasks to run: ${tasks.map((t) => `${t.kind} ${t.ref}`).join(", ")}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+  }
+}
 /** As if the undo window had passed. */
 export const pastUndo = (workspace: string) =>
   call(`http://api.test/api/__dev/outbox/due?workspace=${workspace}`, { method: "POST" })
