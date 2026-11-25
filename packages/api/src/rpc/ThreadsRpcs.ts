@@ -1,6 +1,7 @@
 import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import {
   ChannelChange,
+  ChannelGreetingInput,
   ChannelIdInput,
   ChannelStatus,
   ChatDraftInput,
@@ -123,7 +124,8 @@ export class ThreadsRpcs extends RpcGroup.make(
     success: ChannelChange,
     error: Schema.Union([Forbidden, NotFound, Invalid, ChatUnavailable])
   }),
-  Rpc.make("Channels.disconnect", { payload: ChannelIdInput, success: ChannelChange, error: Changed })
+  Rpc.make("Channels.disconnect", { payload: ChannelIdInput, success: ChannelChange, error: Changed }),
+  Rpc.make("Channels.setGreeting", { payload: ChannelGreetingInput, success: ChannelChange, error: Changed })
 )
   .middleware(Member)
   .middleware(Authenticated)

@@ -4,6 +4,7 @@ import { CHANNELS, NOTIFICATION_KINDS, notificationKind } from "@insyte/domain/N
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
   type ChannelState,
@@ -91,8 +92,29 @@ export const eventsOf = (
   }))
 }
 
-/** The member's settings as the page reads them, inside a transaction scoped to them. */
-const readPrefs = (sql: SqlClient.SqlClient, memberId: string) =>
+/** The page as saved: every kind's channels, and the design's quiet hours, digest and follow rules until saved. */
+const pageOf = (
+  rows: ReadonlyArray<{ kind: string; channels: ReadonlyArray<string>; onlyMine: boolean }>,
+  settings: SettingsRow | undefined
+): NotifyPrefsInput => ({
+  events: eventsOf(rows),
+  ...(settings === undefined ? DEFAULT_SETTINGS : {
+    quiet: { on: settings.quietOn, from: settings.quietFrom, to: settings.quietTo, weekend: settings.quietWeekend },
+    digest: {
+      on: settings.digestOn,
+      at: Option.getOrElse(decodeDigestAt(settings.digestAt), () => "08:00" as const)
+    },
+    follow: {
+      assigned: settings.followAssigned,
+      mentioned: settings.followMentioned,
+      created: settings.followCreated
+    },
+    slackChannel: settings.slackChannel
+  })
+})
+
+/** What the member saved: the rows per kind and the rest of the page, as the page saves them. */
+const readSaved = (sql: SqlClient.SqlClient, memberId: string) =>
   Effect.gen(function*() {
     const rows = yield* sql<{ kind: string; channels: Array<string>; onlyMine: boolean }>`
       select kind, channels, only_mine from notification_prefs where recipient_id = ${memberId}`
@@ -100,30 +122,23 @@ const readPrefs = (sql: SqlClient.SqlClient, memberId: string) =>
       select quiet_on, quiet_from, quiet_to, quiet_weekend, digest_on, digest_at, follow_assigned, follow_mentioned,
              follow_created, slack_channel
       from notification_settings where recipient_id = ${memberId}`
+    return { rows, settings }
+  })
+
+/** The member's settings as the page reads them, inside a transaction scoped to them. */
+const readPrefs = (sql: SqlClient.SqlClient, memberId: string) =>
+  Effect.gen(function*() {
+    const { rows, settings } = yield* readSaved(sql, memberId)
     const [ws] = yield* sql<
       { email: string | null; timezone: string; alerts: Record<string, unknown>; currency: string }
     >`
       select u.email, w.timezone, w.alerts, w.currency
       from workspaces w left join members m on m.id = ${memberId} left join auth."user" u on u.id = m.user_id
       where w.id = app_workspace_id()`
-    const events = eventsOf(rows)
     const { channels, pushKey, slackTeam } = yield* channelsOf(sql, memberId)
     return new NotePrefs({
       app: Object.fromEntries(rows.map((r) => [r.kind, r.channels.includes("app")])),
-      events,
-      ...(settings === undefined ? DEFAULT_SETTINGS : {
-        quiet: { on: settings.quietOn, from: settings.quietFrom, to: settings.quietTo, weekend: settings.quietWeekend },
-        digest: {
-          on: settings.digestOn,
-          at: Option.getOrElse(decodeDigestAt(settings.digestAt), () => "08:00" as const)
-        },
-        follow: {
-          assigned: settings.followAssigned,
-          mentioned: settings.followMentioned,
-          created: settings.followCreated
-        },
-        slackChannel: settings.slackChannel
-      }),
+      ...pageOf(rows, settings),
       email: ws?.email ?? "",
       timezone: ws?.timezone ?? "Europe/Amsterdam",
       alerts: {
@@ -157,10 +172,56 @@ export const set = Effect.fn("Notifications.setPref")(function*(input: SetNotePr
       yield* sql`insert into notification_prefs (workspace_id, recipient_id, kind, channels)
                  values (${workspaceId}, ${id}, ${input.kind}, ${channels}::text[])
                  on conflict (workspace_id, recipient_id, kind) do update set channels = excluded.channels`
+      yield* audit(
+        sql,
+        Audit.fieldChanges({ app: before.includes("app") }, { app: input.app }, ["app"], { key: input.kind })
+      )
       return yield* readPrefs(sql, id)
     })
   )
 })
+
+/** What a save of the page changed, as the Logboek lists it: per kind each channel, then the rest of the page. */
+export const prefChanges = (before: NotifyPrefsInput, after: NotifyPrefsInput): Array<Audit.LogChange> => {
+  const flat = (p: NotifyPrefsInput) => ({
+    quietOn: p.quiet.on,
+    quietFrom: p.quiet.from,
+    quietTo: p.quiet.to,
+    quietWeekend: p.quiet.weekend,
+    digestOn: p.digest.on,
+    digestAt: p.digest.at,
+    followAssigned: p.follow.assigned,
+    followMentioned: p.follow.mentioned,
+    followCreated: p.follow.created,
+    slackChannel: p.slackChannel
+  })
+  const kinds = NOTIFICATION_KINDS.map((k) => k.key).filter((k) => after.events[k] !== undefined)
+  return [
+    ...kinds.flatMap((kind) =>
+      Audit.fieldChanges(
+        { ...before.events[kind] },
+        { ...after.events[kind] },
+        ["app", "email", "push", "slack", "onlyMine"],
+        { key: kind }
+      )
+    ),
+    ...Audit.fieldChanges(flat(before), flat(after), Object.keys(flat(after)))
+  ]
+}
+
+/** The member's own change, in the Logboek on Meldingen: written with the change, so no save goes unlisted. */
+const audit = (sql: SqlClient.SqlClient, changes: ReadonlyArray<Audit.LogChange>) =>
+  Effect.gen(function*() {
+    if (changes.length === 0) return
+    const p = yield* CurrentPrincipal
+    yield* Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, {
+      action: "notifications.prefs_changed",
+      subjectType: "notification_prefs",
+      subjectId: p.id,
+      section: "notifications",
+      log: { changes }
+    })
+  })
 
 /** The page's whole settings written for the member: every kind it names, and the rest of the page. */
 const write = (sql: SqlClient.SqlClient, workspaceId: string, memberId: string, input: NotifyPrefsInput) =>
@@ -218,6 +279,7 @@ export const setAll = Effect.fn("Notifications.setPrefs")(function*(input: Notif
       const pushOn = Object.entries(input.events).some(([kind, p]) => p.push && before.events[kind]?.push !== true)
       if (pushOn && current.channels.push !== "connected") return yield* new PushNotRegistered()
       yield* write(sql, workspaceId, id, input)
+      yield* audit(sql, prefChanges(before, input))
       const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { before } })
       return new NotePrefsChange({ prefs: yield* readPrefs(sql, id), undo })
     })
@@ -230,5 +292,8 @@ const decodeBefore = Schema.decodeUnknownEffect(Schema.Struct({ before: NotifyPr
 export const restore = Effect.fn("Notifications.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
   const { workspaceId, id } = yield* CurrentPrincipal
   const { before } = yield* decodeBefore(compensation).pipe(Effect.orDie)
+  const saved = yield* readSaved(sql, id)
+  const now = pageOf(saved.rows, saved.settings)
   yield* write(sql, workspaceId, id, before)
+  yield* audit(sql, prefChanges(now, before))
 })

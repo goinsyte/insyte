@@ -4,6 +4,7 @@ import { CurrentUser } from "@insyte/domain/Session"
 import { Effect } from "effect"
 import { Relay } from "../../../shared/domain/Outbox.ts"
 import * as Audit from "../../../shared/use-cases/Audit.ts"
+import { memberName } from "../../../shared/use-cases/LogNames.ts"
 import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { Accepted, type LandingRef, NotAcceptable } from "../../domain/Landing.ts"
 import { revokeKeysOf } from "../access-ended.ts"
@@ -126,7 +127,9 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
         action: "member.joined",
         subjectType: "member",
         subjectId: memberId,
-        diff: { role: roleId, via: found.link ? "link" : "invitation" }
+        section: "team",
+        diff: { role: roleId, via: found.link ? "link" : "invitation" },
+        log: { name: yield* memberName(sql, memberId) }
       })
       const outboxId = yield* Outbox.write(sql, found.workspaceId, {
         type: "member.joined",

@@ -7,6 +7,7 @@ import { Exit } from "effect"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { AGENT_LOG, agentWrites } from "../data/agent.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { useHasPage } from "../frame/pages.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
 
@@ -113,7 +114,7 @@ const notTaken = (error: unknown) =>
 
 /** The log page's source over the server's rows, with the address's row where the list does not hold it. */
 export function useConsoleAgentLogSource(page: AgentLogPage, extra: ServerEntry | undefined): AgentLogSource {
-  const undoAction = useAtomSet(agentWrites.undoAction, { mode: "promiseExit" })
+  const undoAction = useAtomSetInTurn(agentWrites.undoAction)
   const redoAction = useAtomSet(agentWrites.redoAction, { mode: "promiseExit" })
   const compensate = useAtomSet(agentWrites.compensateAction, { mode: "promiseExit" })
   const hasPage = useHasPage()

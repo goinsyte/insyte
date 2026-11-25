@@ -117,7 +117,9 @@ export const callback = Effect.fn("Notifications.slackCallback")(function*(
         action: "notifications.slack_connected",
         subjectType: "connection",
         subjectId: connection!.id,
-        diff: { provider: "slack", team: install.teamName }
+        section: "notifications",
+        diff: { provider: "slack", team: install.teamName },
+        log: { name: install.teamName ?? undefined }
       })
     })
   )
@@ -143,7 +145,8 @@ export const disconnect = Effect.fn("Notifications.disconnectSlack")(function*()
       yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
         action: "notifications.slack_disconnected",
         subjectType: "connection",
-        subjectId: connection.id
+        subjectId: connection.id,
+        section: "notifications"
       })
       return opened?.token
     })

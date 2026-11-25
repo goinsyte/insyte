@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, guarded, onPreview, previewRequest } from "./access.ts"
 
 /*
  * The website chat's journey (M15 step 8): an owner connects Websitechat on Koppelingen; a shopper writes from the
@@ -85,21 +85,29 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
       return attach.call(this, { ...init, mode: "open" })
     }
   })
-  await shopper.route(`${storefront}/**`, (route) =>
-    route.fulfill({
-      contentType: "text/html; charset=utf-8",
-      body: `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>Winkel</title></head><body>` +
-        `<h1>Winkel</h1><script src="${WIDGET_HOST}/api/public/chat/widget.js" data-shop="${shop}" defer></script>` +
-        `</body></html>`
-    }))
-  await shopper.route(`${WIDGET_HOST}/**`, async (route: Route) => {
-    const asked = route.request()
-    const path = new URL(asked.url()).pathname + new URL(asked.url()).search
-    const headers = { ...await asked.allHeaders(), origin: storefront, ...onPreview().headers }
-    delete headers["host"]
-    const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
-    await route.fulfill({ response: answer })
-  })
+  await shopper.route(
+    `${storefront}/**`,
+    guarded((route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>Winkel</title></head><body>` +
+          `<h1>Winkel</h1><script src="${WIDGET_HOST}/api/public/chat/widget.js" data-shop="${shop}" defer></script>` +
+          `</body></html>`
+      })
+    )
+  )
+  // The widget polls: its last request may still be in flight when the test ends (`guarded`, `unrouteAll` below).
+  await shopper.route(
+    `${WIDGET_HOST}/**`,
+    guarded(async (route: Route) => {
+      const asked = route.request()
+      const path = new URL(asked.url()).pathname + new URL(asked.url()).search
+      const headers = { ...await asked.allHeaders(), origin: storefront, ...onPreview().headers }
+      delete headers["host"]
+      const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
+      await route.fulfill({ response: answer })
+    })
+  )
   // Before the chat is connected the embed's script finds no chat: no bubble at all, rather than one that does nothing.
   const unopened = shopper.waitForResponse((r) => r.url().endsWith("/api/public/chat/session"))
   await shopper.goto(`${storefront}/`)
@@ -153,4 +161,5 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   const read = await thread.json() as { ok: { takenOverBy: string | null; handedBackAt: string | null } }
   expect(read.ok.takenOverBy).toBeNull()
   expect(read.ok.handedBackAt).not.toBeNull()
+  await shopper.unrouteAll({ behavior: "ignoreErrors" })
 })

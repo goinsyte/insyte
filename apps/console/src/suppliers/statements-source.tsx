@@ -17,6 +17,7 @@ import type {
 import { useNavigate } from "@tanstack/react-router"
 import { Exit } from "effect"
 import { useMemo, useState } from "react"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { PRODUCTS } from "../data/products.ts"
 import { SUPPLIERS, supplierWrites } from "../data/suppliers.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
@@ -106,7 +107,7 @@ export function useConsoleStatement(detail: StatementDetail): StatementSource {
   const gate = useGate("suppliers", 3)
   const [busy, setBusy] = useState(false)
   const markPaid = useAtomSet(supplierWrites.markStatementPaid, { mode: "promiseExit" })
-  const undo = useAtomSet(supplierWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(supplierWrites.undo)
   const label = monthLabel(s.month)
 
   const pay = async () => {

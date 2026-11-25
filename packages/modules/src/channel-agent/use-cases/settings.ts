@@ -166,8 +166,38 @@ const inputOf = (s: CustomerAgentSettings): CustomerAgentSettingsInput => ({
   handoverMessage: s.handoverMessage
 })
 
-/** Writes the settings as the next version, on the caller's transaction. */
-const write = Effect.fn("ChannelAgent.write")(function*(sql: SqlClient.SqlClient, next: CustomerAgentSettingsInput) {
+/** What a save changed, as the Logboek lists it: the switch, each channel, each day's hours, then the rest. */
+export const agentChanges = (
+  before: CustomerAgentSettingsInput,
+  after: CustomerAgentSettingsInput
+): Array<Audit.LogChange> => {
+  const rest = (s: CustomerAgentSettingsInput) => ({
+    outside: s.outside,
+    unsure: s.handover.unsure,
+    asksPerson: s.handover.asksPerson,
+    topics: s.handover.topics,
+    afterMessages: s.handover.afterMessages,
+    tone: s.tone,
+    handoverMessage: s.handoverMessage.trim()
+  })
+  return [
+    ...Audit.fieldChanges({ on: before.on }, { on: after.on }, ["on"]),
+    ...CHANNEL_KINDS.flatMap((k) =>
+      Audit.fieldChanges({ channel: before.channels[k] }, { channel: after.channels[k] }, ["channel"], { key: k })
+    ),
+    ...after.hours.flatMap((day, i) =>
+      Audit.fieldChanges({ hours: before.hours[i] }, { hours: day }, ["hours"], { key: String(i) })
+    ),
+    ...Audit.fieldChanges(rest(before), rest(after), Object.keys(rest(after)))
+  ]
+}
+
+/** Writes the settings as the next version, on the caller's transaction; `was` is what they were. */
+const write = Effect.fn("ChannelAgent.write")(function*(
+  sql: SqlClient.SqlClient,
+  was: CustomerAgentSettingsInput,
+  next: CustomerAgentSettingsInput
+) {
   const principal = yield* CurrentPrincipal
   const topics = [...new Set(next.handover.topics.map((t) => t.trim().toLowerCase()).filter((t) => t !== ""))]
   const handover = { ...next.handover, topics }
@@ -188,7 +218,9 @@ const write = Effect.fn("ChannelAgent.write")(function*(sql: SqlClient.SqlClient
     action: "customer_agent.changed",
     subjectType: "channel_agent",
     subjectId: principal.workspaceId,
-    diff: { on: next.on, channels: next.channels, outside: next.outside, tone: next.tone }
+    section: "customer_agent",
+    diff: { on: next.on, channels: next.channels, outside: next.outside, tone: next.tone },
+    log: { changes: agentChanges(was, { ...next, handover }) }
   })
 })
 
@@ -214,7 +246,7 @@ export const set = Effect.fn("ChannelAgent.set")(function*(sql: SqlClient.SqlCli
   const was = yield* read(sql)
   if (widens(inputOf(was), next)) yield* Policy.requireAction("ai.autonomy")
   if (!same(inputOf(was), { ...next, handoverMessage: next.handoverMessage.trim() })) {
-    yield* write(sql, next)
+    yield* write(sql, inputOf(was), next)
     const undo = yield* Undo.issue(sql, {
       command: RESTORE,
       compensation: {
@@ -249,11 +281,13 @@ export const restore = Effect.fn("ChannelAgent.restore")(function*(sql: SqlClien
       action: "customer_agent.changed",
       subjectType: "channel_agent",
       subjectId: principal.workspaceId,
-      diff: { on: false }
+      section: "customer_agent",
+      diff: { on: false },
+      log: { changes: agentChanges(inputOf(now), { ...inputOf(now), on: false }) }
     })
     return
   }
-  yield* write(sql, c.before)
+  yield* write(sql, inputOf(now), c.before)
 })
 
 /* ── the day ──────────────────────────────────────────────────────────────────────────────────────────────── */

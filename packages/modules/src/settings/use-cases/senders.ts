@@ -27,6 +27,9 @@ export const domainNameOf = Effect.fn("SendingDomain.domainNameOf")(function*(
   domain: StoredDomain | null | undefined
 ) {
   if (domain !== null && domain !== undefined) return domain.name
+  // A set-up still pending at the provider: the page shows that domain, so the senders' check takes it too.
+  const [claim] = yield* sql<{ name: string }>`select name from sending_domains limit 1`
+  if (claim !== undefined) return claim.name
   return domainOfWebsite(yield* websiteOf(sql))
 })
 

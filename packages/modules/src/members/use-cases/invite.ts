@@ -8,6 +8,7 @@ import type { SqlClient } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { narrowStores, type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { roleLabels } from "../../shared/use-cases/LogNames.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
 import { type InviteRow, SeatLimitReached } from "../domain/Team.ts"
@@ -99,6 +100,8 @@ export const send = Effect.fn("Invitations.send")(function*(rows: ReadonlyArray<
       if (wanted.length > seats.free) return yield* new SeatLimitReached({ total: seats.total, free: seats.free })
 
       const queued: Array<string> = []
+      // The roles by name for the Logboek, once for all the rows.
+      const roleNames = yield* roleLabels(sql, wanted.map((r) => r.roleId))
       for (const row of wanted) {
         const lapsed = open.get(row.email)
         const id = lapsed?.id ?? mintId("inv")
@@ -122,7 +125,9 @@ export const send = Effect.fn("Invitations.send")(function*(rows: ReadonlyArray<
           action: "member.invited",
           subjectType: "invitation",
           subjectId: id,
-          diff: { role: row.roleId }
+          section: "team",
+          diff: { role: row.roleId },
+          log: { name: `${row.email} (${roleNames.get(row.roleId) ?? row.roleId})` }
         })
         queued.push(yield* mailLater(sql, id, round))
       }

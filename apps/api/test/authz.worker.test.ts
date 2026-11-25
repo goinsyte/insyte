@@ -375,6 +375,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Channels.list": undefined,
   "Channels.connect": { kind: "webchat", storeId: "sto_none" },
   "Channels.disconnect": { id: "chn_none" },
+  "Channels.setGreeting": { id: "chn_none", greeting: "Hoi" },
   "Quality.list": { productId: "prd_none" },
   "Quality.stats": {},
   "Quality.request": {

@@ -10,6 +10,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { inboxAtom, NOTES } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { notifyWrites, slackChannelsAtom } from "../data/notifications.ts"
 import { toNote } from "../frame/notes.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
@@ -137,7 +138,7 @@ export function useConsoleNotificationSettingsSource(prefs: NotePrefs): Notifica
   const setPrefs = useAtomSet(notifyWrites.setPrefs, { mode: "promiseExit" })
   const { push, testPush } = useBrowserPush(prefs)
   const { slack, channels } = useSlack(prefs)
-  const undo = useAtomSet(notifyWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(notifyWrites.undo)
   const inbox = Option.getOrUndefined(AsyncResult.value(useAtomValue(inboxAtom)))
   const notes = useMemo(() => inbox?.items.map(toNote), [inbox])
   const saved = useMemo(() => notifyPrefsOf(prefs), [prefs])

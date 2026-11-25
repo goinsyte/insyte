@@ -11,6 +11,7 @@ import type { ApiVersion, Delivery, WebhookEndpoint } from "@insyte/ui/app/lib/w
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { deliveriesAtom, deliveryAtom, WEBHOOKS, webhookWrites } from "../data/webhooks.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
@@ -172,7 +173,7 @@ export function useConsoleWebhooksSource(input: {
     sendTest: useAtomSet(webhookWrites.sendTest, { mode: "promiseExit" }),
     redeliver: useAtomSet(webhookWrites.redeliver, { mode: "promiseExit" }),
     delivery: useAtomSet(webhookWrites.delivery, { mode: "promiseExit" }),
-    undo: useAtomSet(webhookWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(webhookWrites.undo)
   }
   const edit = useGate("integrations", 2)
   // Secrets made, revealed or rotated in this visit: never kept anywhere else.

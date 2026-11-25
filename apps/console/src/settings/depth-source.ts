@@ -19,6 +19,7 @@ import { Exit } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { DEPTH, depthSections, depthWrites } from "../data/settings-depth.ts"
 import { SUPPORT, supportAtom, supportWrites } from "../data/support.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -134,7 +135,7 @@ const base64Of = async (file: File) => {
 function usePrivacy(section: SettingsSection | undefined, refresh: () => void): PrivacyHere | undefined {
   const count = useAtomSet(depthWrites.count, { mode: "promiseExit" })
   const switchIt = useAtomSet(depthWrites.setErasing, { mode: "promiseExit" })
-  const undo = useAtomSet(depthWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(depthWrites.undo)
   const [counting, setCounting] = useState(false)
   if (section?.section !== "retention") return undefined
   const last = section.state.lastCount
@@ -210,7 +211,7 @@ export function useConsoleDepthSource(
 ): SettingsDepthSource {
   const save = useAtomSet(depthWrites.save, { mode: "promiseExit" })
   const upload = useAtomSet(depthWrites.uploadLogo, { mode: "promiseExit" })
-  const undo = useAtomSet(depthWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(depthWrites.undo)
   const refresh = useAtomRefresh(depthSections[section.section])
   const privacy = usePrivacy(section, refresh)
   const support = useSupport(section)

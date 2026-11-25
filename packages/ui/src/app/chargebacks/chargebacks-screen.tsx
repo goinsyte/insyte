@@ -66,7 +66,7 @@ const caseActions = (
         bar: true,
         applies: (c: Chargeback) => isOpenCase(c),
         run: (rows: Array<Chargeback>) => {
-          for (const c of rows) void commands.draw?.(c.id)
+          void commands.draw?.(rows)
           toast(`${counted(rows.length, "bewijspakket", "bewijspakketten")} in de maak`, {
             description: "Elk pakket verschijnt bij zijn zaak zodra de documenten verzameld zijn."
           })

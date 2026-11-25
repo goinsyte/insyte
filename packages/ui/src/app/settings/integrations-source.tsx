@@ -32,6 +32,8 @@ export interface IntegrationItem {
   attention?: string
   /** Where it is managed: its button opens that page (and search) rather than acting here. */
   manage?: { to: string; search?: Record<string, string> }
+  /** The Marketplace app it is connected through: its button opens that app's detail over this page. */
+  app?: string
   /** The button's words where Koppelen or Opnieuw koppelen would not fit (a domain to check, not to connect). */
   action?: string
 }

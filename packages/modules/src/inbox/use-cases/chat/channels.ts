@@ -11,6 +11,7 @@ import { inScope } from "../../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../../shared/use-cases/Undo.ts"
 import {
   ChannelChange,
+  type ChannelGreetingInput,
   ChannelStatus,
   ChannelView,
   type ChatRestore,
@@ -154,7 +155,12 @@ export const connect = Effect.fn("Channels.connect")(function*(input: typeof Con
                      disconnected_at = null
                    where id = ${id}`
       }
-      yield* audit(sql, before === undefined ? "channel.connected" : "channel.updated", id, { kind: "webchat" })
+      yield* audit(sql, before === undefined ? "channel.connected" : "channel.updated", id, {
+        kind: "webchat",
+        ...(before !== undefined && before.greeting !== greeting
+          ? { greeting: { from: before.greeting, to: greeting } }
+          : {})
+      })
       const compensation: ChatRestore = {
         kind: "channel",
         channelId: id,
@@ -165,6 +171,45 @@ export const connect = Effect.fn("Channels.connect")(function*(input: typeof Con
       const undo = yield* Undo.issue(sql, { command: CHAT_RESTORE, compensation })
       forgetChatRoute(store.id)
       return new ChannelChange({ channel: yield* one(sql, id), undo })
+    })
+  )
+})
+
+/**
+ * The welcome text alone, from Koppelingen's manage dialog: a change of words, so Shopify is not asked again and the
+ * theme's state stays as the last connect found it. Undone like a connect.
+ */
+export const setGreeting = Effect.fn("Channels.setGreeting")(function*(input: typeof ChannelGreetingInput.Type) {
+  yield* Policy.require("integrations", 2)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [before] = yield* sql<
+        { id: string; status: "connected" | "disconnected"; greeting: string; color: string | null }
+      >`
+        select c.id, c.status, c.greeting, c.color from channels c
+        where c.id = ${input.id} and ${yield* inScope(sql, "c.store_id")} for update`
+      if (before === undefined) return yield* new NotFound({ entity: "channel", id: input.id })
+      const greeting = input.greeting.trim()
+      if (greeting === before.greeting) return new ChannelChange({ channel: yield* one(sql, before.id), undo: null })
+      yield* sql`update channels set greeting = ${greeting} where id = ${before.id}`
+      yield* audit(sql, "channel.updated", before.id, {
+        kind: "webchat",
+        greeting: { from: before.greeting, to: greeting }
+      })
+      const undo = yield* Undo.issue(sql, {
+        command: CHAT_RESTORE,
+        compensation: {
+          kind: "channel",
+          channelId: before.id,
+          status: before.status,
+          greeting: before.greeting,
+          color: before.color
+        } satisfies ChatRestore
+      })
+      const channel = yield* one(sql, before.id)
+      forgetChatRoute(channel.storeId)
+      return new ChannelChange({ channel, undo })
     })
   )
 })

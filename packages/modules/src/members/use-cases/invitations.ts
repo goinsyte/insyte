@@ -7,6 +7,7 @@ import type { SqlClient, SqlError } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { roleLabels } from "../../shared/use-cases/LogNames.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
 import { beyondReach, cancelMail, grantable, mailLater } from "./invite.ts"
@@ -18,17 +19,26 @@ import { readTeam, seatsIn } from "./team.ts"
  * answers the team page.
  */
 
-const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
-  Effect.flatMap(
-    Effect.service(CurrentPrincipal),
-    (p) =>
-      Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, {
-        action,
-        subjectType: "invitation",
-        subjectId,
-        diff
-      })
-  )
+/** In the Logboek on Team, by the address the invitation went to. */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  subjectId: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
+  Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    const [invitation] = yield* sql<{ email: string }>`select email from invitations where id = ${subjectId}`
+    yield* Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, {
+      action,
+      subjectType: "invitation",
+      subjectId,
+      section: "team",
+      diff,
+      log: { name: invitation?.email, changes }
+    })
+  })
 
 const OPEN = (sql: SqlClient.SqlClient) =>
   sql`kind = 'team' and accepted_at is null and revoked_at is null and declined_at is null`
@@ -165,8 +175,15 @@ export const setRole = Effect.fn("Invitations.setRole")(function*(id: string, ro
       if (yield* beyondReach(sql, roleId, before.stores ?? "all")) {
         return yield* new Invalid({ fields: { stores: "forbidden" } })
       }
+      // The role it grants already: nothing changes, so nothing is written or logged.
+      if (before.roleId === roleId) return yield* readTeam(sql)
       yield* sql`update invitations set role_id = ${roleId} where id = ${id}`
-      yield* audit(sql, "member.invitation_role_changed", id, { role: [before.roleId, roleId] })
+      const labels = yield* roleLabels(sql, [before.roleId, roleId])
+      yield* audit(sql, "member.invitation_role_changed", id, { role: [before.roleId, roleId] }, [{
+        field: "invitationRole",
+        before: labels.get(before.roleId) ?? before.roleId,
+        after: labels.get(roleId) ?? roleId
+      }])
       return yield* readTeam(sql)
     })
   )

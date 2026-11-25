@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, guarded, onPreview, previewRequest } from "./access.ts"
 
 /*
  * The customer agent's journey (M15 step 8): an owner lets Insyte answer customers (Zelfstandigheid), publishes a
@@ -153,21 +153,29 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
       return attach.call(this, { ...init, mode: "open" })
     }
   })
-  await shopper.route(`${storefront}/**`, (route) =>
-    route.fulfill({
-      contentType: "text/html; charset=utf-8",
-      body: `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>Winkel</title></head><body>` +
-        `<h1>Winkel</h1><script src="${WIDGET_HOST}/api/public/chat/widget.js" data-shop="${shop}" defer></script>` +
-        `</body></html>`
-    }))
-  await shopper.route(`${WIDGET_HOST}/**`, async (route: Route) => {
-    const asked = route.request()
-    const path = new URL(asked.url()).pathname + new URL(asked.url()).search
-    const headers = { ...await asked.allHeaders(), origin: storefront, ...onPreview().headers }
-    delete headers["host"]
-    const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
-    await route.fulfill({ response: answer })
-  })
+  await shopper.route(
+    `${storefront}/**`,
+    guarded((route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>Winkel</title></head><body>` +
+          `<h1>Winkel</h1><script src="${WIDGET_HOST}/api/public/chat/widget.js" data-shop="${shop}" defer></script>` +
+          `</body></html>`
+      })
+    )
+  )
+  // The widget polls: its last request may still be in flight when the test ends (`guarded`, `unrouteAll` below).
+  await shopper.route(
+    `${WIDGET_HOST}/**`,
+    guarded(async (route: Route) => {
+      const asked = route.request()
+      const path = new URL(asked.url()).pathname + new URL(asked.url()).search
+      const headers = { ...await asked.allHeaders(), origin: storefront, ...onPreview().headers }
+      delete headers["host"]
+      const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
+      await route.fulfill({ response: answer })
+    })
+  )
   await shopper.goto(`${storefront}/`)
   await shopper.getByRole("button", { name: "Chat met ons" }).click()
   const say = async (text: string) => {
@@ -240,4 +248,5 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
   await card.getByRole("button", { name: "Versturen" }).click()
   await expect(card).toHaveCount(0)
   await expect(shopper.getByText(/binnen 30 dagen retourneren/)).toHaveCount(2, REPLY)
+  await shopper.unrouteAll({ behavior: "ignoreErrors" })
 })

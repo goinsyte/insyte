@@ -154,11 +154,15 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: CONSOLE_URL="https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN" bun run e2e:console
+      # The failed journeys' screenshots and page snapshots only: the repository is public, and an HTML report would keep
+      # every error's call log, request headers included (`playwright.console.config.ts`).
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-console
-          path: playwright-report-console
+          name: playwright-console-failures
+          path: |
+            test-results/**/*.png
+            test-results/**/error-context.md
           retention-days: 7
 
   staging:

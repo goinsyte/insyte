@@ -10,7 +10,8 @@
  *   Insyte sends webhooks (M19.4).
  * - `soon`: neither exists yet; the card says Binnenkort and nothing installs.
  *
- * The copy is the design's (`marketplace/app-catalog.ts`, the `extensions` fixture), word for word.
+ * The copy is the design's (`marketplace/app-catalog.ts`, the `extensions` fixture), except where an app installs: there
+ * it says what Insyte does with it, and nothing more (Klaviyo sends customers to a list, Zapier gets an API key).
  */
 
 export type AppKind = "Integration" | "App" | "Coaching" | "Agency"
@@ -76,7 +77,7 @@ export const CATALOG: ReadonlyArray<CatalogApp> = [
   {
     id: "ext_klaviyo",
     name: "Klaviyo",
-    tagline: "Synchroniseer segmenten en e-mailflows direct naar klantprofielen.",
+    tagline: "Stuur klanten die ja zeiden tegen marketing naar een lijst in Klaviyo.",
     listing: "E-mail en sms",
     kind: "Integration",
     category: "marketing",
@@ -86,14 +87,14 @@ export const CATALOG: ReadonlyArray<CatalogApp> = [
     vendorUrl: "klaviyo.com",
     pricing: "Gratis te installeren · op basis van gebruik",
     features: [
-      "Tweerichtingssynchronisatie van segmenten en lifecycle-flows",
-      "Klantevents stromen direct naar Klaviyo-profielen",
-      "Doorklikken naar e-mailprestaties per klant"
+      "Klanten vanuit Insyte naar een bestaande of nieuwe Klaviyo-lijst sturen",
+      "Alleen klanten die ja zeiden tegen marketing, met een eigen e-mailadres",
+      "Een keer goedkeuren bij Klaviyo; ontkoppelen kan altijd"
     ],
+    // What Insyte asks of Klaviyo: its account and lists to read, lists to make, profiles to put on one.
     scopes: [
-      { id: "profiles.read", label: "Klantprofielen, bestellingen en labels lezen" },
-      { id: "subscriptions.write", label: "Abonneestatus en segmentlidmaatschap schrijven" },
-      { id: "events.send", label: "Marketingevents namens jou versturen" }
+      { id: "profiles.read", label: "Je Klaviyo-account, lijsten en profielen lezen" },
+      { id: "subscriptions.write", label: "Lijsten maken en klanten aan een lijst toevoegen" }
     ],
     install: { kind: "connect", provider: "klaviyo" }
   },
@@ -306,7 +307,7 @@ export const CATALOG: ReadonlyArray<CatalogApp> = [
   {
     id: "ext_zapier",
     name: "Zapier",
-    tagline: "Koppel Insyte zonder code aan 5.000+ apps.",
+    tagline: "Lees je bestellingen, klanten, tickets en chargebacks in Zapier, met een eigen API-sleutel.",
     listing: "Automatisering",
     kind: "Integration",
     category: "ai",
@@ -316,9 +317,9 @@ export const CATALOG: ReadonlyArray<CatalogApp> = [
     vendorUrl: "zapier.com",
     pricing: "Gratis · betaalde niveaus",
     features: [
-      "Koppel Insyte zonder code aan 5.000+ apps",
-      "Triggers voor bestellingen, tickets, chargebacks en klanten",
-      "Zaps met meerdere stappen, ingebouwde vertraging en filter"
+      "Een API-sleutel alleen voor Zapier, die je een keer te zien krijgt",
+      "Leest bestellingen, klanten, tickets en chargebacks via de API van Insyte",
+      "Schrijven staat uit tot je het zelf aanzet; verwijderen trekt de sleutel in"
     ],
     scopes: [
       { id: "records.read", label: "Bestellingen, klanten, tickets en chargebacks lezen, met namen en e-mailadressen" },

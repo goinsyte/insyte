@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
-import { admit, previewRequest } from "./access.ts"
+import { admit, guarded, previewRequest } from "./access.ts"
 
 /*
  * Kosten's journey (step 15.5): a new admin's workspace starts with no costs; a fixed line is added with an amount per
@@ -43,12 +43,12 @@ async function mailLink(request: APIRequestContext, to: string, kind: string): P
  * The month's save answered late, as on a busy preview; every other RPC goes on at once, so no read the page refreshes
  * (and so drops) is held here meanwhile. Access's own route still adds its headers (`fallback`).
  */
-const slowSave = async (route: Route) => {
+const slowSave = guarded(async (route: Route) => {
   if (route.request().postData()?.includes("Costs.setAmount")) {
     await new Promise((resolve) => setTimeout(resolve, 1500))
   }
   await route.fallback()
-}
+})
 
 const hydrated = (page: Page) => expect(page.locator("html[data-hydrated]")).toHaveCount(1)
 

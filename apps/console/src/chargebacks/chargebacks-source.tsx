@@ -14,6 +14,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { CHARGEBACK_WRITES, chargebackWrites, nextCaseNumberAtom } from "../data/chargebacks.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 import { caseOf, chargebackOf, providerName, reasonCodeOf } from "./chargeback-of.ts"
@@ -76,7 +77,7 @@ function useCommands(
     removeEvidence: useAtomSet(chargebackWrites.removeEvidence, { mode: "promiseExit" }),
     setNote: useAtomSet(chargebackWrites.setNote, { mode: "promiseExit" }),
     assemblePack: useAtomSet(chargebackWrites.assemblePack, { mode: "promiseExit" }),
-    undo: useAtomSet(chargebackWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(chargebackWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {
@@ -150,11 +151,13 @@ function useCommands(
       said(exit, "Notitie opgeslagen")
       return true
     },
-    draw: async (id) => {
-      asked(id, true)
-      const exit = await write.assemblePack({ payload: { ids: [id] }, ...keys })
+    // One write for every case picked: one write each would interrupt each other and only the last case's pack start.
+    draw: async (cases) => {
+      const ids = cases.map((c) => c.id)
+      for (const id of ids) asked(id, true)
+      const exit = await write.assemblePack({ payload: { ids }, ...keys })
       if (Exit.isFailure(exit)) {
-        asked(id, false)
+        for (const id of ids) asked(id, false)
         refused(failureOf(exit))
       }
     },

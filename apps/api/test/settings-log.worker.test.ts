@@ -19,6 +19,8 @@ describe("the Logboek and the Prullenbak", () => {
   const people = { owner: "", view: "", service: "", other: "" }
   let workspace = ""
   let ownerKey = ""
+  /** The Team page's lines from the invitations made before the tests: two sent, two joined. */
+  let teamLines = 0
 
   beforeAll(async () => {
     const owner = await person("log-owner", "Logboek B.V.")
@@ -42,7 +44,19 @@ describe("the Logboek and the Prullenbak", () => {
   }, 120_000)
 
   it("lists every settings save as a line per field, newest first, with the page and who", async () => {
-    expect(ok(await rpc("Audit.list", { category: "settings" }, people.owner)).lines).toEqual([])
+    // The two invitations made before the tests are on Team: sent by the owner, then joined by each.
+    const team = ok(await rpc("Audit.list", { category: "settings" }, people.owner)).lines
+    expect(team.map((l) => [l.page, l.field, l.before]).sort()).toEqual([
+      ["Team", "In het team gekomen", null],
+      ["Team", "In het team gekomen", null],
+      ["Team", "Uitnodiging verstuurd", null],
+      ["Team", "Uitnodiging verstuurd", null]
+    ])
+    expect(team.filter((l) => l.field === "Uitnodiging verstuurd").map((l) => l.after).sort()).toEqual([
+      `log-${run}-service@invited.test (Klantenservice)`,
+      `log-${run}-view@invited.test (Alleen lezen)`
+    ])
+    teamLines = team.length
     const regional = ok(await rpc("Workspaces.getRegional", undefined, people.owner))
     ok(
       await rpc("Workspaces.saveRegional", {
@@ -56,7 +70,7 @@ describe("the Logboek and the Prullenbak", () => {
 
     const page = ok(await rpc("Audit.list", { category: "settings" }, people.owner))
     expect(page.next).toBeNull()
-    expect(page.lines.map((l) => [l.page, l.field, l.before, l.after])).toEqual([
+    expect(page.lines.slice(0, -teamLines).map((l) => [l.page, l.field, l.before, l.after])).toEqual([
       ["Account", "Gegevens leesbaar houden voor", "90 dagen", "180 dagen"],
       ["Regio", "Taal", "Nederlands", "Engels (VK)"],
       ["Regio", "Week begint op", "Maandag", "Zondag"],
@@ -69,8 +83,12 @@ describe("the Logboek and the Prullenbak", () => {
     expect(page.lines[1]!.path).toBe("/settings/regional")
 
     const facets = ok(await rpc("Audit.facets", undefined, people.owner))
-    expect(facets.actors).toEqual([{ key: ownerKey, name: "Persoon log-owner" }])
-    expect(facets.pages).toEqual([{ id: "account", label: "Account" }, { id: "regional", label: "Regio" }])
+    expect(facets.actors).toContainEqual({ key: ownerKey, name: "Persoon log-owner" })
+    expect(facets.actors).toHaveLength(3)
+    expect(facets.pages).toEqual([{ id: "account", label: "Account" }, { id: "regional", label: "Regio" }, {
+      id: "team",
+      label: "Team"
+    }])
 
     const regio = ok(await rpc("Audit.list", { category: "settings", page: "regional", days: 7 }, people.owner))
     expect(regio.lines.map((l) => l.field)).toEqual(["Taal", "Week begint op", "Tijdzone"])
@@ -85,7 +103,7 @@ describe("the Logboek and the Prullenbak", () => {
   })
 
   it("reads to Instellingen · Bekijken, exports with Exporteren, and never another workspace's lines", async () => {
-    expect(ok(await rpc("Audit.list", { category: "settings" }, people.view)).lines.length).toBe(4)
+    expect(ok(await rpc("Audit.list", { category: "settings" }, people.view)).lines.length).toBe(4 + teamLines)
     expect(failure(await rpc("Audit.list", { category: "settings" }, people.service))).toMatchObject({
       _tag: "Forbidden",
       permission: "settings"
