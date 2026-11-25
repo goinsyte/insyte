@@ -163,10 +163,17 @@ const refused = (error: unknown, changing = false) =>
     }
   })
 
-/** What a preview says: what is charged now, or the first payment, and the next invoice. */
-const quoteOf = (p: BillingPreview, ask: BillingAsk) => {
+/**
+ * What a preview says: what is charged now, or the first payment, and the next invoice. The first payment starts the
+ * subscription the day it is paid (Stripe's Checkout gives it no trial of its own), so on a trial it says that the
+ * trial's remaining days end there.
+ */
+const quoteOf = (p: BillingPreview, ask: BillingAsk, trialEndsAt: number | null) => {
   if (p.kind === "checkout") {
-    return `Je eerste betaling is ${money(p.amountDueMinor, p.currency)}, op de betaalpagina van Stripe.`
+    const paid = `Je betaalt nu ${money(p.amountDueMinor, p.currency)} op de betaalpagina van Stripe.`
+    return trialEndsAt === null
+      ? `${paid} Je abonnement gaat in zodra je betaald hebt.`
+      : `${paid} Je abonnement gaat dan meteen in en je proefperiode (tot ${date(trialEndsAt)}) stopt.`
   }
   const what = ask.kind === "seats" ? (ask.delta > 0 ? "Een plek erbij: " : "Een plek minder: ") : ""
   // More credited than charged: the rest stays as credit for the next invoices.
@@ -297,7 +304,7 @@ export function useConsoleBillingSource(
     tiers,
     changeNote: live
       ? "Een ander abonnement gaat meteen in. Het verschil voor de rest van deze periode staat op je volgende factuur; een andere betaaltermijn rekenen we meteen af."
-      : "Je betaalt de eerste periode op de betaalpagina van Stripe. Jaarlijks betalen geeft twee maanden gratis.",
+      : "Je betaalt de eerste periode meteen, op de betaalpagina van Stripe; vanaf dan loopt je abonnement. Jaarlijks betalen geeft twee maanden gratis.",
     usage: [
       { label: "Gebruikte plekken", value: overview.seats.used, max: overview.seats.total },
       { label: "Gekoppelde winkels", value: overview.usage.stores.value, max: overview.usage.stores.max },
@@ -340,7 +347,10 @@ export function useConsoleBillingSource(
         return null
       }
       quoted.current.set(keyOf(ask), exit.value.prorationDate)
-      return quoteOf(exit.value, ask)
+      // A trial still running ends at the first payment; one already over has nothing left to say.
+      const running = overview.status === "trial" && overview.trialEndsAt !== null &&
+        overview.trialEndsAt > Date.now()
+      return quoteOf(exit.value, ask, running ? overview.trialEndsAt : null)
     },
     change: async (ask) => {
       if (waiting) return stillPaying()

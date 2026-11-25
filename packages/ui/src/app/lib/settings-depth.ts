@@ -15,6 +15,27 @@ export type Brand = { logo?: string; color: string; font: "Systeem" | "Inter" | 
 export type DnsRecord = { id: string; type: "MX" | "TXT" | "CNAME"; name: string; value: string; status: "found" | "missing" | "pending"; why?: string };
 export type Domain = { domain: string; records: DnsRecord[]; checkedAt: string; checks: number; from: string; replyTo: string };
 
+/**
+ * What is wrong with the senders as typed, in the page's words, as the server would refuse them: "Mails van Insyte" on
+ * the domain set up here, "Antwoorden naar" an address (that it is a connected mailbox only the server knows).
+ */
+export const senderProblems = (from: string, replyTo: string, domain: string): { from?: string; replyTo?: string } => {
+  const f = from.trim().toLowerCase()
+  const r = replyTo.trim().toLowerCase()
+  return {
+    ...(f === ""
+      ? {}
+      : f.length > 254 || !EMAIL.test(f)
+      ? { from: "Dit is geen geldig e-mailadres." }
+      : domain === ""
+      ? { from: "Stel eerst je domein in; daarna mail je vanaf een adres op dat domein." }
+      : !f.endsWith(`@${domain.toLowerCase()}`)
+      ? { from: `Gebruik een adres op ${domain}.` }
+      : {}),
+    ...(r === "" || (r.length <= 254 && EMAIL.test(r)) ? {} : { replyTo: "Dit is geen geldig e-mailadres." })
+  }
+}
+
 /** `currency`: what the store sells in, Shopify's (shown, never set here); `null` until the store has said. */
 export type StoreVat = { storeId: string; currency: string | null; vatOnShipping: boolean; refundInclVat: boolean };
 export type Vat = { stores: StoreVat[]; oss: boolean; ossNumber: string };

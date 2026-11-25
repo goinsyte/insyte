@@ -73,6 +73,9 @@ export const inboxWrites = {
   forward: ConsoleClient.mutation("Threads.forward"),
   compose: ConsoleClient.mutation("Threads.compose"),
   connect: ConsoleClient.mutation("Mailboxes.connect"),
+  disconnectMailbox: ConsoleClient.mutation("Mailboxes.disconnect"),
+  setDefaultMailbox: ConsoleClient.mutation("Mailboxes.setDefault"),
+  setSignature: ConsoleClient.mutation("Mailboxes.setSignature"),
   takeOver: ConsoleClient.mutation("Threads.takeOver"),
   handBack: ConsoleClient.mutation("Threads.handBack"),
   sendDraft: ConsoleClient.mutation("Threads.sendDraft"),
@@ -80,5 +83,6 @@ export const inboxWrites = {
   discardDraft: ConsoleClient.mutation("Threads.discardDraft"),
   connectChannel: ConsoleClient.mutation("Channels.connect"),
   disconnectChannel: ConsoleClient.mutation("Channels.disconnect"),
+  setChannelGreeting: ConsoleClient.mutation("Channels.setGreeting"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

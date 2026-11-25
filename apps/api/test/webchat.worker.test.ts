@@ -496,6 +496,20 @@ describe("webchat", () => {
     expect((await bind()).ok).toBeNull()
     expect(ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).thread.customerId).toBe(customer.id)
 
+    // The welcome text alone: the widget says it at once, Shopify is not asked again (the embed's origin, taken away
+    // here, stays away) and the theme stays as the connect found it; Undo puts the old words back.
+    recordedAppMetafields.get(shop.shop)?.delete("insyte.api_origin")
+    const greeted = ok(
+      await rpc("Channels.setGreeting", { id: first.channel.id, greeting: " Goedemiddag! " }, shop.cookie)
+    )
+    expect(greeted.channel).toMatchObject({ greeting: "Goedemiddag!", themeUpdated: true })
+    expect(pointed()).toBeUndefined()
+    expect((await session(shop.shop)).greeting).toBe("Goedemiddag!")
+    ok(await rpc("Shared.undo", { token: greeted.undo!.token }, shop.cookie))
+    expect(ok(await rpc("Channels.list", undefined, shop.cookie)).channels[0]!.greeting).toBe(first.channel.greeting)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    expect(pointed()).toBe("https://api.public.test")
+
     // Switched off: once the relay has heard, the theme's embed has no API to load the widget from, and Undo puts it back.
     const off = ok(await rpc("Channels.disconnect", { id: first.channel.id }, shop.cookie))
     await relay(shop.workspace)

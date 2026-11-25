@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   buttonColorOf,
+  contactOf,
   fillLinks,
+  lacksUnsubscribe,
   linksOf,
   logoFileOf,
   logoPath,
@@ -123,11 +125,44 @@ describe("Sjablonen' links", () => {
     expect(fillLinks("  Hoi Lena,\n\nTot snel!  ", LINKS)).toBe("  Hoi Lena,\n\nTot snel!  ")
   })
 
+  it("refuses a mail that asks for the unsubscribe link while none is saved, and only that one", () => {
+    // The unsubscribe line is the one that may not drop out: the mail waits for the link instead.
+    expect(
+      lacksUnsubscribe(["Nieuw binnen", "Kijk hier: {voorraad_link}\n\nSchrijf je uit via {uitschrijf_link}"], LINKS)
+    )
+      .toBe(true)
+    expect(lacksUnsubscribe(["{uitschrijf_link}", ""], LINKS)).toBe(true)
+    // Saved, it is put in; a mail that never asks for it goes as it always did.
+    expect(
+      lacksUnsubscribe(["Schrijf je uit via {uitschrijf_link}"], { ...LINKS, unsubscribe: "https://a.example/uit" })
+    )
+      .toBe(false)
+    expect(lacksUnsubscribe(["Vertel je ons wat je ervan vindt? {review_link}"], { ...LINKS, review: "" })).toBe(false)
+  })
+
   it("keeps only https links of the saved section", () => {
     expect(linksOf({ review: " https://a.example/r ", unsubscribe: "http://a.example", restock: 4 })).toEqual({
       review: "https://a.example/r",
       unsubscribe: "",
       restock: ""
+    })
+  })
+})
+
+describe("Huisstijl's contact", () => {
+  it("names the store and says how to reach it, each only as the page saves it", () => {
+    expect(contactOf({ sender: " Jouw Winkel ", website: "https://a.example", support: "hulp@a.example" })).toEqual(
+      {
+        name: "Jouw Winkel",
+        website: "https://a.example",
+        support: "hulp@a.example"
+      }
+    )
+    expect(contactOf(undefined)).toEqual({ name: null, website: null, support: null })
+    expect(contactOf({ sender: "", website: "abc", support: "geen-mail" })).toEqual({
+      name: null,
+      website: null,
+      support: null
     })
   })
 })

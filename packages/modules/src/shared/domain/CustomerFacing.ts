@@ -122,6 +122,17 @@ export const linksOf = (stored: unknown): Links =>
   })) as Links
 
 /**
+ * Words that ask for the unsubscribe link while none is saved. Such a mail does not go: the other links' sentences may
+ * drop out, but a mail whose writer put an unsubscribe line in (a review request, a back-in-stock mail) never leaves
+ * without it, since the law wants one on marketing mail. Refused until Sjablonen has the link.
+ */
+export const lacksUnsubscribe = (texts: ReadonlyArray<string>, links: Links) =>
+  links.unsubscribe === "" && texts.some((t) => t.includes(LINK_VARIABLES.unsubscribe))
+
+/** The field and reason a mail lacking its unsubscribe link is refused with. */
+export const NO_UNSUBSCRIBE = { unsubscribe_link: "missing" } as const
+
+/**
  * The words that lead up to a link and go with it when it is empty: one of via, op, naar, bij or hier, and a colon,
  * as in "Schrijf je uit via {uitschrijf_link}", "Kijk hier: {review_link}", "Review: {review_link}".
  */
@@ -192,6 +203,30 @@ const luminance = (hex: string) => {
 
 /** WCAG's contrast of white text on `hex`. */
 export const contrastWithWhite = (hex: string) => 1.05 / (luminance(sixDigits(hex)) + 0.05)
+
+/** Huisstijl's sender as a shopper's page names the store and says how to reach it; none of each where not saved. */
+export interface Contact {
+  /** "Afzendernaam": the store's name as the shopper knows it. */
+  readonly name: string | null
+  readonly website: string | null
+  readonly support: string | null
+}
+
+const HTTPS_LINK = /^https:\/\/[^\s.]+\.[^\s]+$/
+const ADDRESS = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]{2,}$/
+
+/** Huisstijl's name, website and support address, each only as the page's check saves it. */
+export const contactOf = (stored: unknown): Contact => {
+  const field = (k: string) => (isRecord(stored) && typeof stored[k] === "string" ? stored[k].trim() : "")
+  const name = field("sender")
+  const website = field("website")
+  const support = field("support")
+  return {
+    name: name === "" ? null : name,
+    website: HTTPS_LINK.test(website) ? website : null,
+    support: ADDRESS.test(support) ? support : null
+  }
+}
 
 /** The brand's colour for a button with white text on it, or none where it is not a colour or too light to read. */
 export const buttonColorOf = (stored: unknown): string | null => {

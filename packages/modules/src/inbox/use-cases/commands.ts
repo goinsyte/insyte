@@ -621,7 +621,7 @@ export const composeOn = Effect.fn("Threads.composeOn")(function*(
   if (chosen === undefined) return yield* new NoMailbox()
   const mailbox = yield* mailboxFor(sql, chosen.id)
   // Sjablonen' links in, subject and body; the limits hold for what goes out.
-  const fill = yield* CustomerFacing.linkFiller(sql)
+  const fill = yield* CustomerFacing.linkFiller(sql, [input.subject, input.body])
   const body = fill(input.body)
   const subject = fill(input.subject).trim()
   if (body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
