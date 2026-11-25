@@ -146,9 +146,11 @@ export const handoverText = (
   at: Date
 ) => {
   const when = nextOpenLabel(s.hours, timeZone, at)
+  // A save refuses an empty sentence, but the test chat runs on the page's draft: the shopper never hears nothing.
+  const sentence = s.handoverMessage.trim() === "" ? DEFAULT_HANDOVER_MESSAGE : s.handoverMessage
   // A sentence saved before the chat's own check: what the chat would refuse is a space, so the shopper still hears.
   // oxlint-disable-next-line no-control-regex
-  const sendable = s.handoverMessage.replaceAll("\r\n", "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ")
+  const sendable = sentence.replaceAll("\r\n", "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ")
   return sendable.replaceAll("{wanneer}", when === "nu" ? "vandaag nog" : when)
 }
 
@@ -1030,4 +1032,10 @@ export const HANDOVER_LABEL: Readonly<Record<string, string>> = {
   runaway: "het gesprek liep uit de hand",
   error: "Insyte kon nu niet antwoorden",
   disabled: "de agent staat uit"
+}
+
+/** The test chat files no question, so its handover for want of a chapter says where a real one goes. */
+export const TEST_HANDOVER_LABEL: Readonly<Record<string, string>> = {
+  ...HANDOVER_LABEL,
+  no_knowledge: "niet in de kennisbank; van een echte klant komt de vraag bij Nog niet beantwoord"
 }

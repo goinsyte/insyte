@@ -399,6 +399,8 @@ export const publish = Effect.fn("Knowledge.publish")(function*(sql: SqlClient.S
   yield* requirePublish(input.audience, yield* publishedAudience(sql, row))
   yield* checkLive(row)
   yield* checkRevision(row, input.baseRevision)
+  // An empty chapter answers nothing: it may stay a draft, but the agents are not given it to read.
+  if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const content = { title: yield* trimmedTitle(input.title), audience: input.audience, body: input.body }
   const n = yield* writeVersion(sql, row.id, content, true)
   yield* writeArticle(sql, row.id, content, n)
@@ -441,6 +443,8 @@ export const restoreVersion = Effect.fn("Knowledge.restoreVersion")(function*(
   if (v === undefined) return yield* new NotFound({ entity: "knowledge_version", id: `${row.id}@${input.version}` })
   yield* requirePublish(v.audience, yield* publishedAudience(sql, row))
   yield* checkLive(row)
+  // A chapter starts with an empty version: putting that back would publish nothing, as Publiceren refuses.
+  if (v.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const n = yield* writeVersion(sql, row.id, v, true)
   yield* writeArticle(sql, row.id, v, n)
   yield* rebuildChunks(sql, row.id)

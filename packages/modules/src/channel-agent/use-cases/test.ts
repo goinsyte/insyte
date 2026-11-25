@@ -4,7 +4,15 @@ import { Effect } from "effect"
 import type { InTx } from "../../ai/Ai.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { TestAnswer, type TestInput } from "../domain/ChannelAgent.ts"
-import { aboutAnOrder, checkable, claimOf, handFor, HANDOVER_LABEL, handoverText, isOpen } from "../domain/Rules.ts"
+import {
+  aboutAnOrder,
+  checkable,
+  claimOf,
+  handFor,
+  handoverText,
+  isOpen,
+  TEST_HANDOVER_LABEL
+} from "../domain/Rules.ts"
 import { type Brain, think } from "./engine.ts"
 import { sendReplyLevel, timezoneOf } from "./settings.ts"
 
@@ -51,7 +59,7 @@ export const test = (brain: Brain, inTx: InTx<CurrentPrincipal>, input: TestInpu
       new TestAnswer({
         text: handoverText(s, tz, now),
         source: null,
-        handover: { reason, label: HANDOVER_LABEL[reason] ?? HANDOVER_LABEL["error"]! },
+        handover: { reason, label: TEST_HANDOVER_LABEL[reason] ?? TEST_HANDOVER_LABEL["error"]! },
         mode: shown
       })
     if (level === "never") return handover("policy")
