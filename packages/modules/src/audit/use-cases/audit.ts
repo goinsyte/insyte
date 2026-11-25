@@ -5,7 +5,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { decodeCursor, encodeCursor } from "../../shared/tables/FilterSql.ts"
-import { actorKey, actorNames } from "../../shared/use-cases/Actors.ts"
+import { actorKey, actorNames, ANY_ID, filterKey } from "../../shared/use-cases/Actors.ts"
 import {
   type AuditExport,
   type AuditFacets,
@@ -48,7 +48,12 @@ const where = (sql: SqlClient.SqlClient, workspaceId: string, input: Narrowing, 
   if (input.days !== undefined) parts.push(sql`at > now() - make_interval(days => ${input.days})`)
   if (input.actor !== undefined) {
     const split = input.actor.indexOf(":")
-    parts.push(sql`actor_kind = ${input.actor.slice(0, split)} and actor_id = ${input.actor.slice(split + 1)}`)
+    const id = input.actor.slice(split + 1)
+    parts.push(
+      id === ANY_ID
+        ? sql`actor_kind = ${input.actor.slice(0, split)}`
+        : sql`actor_kind = ${input.actor.slice(0, split)} and actor_id = ${id}`
+    )
   }
   if (input.page !== undefined) parts.push(sql`section = any(${[...sectionsOfPage(input.page)]})`)
   if (after !== undefined) parts.push(sql`(at, id) < (${after[0]}, ${after[1]})`)
@@ -62,8 +67,8 @@ const linesOf = Effect.fn("Audit.linesOf")(
     for (const r of rows) {
       const on = pageOf(r.section, r.action)
       if (page !== undefined && on.id !== page) continue
-      const key = actorKey({ kind: r.actorKind, id: r.actorId })
-      const actor = { key, name: names.get(key) ?? "Onbekend" }
+      const ref = { kind: r.actorKind, id: r.actorId }
+      const actor = { key: filterKey(ref), name: names.get(actorKey(ref)) ?? "Onbekend" }
       for (const [i, change] of changesOf(r).entries()) {
         lines.push({
           id: `${r.id}:${i}`,
@@ -127,9 +132,10 @@ export const facets = Effect.fn("Audit.facets")(function*() {
         where workspace_id = ${principal.workspaceId} and section is not null group by actor_kind, actor_id`
       const refs = actors.map((a) => ({ kind: a.actorKind, id: a.actorId }))
       const names = yield* actorNames(sql, refs)
+      // Insyte-support's sessions are one choice, not one per session.
+      const people = new Map(refs.map((a) => [filterKey(a), names.get(actorKey(a)) ?? "Onbekend"]))
       return {
-        actors: refs.map((a) => ({ key: actorKey(a), name: names.get(actorKey(a)) ?? "Onbekend" }))
-          .sort((a, b) => a.name.localeCompare(b.name, "nl")),
+        actors: [...people].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name, "nl")),
         pages: pagesOf(sections).map((p) => ({ id: p.id, label: p.label }))
       } satisfies AuditFacets
     })

@@ -24,6 +24,13 @@ export interface ActorRef {
 /** `<kind>:<id>`: how an actor is named in a filter. */
 export const actorKey = (actor: ActorRef) => `${actor.kind}:${actor.id}`
 
+/** Any actor of this kind: the principals that are no person are one name, so one choice in a filter. */
+export const ANY_ID = "*"
+
+/** How the Logboek's filter names an actor: a person by themselves, the rest (Insyte-support, Insyte) by their kind. */
+export const filterKey = (actor: ActorRef) =>
+  NAMED[actor.kind] === undefined ? actorKey(actor) : actorKey({ kind: actor.kind, id: ANY_ID })
+
 /** The names of these actors, by key; one no longer found is "Onbekend". */
 export const actorNames = Effect.fn("Actors.names")(
   function*(sql: SqlClient.SqlClient, actors: ReadonlyArray<ActorRef>) {

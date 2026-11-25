@@ -1,8 +1,8 @@
 /*
  * The outbound webhooks' public catalogue (M19.4, api.md §7), the server's half of the design's `EVENT_GROUPS`
- * (`lib/webhooks-core.ts`, which owns the Dutch words): every event an endpoint may subscribe to, by group, and the
- * delivery rules the console and the sender share. A test keeps the two lists the same. Free of imports, like
- * `Permissions.ts`.
+ * (`lib/webhooks-core.ts`): every event an endpoint may subscribe to, by group and by the name the Webhooks page gives
+ * it (the Logboek says them so), and the delivery rules the console and the sender share. A test keeps the two lists
+ * the same, words included. Free of imports, like `Permissions.ts`.
  *
  * `live` marks the events Insyte sends today, each from an outbox event of its own slice; the rest are listed (the
  * design offers them) and start sending when their slice writes the fact they name, without a new API version.
@@ -10,6 +10,8 @@
 
 export interface WebhookEventDef {
   readonly id: string
+  /** Its name on the Webhooks page ("Bestelling geannuleerd"). */
+  readonly label: string
   /** Sent today: a slice writes the fact. */
   readonly live: boolean
 }
@@ -19,7 +21,45 @@ export interface WebhookEventGroup {
   readonly events: ReadonlyArray<WebhookEventDef>
 }
 
-const e = (id: string, live = false): WebhookEventDef => ({ id, live })
+const e = (id: string, live = false): WebhookEventDef => ({ id, label: LABELS[id] ?? id, live })
+
+const LABELS: Readonly<Record<string, string>> = {
+  "order.created": "Bestelling geplaatst",
+  "order.paid": "Bestelling betaald",
+  "order.fulfilled": "Bestelling verzonden",
+  "order.delivered": "Bestelling bezorgd",
+  "order.refunded": "Bestelling terugbetaald",
+  "order.cancelled": "Bestelling geannuleerd",
+  "order.delayed": "Bestelling vertraagd",
+  "refund.created": "Terugbetaling gemaakt",
+  "refund.failed": "Terugbetaling mislukt",
+  "customer.created": "Klant aangemaakt",
+  "customer.updated": "Klant bijgewerkt",
+  "customer.merged": "Klanten samengevoegd",
+  "customer.blocked": "Klant geblokkeerd",
+  "product.created": "Product aangemaakt",
+  "product.updated": "Product bijgewerkt",
+  "product.archived": "Product gearchiveerd",
+  "inventory.low": "Lage voorraad",
+  "inventory.out": "Uitverkocht",
+  "ticket.created": "Ticket aangemaakt",
+  "ticket.replied": "Ticket beantwoord",
+  "ticket.assigned": "Ticket toegewezen",
+  "ticket.closed": "Ticket gesloten",
+  "chargeback.opened": "Chargeback geopend",
+  "chargeback.evidence_due": "Bewijsdeadline nadert",
+  "chargeback.won": "Chargeback gewonnen",
+  "chargeback.lost": "Chargeback verloren",
+  "supplier.delay_reported": "Vertraging gemeld",
+  "supplier.message": "Bericht van leverancier",
+  "supplier.order_accepted": "Bestelling geaccepteerd",
+  "automation.run.completed": "Uitvoering geslaagd",
+  "automation.run.failed": "Uitvoering mislukt",
+  "automation.published": "Flow gepubliceerd",
+  "affiliate.applied": "Aanmelding binnen",
+  "affiliate.approved": "Affiliate goedgekeurd",
+  "affiliate.payout.approved": "Uitbetaling goedgekeurd"
+}
 
 export const WEBHOOK_EVENT_GROUPS: ReadonlyArray<WebhookEventGroup> = [
   {
@@ -97,3 +137,7 @@ export const WEBHOOK_RETENTION_DAYS = 30
 
 /** The attempts a delivery gets in all, for the endpoint's policy. */
 export const attemptsFor = (retry: number): number => Math.max(1, retry)
+
+/** An event by its name on the Webhooks page; one Insyte does not know by its id. */
+export const webhookEventLabel = (id: string): string =>
+  WEBHOOK_EVENT_GROUPS.flatMap((g) => g.events).find((x) => x.id === id)?.label ?? id

@@ -203,7 +203,8 @@ export interface FieldChange {
   readonly after: unknown
 }
 
-const changes = (section: SettingsSectionId, before: unknown, after: unknown): Array<FieldChange> => {
+/** What a save changed, field by field, as `writeSection` logs it: each a field the Logboek's catalogue names. */
+export const changes = (section: SettingsSectionId, before: unknown, after: unknown): Array<FieldChange> => {
   const out: Array<FieldChange> = []
   const field = (name: string, a: unknown, b: unknown, key?: string) => {
     if (JSON.stringify(a) !== JSON.stringify(b)) {
@@ -313,13 +314,21 @@ export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function
     yield* sql`update files set published_at = coalesce(published_at, now())
                where id = ${logo} and kind = 'logo' and deleted_at is null`
   }
+  // Btw's fields are per store: the line names the store as it was called then.
+  const stores = section === "vat" ? new Map((yield* storesOf(sql)).map((s) => [s.id, s.name])) : undefined
   for (const c of changes(section, before, next)) {
+    const of = c.key === undefined ? undefined : stores?.get(c.key)
     yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
       action: `settings.${section}.${c.field}`,
       subjectType: "workspace_settings",
       subjectId: section,
       section,
-      diff: { ...(c.key === undefined ? {} : { key: c.key }), before: c.before, after: c.after }
+      diff: {
+        ...(c.key === undefined ? {} : { key: c.key }),
+        ...(of === undefined ? {} : { of }),
+        before: c.before,
+        after: c.after
+      }
     })
   }
   return before

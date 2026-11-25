@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import { release } from "../../shared/use-cases/ActiveWorkspace.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { memberName } from "../../shared/use-cases/LogNames.ts"
 import { WorkspaceInvite } from "../domain/Choice.ts"
 import { closeSockets, revokeKeysOf } from "./access-ended.ts"
 import { acceptRouted, declineRouted } from "./invitations/accept.ts"
@@ -148,7 +149,9 @@ export const leave = Effect.fn("Members.leave")(function*(sessionId: string, wor
       yield* Audit.write(sql, workspaceId, { kind: "member", id: me.id }, {
         action: "member.left",
         subjectType: "member",
-        subjectId: me.id
+        subjectId: me.id,
+        section: "team",
+        log: { name: yield* memberName(sql, me.id) }
       })
       yield* release(sql, { id: sessionId, userId: user.id }, workspaceId)
     })
