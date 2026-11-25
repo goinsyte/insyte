@@ -380,7 +380,7 @@ export function windowErrors(
   if (label === "") out["label"] = "Geef de periode een naam."
   else if (label.length > 80) out["label"] = "Hoogstens 80 tekens."
   else if (others.some((o) => o.label.trim().toLowerCase() === label.toLowerCase())) {
-    out["label"] = `Er is al een periode ${label}.`
+    out["label"] = `Er is al een periode met de naam ${label}.`
   }
   const days = w.days === null
     ? "Vul een aantal dagen in."
@@ -427,17 +427,24 @@ export function returnSettingsErrors(d: ReturnSettingsDraft): Record<string, str
     d.giftCardBonus === null
       ? "Vul een percentage in, of 0 voor geen bonus."
       : d.giftCardBonus > 100
-      ? "Kies 0 tot 100 %."
+      ? "Kies 0 tot 100%."
       : undefined
   )
-  put("exchangeFee", d.exchangeFee === null ? "Vul een bedrag in, of 0 voor gratis ruilen." : undefined)
+  put(
+    "exchangeFee",
+    d.exchangeFee === null
+      ? "Vul een bedrag in, of 0 voor gratis ruilen."
+      : !/^\d+(\.\d{1,2})?$/.test(String(d.exchangeFee))
+      ? "Hoogstens twee cijfers achter de komma."
+      : undefined
+  )
   d.claimSteps.forEach((step, i) => {
-    const t = step.trim()
+    // As the schema counts it: the step as it is sent, spaces and all; only an empty one is said as empty.
     put(
       `claimSteps.${i}`,
-      t === ""
+      step.trim() === ""
         ? "Zeg in een paar woorden wat de klant hier doet."
-        : t.length > 200
+        : step.length > 200
         ? "Hoogstens 200 tekens."
         : undefined
     )

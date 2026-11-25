@@ -1,6 +1,6 @@
 import { createElement, type FunctionComponent } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { type ReturnSettingsDraft, returnSettingsErrors, windowErrors } from "../src/app/lib/returns.ts"
 import { brandErrors, shippingErrors, unknownVariables, vatErrors } from "../src/app/lib/settings-depth.ts"
 
@@ -10,10 +10,13 @@ const { useFieldErrors } = (await import(/* @vite-ignore */ form)) as {
   useFieldErrors: (
     local: Record<string, string>,
     o: { draftKey: string }
-  ) => {
-    control: (name: string) => Record<string, unknown>
-    message: (name: string) => unknown
-  }
+  ) => Fe
+}
+
+type Fe = {
+  control: (name: string) => Record<string, unknown>
+  message: (name: string) => unknown
+  guard: (save: () => Promise<boolean | { fields: Record<string, string> }> | void) => () => Promise<void> | undefined
 }
 
 /*
@@ -95,20 +98,30 @@ describe("Retouren", () => {
       quality: false,
       windowDays: 0
     }]
+    // A claim step counts as the schema counts it, as sent; only blank is empty.
+    expect(Object.keys(returnSettingsErrors(draft({ claimSteps: ["  ", `${"x".repeat(199)}  `] })))).toEqual([
+      "claimSteps.0",
+      "claimSteps.1"
+    ])
     expect(returnSettingsErrors(draft({ reasons }))).toEqual({
       "reasons.too_small.windowDays": "Minimaal 1 dag, of leeg voor de standaard."
     })
   })
 
   it("says the gift card bonus's bounds and an empty amount", () => {
-    expect(returnSettingsErrors(draft({ giftCardBonus: 150 }))).toEqual({ giftCardBonus: "Kies 0 tot 100 %." })
+    expect(returnSettingsErrors(draft({ giftCardBonus: 150 }))).toEqual({ giftCardBonus: "Kies 0 tot 100%." })
     expect(returnSettingsErrors(draft({ exchangeFee: null }))).toHaveProperty("exchangeFee")
+    expect(returnSettingsErrors(draft({ exchangeFee: 2.5 }))).toEqual({})
+    expect(returnSettingsErrors(draft({ exchangeFee: 0.29 }))).toEqual({})
+    expect(returnSettingsErrors(draft({ exchangeFee: 2.555 }))).toEqual({
+      exchangeFee: "Hoogstens twee cijfers achter de komma."
+    })
   })
 
   it("does not take the same special period twice, by name or by dates", () => {
     const summer = { id: "w_1", label: "Zomeractie", days: 45, from: "07-01", to: "08-31" }
     expect(windowErrors({ ...summer, id: "w_2" }, [summer])).toMatchObject({
-      label: "Er is al een periode Zomeractie."
+      label: "Er is al een periode met de naam Zomeractie."
     })
     expect(windowErrors({ ...summer, id: "w_2", label: "Vakantie" }, [summer])).toEqual({
       to: "Er is al een periode met deze data."
@@ -147,5 +160,58 @@ describe("useFieldErrors", () => {
     const out = renderToStaticMarkup(createElement(Probe, { errors: {} }))
     expect(out).not.toContain("aria-invalid")
     expect(out).not.toContain("text-signal-red")
+  })
+})
+
+/*
+ * The bar's save through the guard. A refused draft rejects (the bar stays, a held navigation too) with the first wrong
+ * field focused. A save the screen runs itself answers nothing, so the bar waits until the changes are gone, as it did
+ * without the guard. A save that did not land rejects, so leaving does not go on and the draft is not lost.
+ */
+describe("useFieldErrors' guard", () => {
+  const focused: Array<string> = []
+  const stubDocument = () => {
+    vi.stubGlobal("document", {
+      getElementById: (id: string) => ({ focus: () => focused.push(id), scrollIntoView: () => {} })
+    })
+    vi.stubGlobal("requestAnimationFrame", (f: () => void) => f())
+  }
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    focused.length = 0
+  })
+
+  const guardOf = (errors: Record<string, string>) => {
+    let fe: Fe | undefined
+    const Capture: FunctionComponent = () => {
+      fe = useFieldErrors(errors, { draftKey: "d" })
+      return null
+    }
+    renderToStaticMarkup(createElement(Capture))
+    return fe!
+  }
+
+  it("refuses a wrong draft before it goes out, focusing the first wrong field", async () => {
+    stubDocument()
+    const fe = guardOf({ returnDays: "Vul een aantal dagen in.", claimDays: "Minimaal 1 dag." })
+    const save = vi.fn(() => Promise.resolve(true))
+    await expect(fe.guard(save)()).rejects.toThrow()
+    expect(save).not.toHaveBeenCalled()
+    expect(focused).toEqual([fe.control("returnDays")["id"]])
+  })
+
+  it("hands back nothing for a save the screen runs itself, so the bar waits until the changes are gone", () => {
+    const save = vi.fn(() => undefined)
+    expect(guardOf({}).guard(save)()).toBeUndefined()
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it("resolves a save that landed, and rejects one that did not or that the server refused", async () => {
+    stubDocument()
+    const fe = guardOf({})
+    await expect(fe.guard(() => Promise.resolve(true))()).resolves.toBeUndefined()
+    await expect(fe.guard(() => Promise.resolve(false))()).rejects.toThrow()
+    await expect(fe.guard(() => Promise.resolve({ fields: { returnDays: "too_small" } }))()).rejects.toThrow()
+    expect(focused).toEqual([fe.control("returnDays")["id"]])
   })
 })

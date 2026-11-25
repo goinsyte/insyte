@@ -52,22 +52,39 @@ export function Field({
 export function FieldRow({
   label,
   hint,
+  group = false,
   children
 }: {
   label: string
   hint?: string
+  /**
+   * The row holds several controls (a list with its buttons), not one: a group named by the label rather than a
+   * `<label>`, so a click on its text does not press the first button in it.
+   */
+  group?: boolean
   children: ReactNode
 }) {
-  return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: the control is passed as children
-    <label className="grid grid-cols-1 items-start gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]">
-      <span className="flex flex-col gap-0.5 sm:pt-2">
-        <span className="font-medium text-sm text-ink">{label}</span>
-        {hint ? <span className="text-sm text-ink-2">{hint}</span> : null}
-      </span>
-      {children}
-    </label>
+  const head = (
+    <span className="flex flex-col gap-0.5 sm:pt-2">
+      <span className="font-medium text-sm text-ink">{label}</span>
+      {hint ? <span className="text-sm text-ink-2">{hint}</span> : null}
+    </span>
   )
+  const grid = "grid grid-cols-1 items-start gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]"
+  return group
+    ? (
+      <div role="group" aria-label={label} className={grid}>
+        {head}
+        {children}
+      </div>
+    )
+    : (
+      // biome-ignore lint/a11y/noLabelWithoutControl: the control is passed as children
+      <label className={grid}>
+        {head}
+        {children}
+      </label>
+    )
 }
 
 export function TextInput({
@@ -212,9 +229,11 @@ export function useFieldErrors(
       errors[name] === undefined ? null : <FieldError id={`${idOf(name)}-error`}>{errors[name]}</FieldError>,
     /**
      * The bar's save: refused here while a field is wrong (the first one gets the focus), otherwise the page's own.
-     * Rejects when it did not save, so a held navigation stays where it is.
+     * Rejects when it did not save, so a held navigation stays where it is. A save the screen runs itself (one that
+     * answers nothing) is handed back as nothing, so the bar waits until the changes are gone, as it does without
+     * the guard.
      */
-    guard: (save: () => Promise<SaveOutcome> | void) => async () => {
+    guard: (save: () => Promise<SaveOutcome> | void) => (): Promise<void> | undefined => {
       const wrong = Object.keys(local).length
       if (wrong > 0) {
         focusFirst(local)
@@ -223,16 +242,19 @@ export function useFieldErrors(
             ? "Eén veld klopt nog niet. Het staat in rood."
             : `${wrong} velden kloppen nog niet. Ze staan in rood.`
         })
-        throw new Error("invalid")
+        return Promise.reject(new Error("invalid"))
       }
-      const outcome = await save()
-      if (outcome === undefined || outcome === true) return
-      if (outcome !== false) {
-        const fields = Object.fromEntries(Object.entries(outcome.fields).map(([f, code]) => [f, say(f, code)]))
-        setServer({ key: draftKey, fields })
-        requestAnimationFrame(() => focusFirst(fields))
-      }
-      throw new Error("not saved")
+      const out = save()
+      if (out === undefined) return undefined
+      return out.then((outcome) => {
+        if (outcome === true) return
+        if (outcome !== false) {
+          const fields = Object.fromEntries(Object.entries(outcome.fields).map(([f, code]) => [f, say(f, code)]))
+          setServer({ key: draftKey, fields })
+          requestAnimationFrame(() => focusFirst(fields))
+        }
+        throw new Error("not saved")
+      })
     }
   }
 }

@@ -15,6 +15,14 @@ const SHOW: Record<ShipStatus["show"], string> = {
   hidden: "Niet tonen"
 }
 
+/** What the server's reason codes at a row mean, where the page did not catch them itself. */
+const SERVER_SAYS: Record<string, string> = {
+  required: "Geef een zin die de klant leest.",
+  too_long: `Hoogstens ${SHIP_LABEL_MAX} tekens.`,
+  unknown_variable: "Alleen {vervoerder} kan in de zin.",
+  invalid: "Kies waar de klant deze zin ziet."
+}
+
 /**
  * Verzending (`/settings/shipping`, PLAN 43): what the customer reads for each status the carrier
  * reports — on the order status page, in shipping mails, and when the customer agent answers
@@ -32,8 +40,7 @@ export function ShippingPage() {
     }))
   const fe = useFieldErrors(shippingErrors(s.draft), {
     draftKey: JSON.stringify(s.draft),
-    say: (_, code) =>
-      code === "unknown_variable" ? "Alleen {vervoerder} kan in de zin." : "Geef een zin die de klant leest."
+    say: (_, code) => SERVER_SAYS[code] ?? "Dit klopt nog niet."
   })
   const [pick, setPick] = useState(s.draft.find((x) => x.id === "local")?.id ?? s.draft[0]?.id)
   const set = (id: string, patch: Partial<ShipStatus>) =>
@@ -92,19 +99,26 @@ export function ShippingPage() {
                       )
                       : null)}
                 </span>
-                <select
-                  value={x.show}
-                  disabled={!s.canEdit}
-                  onChange={(e) => set(x.id, { show: e.target.value as ShipStatus["show"] })}
-                  aria-label={`Waar bij ${x.carrier}`}
-                  className="field h-8 rounded-md px-2 text-ink text-sm outline-none focus:bg-paper"
-                >
-                  {(Object.keys(SHOW) as Array<ShipStatus["show"]>).map((k) => (
-                    <option key={k} value={k}>
-                      {SHOW[k]}
-                    </option>
-                  ))}
-                </select>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <select
+                    {...fe.control(`statuses.${x.id}.show`)}
+                    value={x.show}
+                    disabled={!s.canEdit}
+                    onChange={(e) => set(x.id, { show: e.target.value as ShipStatus["show"] })}
+                    aria-label={`Waar bij ${x.carrier}`}
+                    className={cn(
+                      "field h-8 rounded-md px-2 text-ink text-sm outline-none focus:bg-paper",
+                      INVALID_CLASS
+                    )}
+                  >
+                    {(Object.keys(SHOW) as Array<ShipStatus["show"]>).map((k) => (
+                      <option key={k} value={k}>
+                        {SHOW[k]}
+                      </option>
+                    ))}
+                  </select>
+                  {fe.message(`statuses.${x.id}.show`)}
+                </span>
                 <span className="text-right text-ink-3 tabular-nums">{x.orders}</span>
               </div>
             ))}

@@ -19,7 +19,13 @@ export type StoreVat = { storeId: string; currency: "EUR" | "USD" | "GBP"; vatOn
 export type Vat = { stores: StoreVat[]; oss: boolean; ossNumber: string };
 
 export type Retention = { id: string; label: string; detail: string; months: number | null; count: number };
-export type Privacy = { classes: Retention[]; erasing: boolean; countedAt?: string };
+export type Privacy = {
+	classes: Retention[];
+	erasing: boolean;
+	countedAt?: string;
+	/** The period each class was counted with, by id (the design's store); absent, the count was of the saved ones. */
+	countedPeriods?: Record<string, number | null>;
+};
 
 export type AuditEntry = { id: string; at: string; who: string; page: string; to: string; field: string; before: string; after: string };
 export type TrashItem = { id: string; kind: "ticket" | "klant" | "automatisering" | "rekenblad" | "sjabloon" | "notitie" | "cursus" | "webhook" | "kostenpost" | "leverancier"; title: string; by: string; at: string; /** When it goes for good, where that is not `at` + TRASH_DAYS (a kind that joined the trash later). */ purgeAt?: string };

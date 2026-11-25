@@ -63,7 +63,7 @@ export function ReturnSettingsPage() {
 							{fe.message("claimDays")}
 						</span>
 					</FieldRow>
-					<FieldRow label="Speciale termijnen">
+					<FieldRow label="Speciale termijnen" group>
 						<div className="flex flex-col gap-1.5">
 							{draft.specialWindows.map((w) => (
 								<div key={w.id} className="flex flex-col gap-1">
@@ -293,13 +293,13 @@ export function ReturnSettingsPage() {
 					</FieldRow>
 					<FieldRow label="Welkomsttekst">
 						<span className="flex flex-col gap-1.5">
-							<TextAreaField {...fe.control("portal.intro")} value={draft.portal.intro} onChange={(intro) => set("portal", { ...draft.portal, intro })} rows={2} />
+							<TextAreaField {...fe.control("portal.intro")} aria-label="Welkomsttekst" value={draft.portal.intro} onChange={(intro) => set("portal", { ...draft.portal, intro })} rows={2} />
 							{fe.message("portal.intro")}
 						</span>
 					</FieldRow>
 					<FieldRow label="Na de aanvraag">
 						<span className="flex flex-col gap-1.5">
-							<TextAreaField {...fe.control("portal.done")} value={draft.portal.done} onChange={(done) => set("portal", { ...draft.portal, done })} rows={3} />
+							<TextAreaField {...fe.control("portal.done")} aria-label="Na de aanvraag" value={draft.portal.done} onChange={(done) => set("portal", { ...draft.portal, done })} rows={3} />
 							{fe.message("portal.done")}
 						</span>
 					</FieldRow>
@@ -517,13 +517,14 @@ function DaysField({ value, onChange, label, placeholder, small = false, control
 /** "12,5" as 12.5; empty is `null`. */
 const parseAmount = (text: string) => {
 	const t = text.trim().replace(",", ".");
-	return t === "" || !/^\d+(\.\d*)?$/.test(t) ? null : Number(t);
+	return t === "" || !/^\d+(\.\d{0,2})?$/.test(t) ? null : Number(t);
 };
 const showAmount = (n: number | null) => (n === null ? "" : String(n).replace(".", ","));
 
 /**
  * An amount or a percentage, with a decimal comma. What is typed stays as typed ("12," on the way to "12,5"); only
- * digits and one comma go in, and an empty field is `null`, said under it.
+ * digits and one comma with at most two decimals go in (cents, as the amount is kept), and an empty field is `null`,
+ * said under it.
  */
 function NumberWell({ value, onChange, unit, label, control }: { value: number | null; onChange: (v: number | null) => void; unit: string; label: string; control?: FieldControl }) {
 	const [text, setText] = useState(showAmount(value));
@@ -538,7 +539,7 @@ function NumberWell({ value, onChange, unit, label, control }: { value: number |
 				aria-label={label}
 				value={text}
 				onChange={(e) => {
-					const next = e.target.value.replace(/\./g, ",").replace(/[^0-9,]/g, "").replace(/^([^,]*,[^,]*),.*$/, "$1");
+					const next = e.target.value.replace(/\./g, ",").replace(/[^0-9,]/g, "").replace(/^([^,]*,[^,]*),.*$/, "$1").replace(/(,\d{2})\d+$/, "$1");
 					setText(next);
 					onChange(parseAmount(next));
 				}}
@@ -609,7 +610,7 @@ function WindowDialog({ editing, others, onClose, onSave }: { editing: SpecialWi
 		>
 			<label className="flex flex-col gap-1.5">
 				<span className="font-medium text-ink-3 text-sm">Naam</span>
-				<input {...fe.control("label")} value={label} onChange={(e) => setLabel(e.target.value)} onBlur={() => left("label")} placeholder="Bijvoorbeeld: Feestdagen" className={cn(INPUT_CLASS, "h-11", INVALID_CLASS)} />
+				<input {...fe.control("label")} aria-label="Naam van de periode" value={label} onChange={(e) => setLabel(e.target.value)} onBlur={() => left("label")} placeholder="Bijvoorbeeld: Feestdagen" className={cn(INPUT_CLASS, "h-11", INVALID_CLASS)} />
 				{fe.message("label")}
 			</label>
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -69,14 +69,7 @@ export function DemoSettingsDepthSource({ children }: { children: ReactNode }) {
       const changes: ReadonlyArray<FieldChange> = log.changes.length > 0
         ? log.changes
         : [["Instellingen", "", "gewijzigd"]]
-      // Periods saved since the count were not counted: the count goes, as the server's would no longer match.
-      const before = useSettingsDepth.getState().privacy
-      const periods = next as typeof before
-      const kept = key === "privacy" &&
-          periods.classes.some((c) => before.classes.find((b) => b.id === c.id)?.months !== c.months)
-        ? { classes: periods.classes, erasing: periods.erasing }
-        : next
-      const undo = useSettingsDepth.getState().save(key, kept as typeof next, { who: me, ...log, changes })
+      const undo = useSettingsDepth.getState().save(key, next, { who: me, ...log, changes })
       undoable(said.label, undo, said.detail)
       return Promise.resolve(true)
     },
@@ -85,11 +78,22 @@ export function DemoSettingsDepthSource({ children }: { children: ReactNode }) {
     privacy: {
       erasing: state.privacy.erasing,
       countedAt,
-      countOf: (c, months) => (countedAt === null ? null : would(c, months)),
+      // As the server: a class has a figure only for the period it was counted with (a seeded count: the saved one).
+      countOf: (c, months) => {
+        if (countedAt === null) return null
+        const periods = state.privacy.countedPeriods
+        const at = periods !== undefined && c.id in periods
+          ? periods[c.id]
+          : state.privacy.classes.find((x) => x.id === c.id)?.months
+        return at === months ? would(c, months) : null
+      },
       counting: false,
-      count: () => {
+      count: (classes) => {
         const at = new Date().toISOString()
-        useSettingsDepth.setState({ privacy: { ...useSettingsDepth.getState().privacy, countedAt: at } })
+        const countedPeriods = Object.fromEntries(classes.map((c) => [c.id, c.months]))
+        useSettingsDepth.setState({
+          privacy: { ...useSettingsDepth.getState().privacy, countedAt: at, countedPeriods }
+        })
       },
       setErasing: (on, said) => {
         const live = useSettingsDepth.getState().privacy
