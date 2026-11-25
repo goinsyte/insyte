@@ -1,4 +1,4 @@
-import { Frame } from "@insyte/api/Frames"
+import { Frame, missedBeforeHello } from "@insyte/api/Frames"
 import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
@@ -41,6 +41,8 @@ import { WORKSPACE } from "./workspace.ts"
  * The tab's one socket (M5.1, ADR-0013): `/api/realtime` on the console's own origin. A `records.changed` frame
  * refetches the queries that show that kind, through RPC, where the permission check runs; frames never carry a
  * record. Lost, it reconnects with backoff, and after a gap refetches everything it maps, so nothing missed stays stale.
+ * The page is read before the first socket joins: that hello refetches too when the room sent anything since the
+ * document began (its `quiet`), so a change made as the page loaded is not lost either.
  * The one frame that carries data is Live's `live.visitors` (anonymised visitors, M14 step 3), handed to `/live`.
  */
 
@@ -138,10 +140,12 @@ interface Heard {
   readonly typing: (t: Typing) => void
 }
 
-/** One connection: its frames until it closes. `reconnected` refetches everything once it says hello. */
-const connection = (reconnected: boolean, heard: Heard) =>
+/**
+ * One connection: its frames until it closes. Its hello refetches everything after a gap (`reconnected`), or on the
+ * tab's first socket when the room was not quiet for as long as the page has been loading.
+ */
+export const connection = (url: string, reconnected: boolean, heard: Heard) =>
   Effect.gen(function*() {
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime?tab=${tabId()}`
     const reader = yield* (yield* Socket.makeWebSocket(url)).reader
     while (true) {
       const keys = new Set<string>()
@@ -151,7 +155,9 @@ const connection = (reconnected: boolean, heard: Heard) =>
         if (frame.value.type === "hello" || frame.value.type === "presence") {
           heard.present(frame.value.presence.map((p) => p.memberId))
         }
-        if (frame.value.type === "hello" && reconnected) { for (const key of EVERYTHING) keys.add(key) }
+        if (frame.value.type === "hello" && (reconnected || missedBeforeHello(frame.value, performance.now()))) {
+          for (const key of EVERYTHING) keys.add(key)
+        }
         if (frame.value.type === "hello") liveSignals.emit({ type: "open" })
         if (frame.value.type === "live.visitors") liveSignals.emit({ type: "frame", frame: frame.value })
         if (frame.value.type === "notes.changed") { for (const key of [...NOTES, ...FRAME]) keys.add(key) }
@@ -205,7 +211,8 @@ export const realtimeAtom = ConsoleClient.runtime.atom((get) =>
           t
         ])
     }
-    return Effect.suspend(() => connection(attempts++ > 0, heard)).pipe(
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime?tab=${tabId()}`
+    return Effect.suspend(() => connection(url, attempts++ > 0, heard)).pipe(
       // Doubling from half a second, never more than 30 s apart, for as long as the screen is open.
       Effect.retry(Schedule.min([Schedule.exponential("500 millis"), Schedule.spaced("30 seconds")])),
       Effect.provide(Socket.layerWebSocketConstructorGlobal)

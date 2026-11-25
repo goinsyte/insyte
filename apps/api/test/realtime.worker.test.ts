@@ -67,4 +67,34 @@ describe("realtime", () => {
 
     for (const t of [tab, second, elsewhere]) t.socket.close(1000, "done")
   })
+
+  it("says in its hello how long the room has been quiet, so a tab that read its page first can catch up", async () => {
+    const owner = await person("rt-quiet", "Stil B.V.")
+    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const hello = (t: Awaited<ReturnType<typeof open>>) => t.frames.find((f) => f.type === "hello")
+
+    // A room that has just started cannot know what it sent before: it says it may have, a moment ago.
+    const first = await open(owner.cookie)
+    await until(() => hello(first) !== undefined, "hello")
+    expect(hello(first)!["quiet"]).toBeLessThan(1_000)
+
+    // Nothing sent since: the next tab hears the room has been quiet at least as long, kept on the sockets.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const quietTab = await open(owner.cookie)
+    await until(() => hello(quietTab) !== undefined, "the quiet hello")
+    expect(hello(quietTab)!["quiet"]).toBeGreaterThanOrEqual(300)
+
+    // A change goes out; a tab joining after it hears it was just now, so its page, read before, is read again.
+    const before = Date.now()
+    ok(await rpc("Roles.create", { label: "Inkoop", from: "service" }, owner.cookie))
+    await relay(workspace)
+    await until(() => first.frames.some(isRole), "records.changed for the role")
+    const late = await open(owner.cookie)
+    await until(() => hello(late) !== undefined, "the late hello")
+    expect(hello(late)!["quiet"]).toBeLessThanOrEqual(Date.now() - before)
+    // The tab already in the room heard the change itself, and its hello does not move.
+    expect(hello(quietTab)!["quiet"]).toBeGreaterThanOrEqual(300)
+
+    for (const t of [first, quietTab, late]) t.socket.close(1000, "done")
+  })
 })

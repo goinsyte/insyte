@@ -1,4 +1,4 @@
-import { Frame } from "@insyte/api/Frames"
+import { Frame, missedBeforeHello } from "@insyte/api/Frames"
 import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
@@ -9,7 +9,8 @@ import { PORTAL } from "./supplier-portal.ts"
 /*
  * The supplier portal's socket (M16): `/api/realtime?as=supplier`, its supplier's own room in the brand. A changed
  * order or product of theirs (`records.changed`, from `partner.changed`) refetches the portal; after a gap, so does the
- * next `hello`. Frames carry ids, never the record. Revoked, the room closes it and every reconnect is refused.
+ * next `hello`, and the first when the room sent something as the page loaded. Frames carry ids, never the record.
+ * Revoked, the room closes it and every reconnect is refused.
  */
 
 const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))
@@ -26,7 +27,9 @@ const connection = (reconnected: boolean) =>
         const frame = decodeFrame(typeof chunk === "string" ? chunk : text.decode(chunk))
         if (Option.isNone(frame)) continue
         if (frame.value.type === "records.changed") stale = true
-        if (frame.value.type === "hello" && reconnected) stale = true
+        if (frame.value.type === "hello" && (reconnected || missedBeforeHello(frame.value, performance.now()))) {
+          stale = true
+        }
       }
       if (stale) yield* Reactivity.invalidate(PORTAL)
     }

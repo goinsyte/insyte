@@ -15,12 +15,29 @@ export const Present = Schema.Struct({
 })
 export type Present = typeof Present.Type
 
-/** The first frame on a socket: who else is here. */
+/** The first frame on a socket: who else is here, and how long the room has been quiet. */
 export const Hello = Schema.Struct({
   v: Schema.Literal(1),
   type: Schema.Literal("hello"),
-  presence: Schema.Array(Present)
+  presence: Schema.Array(Present),
+  /**
+   * Milliseconds since the room last sent a frame a tab refetches on (or may have, when it cannot know). A tab whose
+   * page was read before the socket joined compares it with how long it has been loading (`missedBeforeHello`).
+   */
+  quiet: Schema.optional(Schema.Finite)
 })
+export type Hello = typeof Hello.Type
+
+/** Slack for the two clocks' ticks (a Worker's moves between events only, a browser's is coarsened). */
+const QUIET_SLACK_MS = 1_000
+
+/**
+ * Whether a tab's first socket may have missed a frame: its page was read on the server, or by its first queries, at
+ * most `loadingFor` ms before the hello came (the document's age, `performance.now()`), and the room sent something
+ * since. Durations on either side, so the two clocks need not agree. A hello without `quiet` cannot say: refetch.
+ */
+export const missedBeforeHello = (hello: Hello, loadingFor: number): boolean =>
+  hello.quiet === undefined || hello.quiet < loadingFor + QUIET_SLACK_MS
 
 /** Someone's presence changed: their first tab opened, or their last one closed. */
 export const PresenceFrame = Schema.Struct({
