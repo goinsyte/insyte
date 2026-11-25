@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type {
   SupplierDashboard as ServerDashboard,
   SupplierMe,
@@ -25,9 +25,9 @@ import {
   type SupplierProductRow,
   type SupplierProductView
 } from "@insyte/ui/app/supplier/source"
-import { Exit, Option } from "effect"
-import { AsyncResult } from "effect/reactivity"
-import { type ReactNode, useMemo } from "react"
+import { Effect, Exit, Option } from "effect"
+import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { type ReactNode, useContext, useMemo, useRef } from "react"
 import { toast } from "sonner"
 import { useAtomSetInTurn } from "../data/in-turn.ts"
 import {
@@ -241,11 +241,9 @@ function useWrites(brand: string) {
     accept: useAtomSet(portalWrites.accept, { mode: "promiseExit" }),
     ship: useAtomSet(portalWrites.ship, { mode: "promiseExit" }),
     reportProblem: useAtomSet(portalWrites.reportProblem, { mode: "promiseExit" }),
-    // Read once per order for "Pakbonnen": in turn, or only the last order's slip comes back.
-    order: useAtomSetInTurn(portalWrites.order),
     saveStock: useAtomSet(portalWrites.saveStock, { mode: "promiseExit" }),
     setReporting: useAtomSet(portalWrites.setReporting, { mode: "promiseExit" }),
-    undo: useAtomSet(portalWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(portalWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {
@@ -260,9 +258,38 @@ function useWrites(brand: string) {
   return { write, keys, said, refused }
 }
 
+/**
+ * "Pakbon" and "Pakbonnen": each order's page read through its own query, all at once, so each slip is its own order's.
+ * A press while a batch is still coming is ignored.
+ */
+function usePackingSlips(brand: string, refused: (error: unknown) => void) {
+  const registry = useContext(RegistryContext)
+  const busy = useRef(false)
+  const read = (id: string) =>
+    Effect.runPromiseExit(AtomRegistry.getResult(registry, portalOrderAtom(id), { suspendOnWaiting: true }))
+  return (rows: ReadonlyArray<SupplierOrderRow>) => {
+    if (busy.current || rows.length === 0) return
+    busy.current = true
+    const loading = toast.loading(rows.length === 1 ? "Pakbon maken…" : `${rows.length} pakbonnen maken…`)
+    void Promise.all(rows.map((r) => read(r.id)))
+      .then((exits) => {
+        toast.dismiss(loading)
+        const slips = exits.flatMap((exit) => (Exit.isSuccess(exit) ? [slipOf(exit.value)] : []))
+        if (slips.length > 0) return downloadPackingSlips(slips, brand)
+        const failed = exits.find(Exit.isFailure)
+        refused(failed === undefined ? undefined : failureOf(failed))
+      })
+      .finally(() => {
+        toast.dismiss(loading)
+        busy.current = false
+      })
+  }
+}
+
 /** The portal over `SupplierPortal.*`, for the contact `me` names. */
 export function ConsoleSupplierPortal({ me, children }: { me: SupplierMe; children: ReactNode }) {
   const { write, keys, said, refused } = useWrites(me.workspace.name)
+  const packingSlips = usePackingSlips(me.workspace.name, refused)
   const list = value(useAtomValue(portalOrdersAtom))
   const currency = (list?.rows[0]?.currency ?? "EUR") as Currency
 
@@ -299,12 +326,7 @@ export function ConsoleSupplierPortal({ me, children }: { me: SupplierMe; childr
         },
         ...keys
       }).then((exit) => said(exit, words)),
-    packingSlips: (rows) =>
-      void Promise.all(rows.map((r) => write.order({ payload: { orderId: r.id } }))).then((exits) => {
-        const slips = exits.flatMap((exit) => (Exit.isSuccess(exit) ? [slipOf(exit.value)] : []))
-        if (slips.length > 0) downloadPackingSlips(slips, me.workspace.name)
-        else refused(undefined)
-      }),
+    packingSlips,
     saveStock: (product, stock, lead, words) =>
       void write.saveStock({ payload: { productId: product.row.id, variantStock: stock, leadDays: lead }, ...keys })
         .then((exit) => said(exit, words)),

@@ -7,6 +7,7 @@ import { Exit } from "effect"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { agentWrites, AUTONOMY, autonomyAtom } from "../data/agent.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
@@ -36,7 +37,7 @@ const notSaved = (error: unknown, refresh: () => void) => {
 export function useConsoleAutonomySource(policy: AutonomyPolicy, budgets: AiBudgets | undefined): AutonomySource {
   const set = useAtomSet(agentWrites.setAutonomy, { mode: "promiseExit" })
   const reset = useAtomSet(agentWrites.resetAutonomy, { mode: "promiseExit" })
-  const undo = useAtomSet(agentWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(agentWrites.undo)
   const refresh = useAtomRefresh(autonomyAtom)
   const gate = useGate("ai.autonomy")
   const levels = useMemo(() => normalise(policy.levels), [policy.levels])

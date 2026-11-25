@@ -8,6 +8,7 @@ import { useMemo } from "react"
 import { toast } from "sonner"
 import { agentWrites, AI_BUDGETS } from "../data/agent.ts"
 import { frameAtom } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
@@ -35,7 +36,7 @@ const notSaved = (error: unknown) =>
 
 export function useConsoleLimitsSource(budgets: AiBudgets): LimitsSource {
   const set = useAtomSet(agentWrites.setBudgets, { mode: "promiseExit" })
-  const undo = useAtomSet(agentWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(agentWrites.undo)
   const gate = useGate("ai.autonomy")
   const frame = Option.getOrUndefined(AsyncResult.value(useAtomValue(frameAtom)))
   const people = useMemo(() => {

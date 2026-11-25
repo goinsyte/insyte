@@ -19,6 +19,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { figuresAtom, sheetAtom, sheetKey, SHEETS, sheetWrites } from "../data/sheets.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -181,7 +182,7 @@ export function ConsoleSheetsSource({ frame, list, children }: { frame: Frame; l
     duplicate: useAtomSet(sheetWrites.duplicate, { mode: "promiseExit" }),
     remove: useAtomSet(sheetWrites.remove, { mode: "promiseExit" }),
     createFolder: useAtomSet(sheetWrites.createFolder, { mode: "promiseExit" }),
-    undo: useAtomSet(sheetWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(sheetWrites.undo)
   }
   const previews = useMemo(
     () =>

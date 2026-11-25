@@ -32,6 +32,8 @@ const values = (exits: ReadonlyArray<Exit.Exit<string, unknown>>) =>
   exits.map((e) => (Exit.isSuccess(e) ? e.value : "failed"))
 
 describe("writes through one command atom", () => {
+  // A canary for effect's fn atoms: if this starts failing, an upgrade changed how overlapping writes behave, and
+  // `useAtomSetInTurn` may no longer be needed (or may need another look).
   it("at once, run only the last and all answer with its result", async () => {
     const { set, finished } = slips()
     const exits = await Promise.all(["a", "b", "c"].map(set))
@@ -58,5 +60,16 @@ describe("writes through one command atom", () => {
     const other = Atom.fn((id: string) => Effect.succeed(id))
     void inTurn(registry, atom, () => new Promise<never>(() => undefined))
     await expect(inTurn(registry, other, () => Promise.resolve("b"))).resolves.toBe("b")
+  })
+
+  it("in turn, go on once a write has been out too long", async () => {
+    const { atom, registry, set, finished } = slips()
+    const stalled = new Promise<never>(() => undefined)
+    void inTurn(registry, atom, () => stalled, 20)
+    // Queued behind the stalled write: each gets its own wait, counted from when the one before it started.
+    const next = inTurn(registry, atom, () => set("a"), 20)
+    const after = inTurn(registry, atom, () => set("b"), 20)
+    expect(values(await Promise.all([next, after]))).toEqual(["slip a", "slip b"])
+    expect(finished).toEqual(["a", "b"])
   })
 })

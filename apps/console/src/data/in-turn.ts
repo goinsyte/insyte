@@ -11,18 +11,42 @@ import { useCallback, useContext } from "react"
  * each runs and each caller gets its own result.
  */
 
-/** Each atom's last write still out, per registry. */
-const lanes = new WeakMap<AtomRegistry.AtomRegistry, WeakMap<object, Promise<unknown>>>()
+/** How long the next write waits for one that has not come back: the client has no timeout of its own. */
+const STALL_MS = 30_000
 
-/** Runs `write` once every earlier write to `atom` in `registry` that went through here has settled. */
-export function inTurn<A>(registry: AtomRegistry.AtomRegistry, atom: object, write: () => Promise<A>): Promise<A> {
+/** Each atom's last write, settled or given up on, per registry. */
+const lanes = new WeakMap<AtomRegistry.AtomRegistry, WeakMap<object, Promise<void>>>()
+
+/** Resolves once `p` settles, or `ms` after it was asked, whichever is first. */
+const settledOrStalled = (p: Promise<unknown>, ms: number) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    const done = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    p.then(done, done)
+  })
+
+/**
+ * Runs `write` once every earlier write to `atom` in `registry` that went through here has settled, or has been out for
+ * `stallMs` since it started.
+ */
+export function inTurn<A>(
+  registry: AtomRegistry.AtomRegistry,
+  atom: object,
+  write: () => Promise<A>,
+  stallMs = STALL_MS
+): Promise<A> {
   let byAtom = lanes.get(registry)
   if (byAtom === undefined) {
     byAtom = new WeakMap()
     lanes.set(registry, byAtom)
   }
-  const run = (byAtom.get(atom) ?? Promise.resolve()).then(write)
-  byAtom.set(atom, run.then(() => undefined, () => undefined))
+  const before = byAtom.get(atom) ?? Promise.resolve()
+  const run = before.then(write)
+  // The wait starts when this write does, so one queued behind it gets its full time.
+  byAtom.set(atom, before.then(() => settledOrStalled(run, stallMs)))
   return run
 }
 

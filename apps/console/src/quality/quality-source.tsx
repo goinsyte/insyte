@@ -17,6 +17,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { ConsoleQualityAgents } from "../agent/record-rows.tsx"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { PRODUCTS } from "../data/products.ts"
 import { QUALITY, qualityAtom, qualityWrites } from "../data/quality.ts"
 import { TICKETS } from "../data/tickets.ts"
@@ -114,7 +115,7 @@ function useConsoleQualitySource(): QualitySource {
     reject: useAtomSet(qualityWrites.reject, { mode: "promiseExit" }),
     setPhase: useAtomSet(qualityWrites.setPhase, { mode: "promiseExit" }),
     link: useAtomSet(qualityWrites.link, { mode: "promiseExit" }),
-    undo: useAtomSet(qualityWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(qualityWrites.undo)
   }
   // The phase shows in the product's header and list too; a rejection's ticket is on the board.
   const keys = { reactivityKeys: [...QUALITY, ...PRODUCTS, ...TICKETS] }

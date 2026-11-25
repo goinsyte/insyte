@@ -41,6 +41,7 @@ import {
   VIEWS,
   viewsAtom
 } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { channelsAtom, inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { COUNTED_AREAS, navCountsAtom } from "../data/nav.ts"
 import { sheetsAtom } from "../data/sheets.ts"
@@ -209,7 +210,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const marketplace = useConsoleMarketplace()
   const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
   const write = {
-    setRead: useAtomSet(frameWrites.setRead, { mode: "promiseExit" }),
+    // `Notifications.setRead`, the Meldingen page's atom too: in turn with its writes.
+    setRead: useAtomSetInTurn(frameWrites.setRead),
     recordVisit: useAtomSet(frameWrites.recordVisit, { mode: "promiseExit" }),
     saveView: useAtomSet(frameWrites.saveView, { mode: "promiseExit" }),
     updateView: useAtomSet(frameWrites.updateView, { mode: "promiseExit" }),

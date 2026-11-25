@@ -1,7 +1,7 @@
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { failure, ok, relay, run } from "./journeys.ts"
+import { failure, ok, outboxOf, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -61,6 +61,12 @@ const ran = async (packs: Instances, count: number) => {
   }
   throw new Error(`fewer than ${count} pack runs started`)
 }
+
+/** The workspace's audit rows, oldest first (`/api/__dev/audit`). */
+const auditOf = async (workspace: string) =>
+  ((await (await call(`http://api.test/api/__dev/audit?workspace=${workspace}`)).json()) as {
+    rows: Array<{ action: string; subjectId: string }>
+  }).rows
 
 const opened = async (cookie: string, fileId: string) => {
   const response = await call(`http://api.test/api/files/${fileId}`, { headers: { cookie } })
@@ -236,6 +242,29 @@ describe("evidence packs", () => {
     const failed = ok(await rpc("Chargebacks.get", { id: created.id }, store.cookie)).pack
     expect(failed).toMatchObject({ state: "failed", done: 2, total: 4 })
     expect(failed!.error).toContain("browser busy")
+  })
+
+  it("starts a pack for every case asked for at once", async () => {
+    const store = await importedStore("cb-several")
+    const first = ok(await rpc("Chargebacks.createManual", manual, store.cookie)).chargebacks[0]!
+    const second = ok(await rpc("Chargebacks.createManual", manual, store.cookie)).chargebacks[0]!
+
+    await using packs = await introspectWorkflow(env.EVIDENCE_PACK)
+    const asked = ok(await rpc("Chargebacks.assemblePack", { ids: [first.id, second.id] }, store.cookie))
+    expect(asked.chargebacks.map((c) => c.id).toSorted()).toEqual([first.id, second.id].toSorted())
+    // One line in the log for each case, and one event that names both runs.
+    const lines = (await auditOf(store.workspace)).filter((r) => r.action === "chargeback.pack_requested")
+    expect(lines.map((r) => r.subjectId).toSorted()).toEqual([first.id, second.id].toSorted())
+    const told = (await outboxOf(store.workspace)).filter((e) => e.event === "chargeback.pack_requested")
+    expect(told).toHaveLength(1)
+    expect((told[0]!.payload["packs"] as Array<{ chargebackId: string }>).map((p) => p.chargebackId).toSorted())
+      .toEqual([first.id, second.id].toSorted())
+
+    await relay(store.workspace)
+    expect(await ran(packs, 2)).toHaveLength(2)
+    for (const c of [first, second]) {
+      expect(ok(await rpc("Chargebacks.get", { id: c.id }, store.cookie)).pack).not.toBeNull()
+    }
   })
 
   it("starts no pack for a closed case, and lets a role that may only look ask for none", async () => {

@@ -38,6 +38,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { toast } from "sonner"
 import { automationFieldsAtom, AUTOMATIONS, automationWrites, runAtom, RUNS, runsAtom } from "../data/automations.ts"
 import { frameAtom } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 import {
   issuesByNode,
@@ -363,7 +364,7 @@ function useCommands(
     publish: useAtomSet(automationWrites.publish, { mode: "promiseExit" }),
     setStatus: useAtomSet(automationWrites.setStatus, { mode: "promiseExit" }),
     updateSettings: useAtomSet(automationWrites.updateSettings, { mode: "promiseExit" }),
-    undo: useAtomSet(automationWrites.undo, { mode: "promiseExit" }),
+    undo: useAtomSetInTurn(automationWrites.undo),
     test: useAtomSet(automationWrites.test, { mode: "promiseExit" }),
     rerun: useAtomSet(automationWrites.rerun, { mode: "promiseExit" }),
     cancel: useAtomSet(automationWrites.cancel, { mode: "promiseExit" }),

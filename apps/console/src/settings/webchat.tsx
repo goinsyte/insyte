@@ -11,6 +11,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useState } from "react"
 import { toast } from "sonner"
 import { frameAtom } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { channelsAtom, INBOX, inboxWrites } from "../data/inbox.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -58,7 +59,7 @@ const openTheme = (url: string) => void window.open(url, "_blank", "noopener,nor
 
 /** The toast after a change, with its Undo. */
 function useDone() {
-  const undo = useAtomSet(inboxWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(inboxWrites.undo)
   return (change: ChannelChange, label: string, detail?: string) => {
     const ticket = change.undo
     if (ticket === null) return void toast.success(label, { description: detail })

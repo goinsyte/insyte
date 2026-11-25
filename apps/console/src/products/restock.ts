@@ -3,6 +3,7 @@ import { counted } from "@insyte/ui/app/lib/bulk-io"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 
@@ -21,7 +22,7 @@ export function useRestock():
 {
   const gate = useGate("support", 2)
   const restock = useAtomSet(ticketWrites.restock, { mode: "promiseExit" })
-  const undo = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(ticketWrites.undo)
   if (!gate.ok) return undefined
   const keys = { reactivityKeys: [...TICKETS] }
   return async (productIds, options) => {

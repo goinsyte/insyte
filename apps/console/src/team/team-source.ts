@@ -20,6 +20,7 @@ import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { ACCESS, accessWrites, myAccessAtom } from "../data/access.ts"
 import { FRAME } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { TEAM, teamWrites } from "../data/team.ts"
 import { WORKSPACES, workspaceWrites } from "../data/workspaces.ts"
 
@@ -161,7 +162,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     revoke: useAtomSet(teamWrites.revoke, { mode: "promiseExit" }),
     restore: useAtomSet(teamWrites.restore, { mode: "promiseExit" }),
     resend: useAtomSet(teamWrites.resend, { mode: "promiseExit" }),
-    undoResend: useAtomSet(teamWrites.undoResend, { mode: "promiseExit" }),
+    undoResend: useAtomSetInTurn(teamWrites.undoResend),
     setInvitationRole: useAtomSet(teamWrites.setInvitationRole, { mode: "promiseExit" }),
     setMemberRole: useAtomSet(teamWrites.setMemberRole, { mode: "promiseExit" }),
     setMemberStores: useAtomSet(teamWrites.setMemberStores, { mode: "promiseExit" }),
@@ -171,7 +172,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     restoreMember: useAtomSet(teamWrites.restoreMember, { mode: "promiseExit" }),
     setLink: useAtomSet(teamWrites.setLink, { mode: "promiseExit" }),
     regenerateLink: useAtomSet(teamWrites.regenerateLink, { mode: "promiseExit" }),
-    undoRegenerateLink: useAtomSet(teamWrites.undoRegenerateLink, { mode: "promiseExit" }),
+    undoRegenerateLink: useAtomSetInTurn(teamWrites.undoRegenerateLink),
     transfer: useAtomSet(workspaceWrites.transferOwnership, { mode: "promiseExit" })
   }
   const roles = useMemo(() => team.roles.map(roleOf), [team.roles])
