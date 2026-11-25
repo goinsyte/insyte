@@ -11,11 +11,13 @@ import { useMemo } from "react"
 import { toast } from "sonner"
 import { ACCESS, accessWrites, myAccessAtom } from "../data/access.ts"
 import { ACCESS_LIST, accessListAtom, ROLES, rolesWrites } from "../data/roles.ts"
+import { TEAM } from "../data/team.ts"
 
 /*
  * Rollen's source in the console: `Roles.list` and `Access.list` as the screens read them, and every change as its RPC,
- * refreshing through `ROLES` (and `ACCESS_LIST` for a grant or decline). A refusal is said once, in Dutch, and the change
- * answers `false`, so the screen offers no undo. A declined request cannot be reopened, so its undo is not offered.
+ * refreshing through `ROLES` and `TEAM` (Team's role lists and who holds what move with them; `ACCESS_LIST` too for a
+ * grant or decline). A refusal is said once, in Dutch, and the change answers `false`, so the screen offers no undo. A
+ * declined request cannot be reopened, so its undo is not offered.
  */
 
 const isForbidden = Schema.is(Forbidden)
@@ -102,8 +104,8 @@ export function useConsoleRolesSource(data: Roles): RolesSource {
   const roles = useMemo(() => data.roles.map(roleOf), [data.roles])
   const mine = roles.find((r) => r.id === data.myRoleId)
   const people = data.roles.flatMap((r) => r.holders.members.map((m) => ({ ...m, role: r.label })))
-  const keys = { reactivityKeys: ROLES }
-  const both = { reactivityKeys: [...ROLES, ...ACCESS_LIST] }
+  const keys = { reactivityKeys: [...ROLES, ...TEAM] }
+  const both = { reactivityKeys: [...ROLES, ...TEAM, ...ACCESS_LIST] }
 
   // Who may not manage the team is answered Forbidden for the requests: the list's place says so.
   const listFailure = AsyncResult.isFailure(accessList)

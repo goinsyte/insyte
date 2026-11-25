@@ -15,7 +15,7 @@ export function FirstRunHint() {
 
 	const places = [
 		{ to: "/tickets", label: "Tickets die op je wachten", detail: "Wat aan jou is toegewezen, het dringendste eerst" },
-		{ to: "/settings/profile", label: "Je profiel en meldingen", detail: "Foto, naam en wanneer Insyte je iets laat weten" },
+		{ to: "/settings/me", label: "Je profiel en meldingen", detail: "Je naam, en wanneer Insyte je iets laat weten" },
 		{ to: "/settings/team", label: "Wie er in het team zit", detail: "En wat ieder kan zien" },
 	] as const;
 

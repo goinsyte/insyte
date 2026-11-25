@@ -13,6 +13,8 @@ export type SubPanelItem = {
 	liveCount?: "needs-you" | "drawn";
 	/** Drawn in the icon's place: a provider's logo, for rows that are a connected service. */
 	mark?: ReactNode;
+	/** What else the panel's filter finds this row by: the settings inside the page, in the page's own words. */
+	keywords?: ReadonlyArray<string>;
 };
 
 export type SubPanelSection = {

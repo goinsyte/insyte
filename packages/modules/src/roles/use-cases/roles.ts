@@ -334,9 +334,10 @@ export const remove = Effect.fn("Roles.remove")(function*(id: string, to: string
       if (dest === undefined) return yield* new NotFound({ entity: "role", id: to })
       yield* ensureReach(role.stores, dest.stores)
       const members = yield* sql<{ id: string }>`update members set role_id = ${to} where role_id = ${id} returning id`
+      // Every invitation not yet taken up, revoked and declined ones too: their undo brings them back, and then they
+      // grant the role they were moved to, never this one.
       const invitations = yield* sql<{ id: string }>`
-        update invitations set role_id = ${to}
-        where role_id = ${id} and accepted_at is null and revoked_at is null and declined_at is null returning id`
+        update invitations set role_id = ${to} where role_id = ${id} and accepted_at is null returning id`
       const link = yield* sql<{ workspaceId: string }>`
         update invite_links set role_id = ${to} where role_id = ${id} returning workspace_id`
       const moved = {

@@ -97,6 +97,8 @@ export const consoleAuthClient: AuthClient = {
     if (result.error === null) identify(null)
     return result
   },
+  updateUser: (request) =>
+    answer(client().updateUser(request), "Je naam kon niet worden opgeslagen. Probeer het opnieuw."),
   twoFactor: {
     verifyTotp: async (request) => {
       const result = await answer(client().twoFactor.verifyTotp(request), "De code kon niet worden gecontroleerd.")

@@ -32,6 +32,9 @@ const AUTH: Record<string, string> = {
   unable_to_link_account: "Dit Google-account kon niet aan je account worden gekoppeld.",
   oauth_provider_not_found: "Inloggen met Google is hier niet beschikbaar. Log in met je e-mailadres.",
   PROVIDER_NOT_FOUND: "Inloggen met Google is hier niet beschikbaar. Log in met je e-mailadres.",
+  // Je profiel (`/update-user`).
+  NAME_REQUIRED: "Vul je naam in.",
+  NAME_TOO_LONG: "Deze naam is te lang: maximaal 80 tekens.",
   BETA_CLOSED: "Insyte is nog alleen op uitnodiging. Laat je e-mailadres achter, dan laten we het je weten.",
   NOT_YET_AVAILABLE: "Dit deel van Insyte is nog niet beschikbaar."
 }

@@ -87,6 +87,7 @@ export const demoAuthClient: AuthClient = {
 
   /* The one session is the reference's whole premise, so signing out keeps it: the screen still navigates. */
   signOut: () => ok(null),
+  updateUser: (_request: { name: string }) => ok(null),
 
   /* Any code passes: the screen's own validation and states are what the reference shows. */
   twoFactor: {

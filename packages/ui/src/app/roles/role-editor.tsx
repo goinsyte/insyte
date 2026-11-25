@@ -47,11 +47,18 @@ export function RoleEditor({ role, onDelete, onCompare }: { role: RoleDef; onDel
 	const saved = pick(role);
 	const savedKey = JSON.stringify(saved);
 	const lastSaved = useRef(savedKey);
-	const dirty = JSON.stringify(draft) !== savedKey;
+	// What a save here kept, from the moment the host says it took: the role read again may come in later, and
+	// until then the page is saved, not holding changes (no bar, no "leave site?").
+	const [kept, setKept] = useState<string | null>(null);
+	const keptRef = useRef<string | null>(null);
+	const dirty = JSON.stringify(draft) !== (kept ?? savedKey);
 	useEffect(() => {
 		if (lastSaved.current !== savedKey) {
+			const baseline = keptRef.current ?? lastSaved.current;
 			lastSaved.current = savedKey;
-			setDraft(JSON.parse(savedKey) as Permissions);
+			keptRef.current = null;
+			setKept(null);
+			setDraft((d) => (JSON.stringify(d) === baseline ? (JSON.parse(savedKey) as Permissions) : d));
 		}
 	}, [savedKey]);
 
@@ -66,8 +73,13 @@ export function RoleEditor({ role, onDelete, onCompare }: { role: RoleDef; onDel
 
 	function save() {
 		const before = pick(role);
-		void source.update(role.id, draft).then((ok) => {
-			if (ok) undoable(`${role.label} opgeslagen`, () => void source.update(role.id, before), holders.members.length ? `Geldt meteen voor ${holdersLine(holders)}.` : undefined);
+		const keeping = JSON.stringify(draft);
+		// The bar waits for it; one the host refused rejects, so a held navigation stays with the draft.
+		return source.update(role.id, draft).then((ok) => {
+			if (!ok) throw new Error("not saved");
+			keptRef.current = keeping;
+			setKept(keeping);
+			undoable(`${role.label} opgeslagen`, () => void source.update(role.id, before), holders.members.length ? `Geldt meteen voor ${holdersLine(holders)}.` : undefined);
 		});
 	}
 
@@ -237,7 +249,7 @@ export function RoleEditor({ role, onDelete, onCompare }: { role: RoleDef; onDel
 				</aside>
 			</div>
 
-			<UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(saved)} onSave={save} />
+			<UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(kept === null ? saved : (JSON.parse(kept) as Permissions))} onSave={save} />
 		</>
 	);
 }

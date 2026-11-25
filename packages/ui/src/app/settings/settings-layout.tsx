@@ -1,11 +1,12 @@
-import { Archive, Database, FileText, Keyboard, Mail, MessageSquareText, Palette, Receipt, ShieldCheck, Truck, RotateCcw, BadgePercent, Bell, BookOpen, Bot, CreditCard, Globe, type IconComponent, Key, MessageCircle, Plug, Shield, Sparkles, Store, User, UserCog, Users, Wallet, Webhook } from "../../icons";
+import { Archive, Building, Database, FileText, Keyboard, Mail, MessageSquareText, Palette, Receipt, ShieldCheck, Truck, RotateCcw, BadgePercent, Bell, BookOpen, Bot, CreditCard, Globe, type IconComponent, Key, MessageCircle, Plug, Shield, Sparkles, Store, User, UserCog, Users, Wallet, Webhook } from "../../icons";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { ReadOnlyNotice, useReadOnly } from "../access/route-gate";
 import { SettingsSheet } from "./settings-sheet";
 
 /** The page's own name and mark: the area panel already says these are settings. */
 const PAGES: Record<string, { title: string; icon: IconComponent }> = {
-	profile: { title: "Account", icon: User },
+	me: { title: "Je profiel", icon: User },
+	profile: { title: "Account", icon: Building },
 	team: { title: "Team", icon: Users },
 	roles: { title: "Rollen", icon: UserCog },
 	stores: { title: "Winkels", icon: Store },
