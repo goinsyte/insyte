@@ -214,6 +214,25 @@ describe("Kennisbank", () => {
     ok(await rpc("Knowledge.archive", { id: created.article.id }, people.owner))
   })
 
+  it("refuses to put back an empty version, as a chapter's first one is", async () => {
+    const created = ok(
+      await rpc("Knowledge.create", { title: "Leeg terug", audience: "assistant", body: "" }, people.owner)
+    )
+    const first = created.article.versions[0]!.version
+    ok(
+      await rpc(
+        "Knowledge.publish",
+        { id: created.article.id, title: "Leeg terug", audience: "assistant", body: "Nu met tekst." },
+        people.owner
+      )
+    )
+    expect(failure(await rpc("Knowledge.restoreVersion", { id: created.article.id, version: first }, people.owner)))
+      .toMatchObject({ _tag: "Invalid", fields: { body: "required" } })
+    expect(ok(await rpc("Knowledge.get", { id: created.article.id }, people.owner)).published)
+      .toMatchObject({ body: "Nu met tekst." })
+    ok(await rpc("Knowledge.archive", { id: created.article.id }, people.owner))
+  })
+
   it("lets Bekijken read, Beheren write, and only ai.autonomy publish what the customer agent reads", async () => {
     expect(ok(await rpc("Knowledge.list", {}, people.view)).rows.map((r) => r.id)).toContain(returns)
     expect(failure(await rpc("Knowledge.create", { title: "X", audience: "assistant", body: "" }, people.view)))

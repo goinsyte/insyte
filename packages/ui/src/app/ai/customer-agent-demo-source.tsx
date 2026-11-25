@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { type CustomerAgentSettings, nextOpenLabel } from "../lib/customer-agent"
+import { type CustomerAgentSettings, DEFAULT_HANDOVER, nextOpenLabel } from "../lib/customer-agent"
 import { type Article, publishedVersion } from "../lib/knowledge"
 import { undoable } from "../lib/undo"
 import { useGate } from "../stores/access-store"
@@ -16,7 +16,11 @@ function answer(q: string, articles: ReadonlyArray<Article>, s: CustomerAgentSet
   const when = nextOpenLabel(s.hours, new Date())
   const handover = (why: string): TestMsg => ({
     from: "insyte",
-    text: s.handoverMessage.replace("{wanneer}", when === "nu" ? "vandaag nog" : when),
+    // An empty draft sentence says the default one, as the server does.
+    text: (s.handoverMessage.trim() === "" ? DEFAULT_HANDOVER : s.handoverMessage).replace(
+      "{wanneer}",
+      when === "nu" ? "vandaag nog" : when
+    ),
     source: why,
     handover: true
   })

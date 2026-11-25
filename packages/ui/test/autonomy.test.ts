@@ -83,6 +83,10 @@ describe("a limit as typed", () => {
     expect(limitOf("12,00")).toEqual({ ok: true, limit: 12 })
     expect(limitOf("12.0")).toEqual({ ok: true, limit: 12 })
     expect(limitOf("0")).toEqual({ ok: true, limit: 0 })
+    expect(limitOf("1.250,00")).toEqual({ ok: true, limit: 1250 })
+    expect(limitOf("1.250,-")).toEqual({ ok: true, limit: 1250 })
+    expect(limitOf("25,-")).toEqual({ ok: true, limit: 25 })
+    expect(limitOf("000000000025")).toEqual({ ok: true, limit: 25 })
   })
 
   it("says cents, a minus or junk instead of dropping the signs", () => {
@@ -93,6 +97,8 @@ describe("a limit as typed", () => {
     expect(limitOf("5abc")).toEqual({ ok: false, message: "Vul een bedrag in hele euro's in." })
     expect(limitOf("1.25.0")).toEqual({ ok: false, message: "Vul een bedrag in hele euro's in." })
     expect(limitOf("1234567890")).toEqual({ ok: false, message: "Dat bedrag is te hoog." })
+    expect(limitOf("1.250,50")).toEqual({ ok: false, message: "Alleen hele euro's, zonder centen." })
+    expect(limitOf("25,-50")).toEqual({ ok: false, message: "Vul een bedrag in hele euro's in." })
   })
 })
 

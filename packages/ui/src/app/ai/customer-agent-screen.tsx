@@ -49,7 +49,7 @@ export function CustomerAgentPage() {
 	const dirty = JSON.stringify(draft) !== savedKey;
 	const set = <K extends keyof CustomerAgentSettings>(k: K, v: CustomerAgentSettings[K]) => setDraft((d) => ({ ...d, [k]: v }));
 	const now = new Date();
-	const open = isOpen(draft.hours, now);
+	const open = isOpen(draft.hours, now, source.timeZone);
 	const [testing, setTesting] = useState(false);
 
 	// The handover sentence is what a handed-over shopper reads: a save without one is said at the field, not sent.
@@ -93,7 +93,7 @@ export function CustomerAgentPage() {
 			) : !open ? (
 				<Notice tone="arc">
 					<span className="font-medium">Buiten openingstijden.</span>{" "}
-					{draft.outside === "take" ? `Insyte neemt nieuwe vragen aan en zegt dat een collega ${nextOpenLabel(draft.hours, now)} antwoordt.` : "Insyte antwoordt uit de kennisbank; wat het niet weet, gaat naar de inbox."}
+					{draft.outside === "take" ? `Insyte neemt nieuwe vragen aan en zegt dat een collega ${nextOpenLabel(draft.hours, now, source.timeZone)} antwoordt.` : "Insyte antwoordt uit de kennisbank; wat het niet weet, gaat naar de inbox."}
 				</Notice>
 			) : null}
 
@@ -236,7 +236,7 @@ export function CustomerAgentPage() {
 					</SettingCard>
 
 					{readOnly ? null : (
-						<button type="button" onClick={() => save({ ...draft, on: false }, "Klantagent staat uit")} className="flex h-9 w-fit items-center rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-signal-red-bg hover:text-signal-red">
+						<button type="button" onClick={() => save({ ...draft, on: false, handoverMessage: handoverEmpty ? saved.handoverMessage : draft.handoverMessage }, "Klantagent staat uit")} className="flex h-9 w-fit items-center rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-signal-red-bg hover:text-signal-red">
 							Klantagent uitzetten
 						</button>
 					)}
@@ -362,8 +362,8 @@ function TestChat({ settings }: { settings: CustomerAgentSettings }) {
 	}, [msgs.length]);
 	const greeting = useMemo(() => "Hoi! Waar kunnen we je mee helpen?", []);
 	// "antwoordt meteen" only where it would: on Zelf antwoorden in both places, and inside the hours or answering
-	// outside them. Concepts only, or a closed shop that takes the question, is not answering at once.
-	const answers = settings.on && settings.channels.webchat === "auto" && source.sendReply === "auto" && (settings.outside === "answer" || isOpen(settings.hours, new Date()));
+	// outside them, with budget left. Concepts only, a closed shop that takes the question, or a spent budget is not.
+	const answers = settings.on && settings.channels.webchat === "auto" && source.sendReply === "auto" && !source.spent && (settings.outside === "answer" || isOpen(settings.hours, new Date(), source.timeZone));
 	const send = (text: string) => {
 		if (!text.trim()) return;
 		setMsgs((m) => [...m, { from: "shopper", text }]);

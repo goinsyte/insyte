@@ -262,7 +262,8 @@ function VersionDrawer({ open, source, canRevert, onClose }: { open: boolean; so
 						<section className="flex flex-col gap-2 px-5 pb-6">
 							<div className="flex items-center justify-between">
 								<h3 className="font-medium text-ink-3 text-xs">{before ? `Anders dan versie ${before.n}` : "De eerste versie"}</h3>
-								{canRevert && chosen.n !== current ? (
+								{/* Only once the texts are read, and not for an empty one (a chapter's first): that would publish nothing. */}
+								{canRevert && chosen.n !== current && loaded !== null && chosen.body.trim() !== "" ? (
 									<button
 										type="button"
 										onClick={() => {

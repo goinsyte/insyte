@@ -439,6 +439,8 @@ export const restoreVersion = Effect.fn("Knowledge.restoreVersion")(function*(
   if (v === undefined) return yield* new NotFound({ entity: "knowledge_version", id: `${row.id}@${input.version}` })
   yield* requirePublish(v.audience, yield* publishedAudience(sql, row))
   yield* checkLive(row)
+  // A chapter starts with an empty version: putting that back would publish nothing, as Publiceren refuses.
+  if (v.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const n = yield* writeVersion(sql, row.id, v, true)
   yield* writeArticle(sql, row.id, v, n)
   yield* rebuildChunks(sql, row.id)

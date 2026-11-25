@@ -172,8 +172,10 @@ export function limitOf(text: string): LimitInput {
 	const t = text.replace(/[\s€]/g, "");
 	if (t === "") return { ok: true, limit: null };
 	if (t.startsWith("-")) return { ok: false, message: "Een limiet kan niet onder nul." };
-	const whole = /^\d{1,3}(\.\d{3})+$/.test(t) ? t.replace(/\./g, "") : /^\d+([,.]0{1,2})?$/.test(t) ? t.replace(/[,.]0+$/, "") : null;
-	if (whole === null) return { ok: false, message: /^\d+[,.]\d+$/.test(t) ? "Alleen hele euro's, zonder centen." : "Vul een bedrag in hele euro's in." };
+	// "1.250", "1.250,00", "1.250,-", "25,-", "12,00", "12.0": whole euros, with or without a thousands dot.
+	const digits = /^\d{1,3}(\.\d{3})+(,0{1,2}|,-)?$/.test(t) ? t.replace(/,.*$/, "").replace(/\./g, "") : /^\d+([,.]0{1,2}|,-)?$/.test(t) ? t.replace(/[,.].*$/, "") : null;
+	if (digits === null) return { ok: false, message: /^(\d+|\d{1,3}(\.\d{3})+)[,.]\d+$/.test(t) ? "Alleen hele euro's, zonder centen." : "Vul een bedrag in hele euro's in." };
+	const whole = digits.replace(/^0+(?=\d)/, "");
 	if (whole.length > 9) return { ok: false, message: "Dat bedrag is te hoog." };
 	return { ok: true, limit: Number(whole) };
 }
