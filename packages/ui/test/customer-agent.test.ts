@@ -27,6 +27,19 @@ describe("opening hours", () => {
     expect(nextOpenLabel(s.hours, wed(19))).toBe("morgen vanaf 9:00")
     expect(nextOpenLabel(s.hours, new Date(2026, 10, 6, 19))).toBe("maandag vanaf 9:00")
   })
+
+  it("reads the hours on the workspace's clock, whatever the browser's is", () => {
+    // Wednesday 08:30 UTC is 09:30 in Amsterdam and 03:30 in New York.
+    const at = new Date(Date.UTC(2026, 10, 4, 8, 30))
+    expect(isOpen(s.hours, at, "Europe/Amsterdam")).toBe(true)
+    expect(isOpen(s.hours, at, "America/New_York")).toBe(false)
+    expect(nextOpenLabel(s.hours, at, "America/New_York")).toBe("vandaag vanaf 9:00")
+    // Friday 23:30 UTC is already Saturday in Amsterdam: closed until Monday.
+    const friday = new Date(Date.UTC(2026, 10, 6, 23, 30))
+    expect(isOpen(s.hours, friday, "Europe/Amsterdam")).toBe(false)
+    expect(nextOpenLabel(s.hours, friday, "Europe/Amsterdam")).toBe("maandag vanaf 9:00")
+    expect(nextOpenLabel(s.hours, friday, "America/New_York")).toBe("maandag vanaf 9:00")
+  })
 })
 
 describe("what the agent does with a message", () => {
