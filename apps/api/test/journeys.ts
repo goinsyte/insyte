@@ -66,6 +66,7 @@ export const outboxOf = async (workspace: string) =>
         relayedAt: string | null
         cancelled: boolean
         due: boolean
+        deadLetteredAt: string | null
       }
     >
   }).events
@@ -109,21 +110,25 @@ const pendingTasksOf = async (workspace: string) =>
  * the queue (`pending_tasks`: an agent's turn, a ticket to classify) run. The Worker's own kicks reach the queue's real
  * consumer a second or so after a write and what it runs logs; a file that ends meanwhile has that line arrive while
  * vitest closes the file ("Closing rpc while onUserConsoleLog was pending"), which fails the run with every test
- * passed. A file whose writes kick the queue waits for this in its `afterAll`.
+ * passed. A file whose writes kick the queue waits for this in its `afterAll`, with a hook timeout above `withinMs`, so
+ * that what is still running is named here rather than as a timed-out hook. A dead-lettered event is never relayed, and
+ * is not waited for.
  */
-export const quiet = async (workspaces: Iterable<string>) => {
+export const quiet = async (workspaces: Iterable<string>, withinMs = 45_000) => {
+  const deadline = Date.now() + withinMs
   for (const workspace of workspaces) {
-    for (let attempt = 0;; attempt++) {
-      await relay(workspace)
+    for (;;) {
+      // The outbox first: a due event relayed in between keeps its task, which the read after it then sees.
+      const due = (await outboxOf(workspace)).filter((e) =>
+        e.relayedAt === null && !e.cancelled && e.due && e.deadLetteredAt === null
+      )
       const tasks = await pendingTasksOf(workspace)
-      if (
-        tasks.length === 0 && (await outboxOf(workspace)).every((e) => e.relayedAt !== null || e.cancelled || !e.due)
-      ) {
-        break
+      if (due.length === 0 && tasks.length === 0) break
+      if (Date.now() > deadline) {
+        const left = [...due.map((e) => `event ${e.event} ${e.id}`), ...tasks.map((t) => `${t.kind} ${t.ref}`)]
+        throw new Error(`${workspace} still has work in the background after ${withinMs / 1000} s: ${left.join(", ")}`)
       }
-      if (attempt === 100) {
-        throw new Error(`${workspace} still has tasks to run: ${tasks.map((t) => `${t.kind} ${t.ref}`).join(", ")}`)
-      }
+      if (due.length > 0) await consume(due.map((e) => e.id))
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
   }

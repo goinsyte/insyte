@@ -12,13 +12,15 @@ import { throughAccess } from "./e2e/console/access.ts"
  */
 const port = 4300
 const external = process.env.CONSOLE_URL
+/** How long a journey's `expect` waits, hydration included: the warm-up holds a preview to the same. */
+export const EXPECT_TIMEOUT = 15_000
 export default defineConfig({
   testDir: "e2e/console",
   // On a preview, the first page loads after a deploy do not hydrate in time: warmed until one does (`warm-up.ts`).
   globalSetup: "./e2e/console/warm-up.ts",
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  expect: { timeout: 15_000 },
+  expect: { timeout: EXPECT_TIMEOUT },
   timeout: 90_000,
   reporter: process.env.CI
     ? [["github"], ["html", { open: "never", outputFolder: "playwright-report-console" }]]

@@ -37,7 +37,12 @@
   "include": [
     "vitest.config.ts",
     "playwright.config.ts",
+    "playwright.console.config.ts",
     "e2e/*.ts",
+    // The console journeys' helpers; their specs reach into the page (`window`, `document`) and need the DOM's types.
+    "e2e/console/access.ts",
+    "e2e/console/founder.ts",
+    "e2e/console/warm-up.ts",
     "scripts/*.ts",
     "apps/*/vite.config.ts",
     "apps/*/vitest.config.ts"
