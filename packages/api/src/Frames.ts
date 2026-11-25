@@ -24,7 +24,7 @@ export const Hello = Schema.Struct({
    * Milliseconds since the room last sent a frame a tab refetches on (or may have, when it cannot know). A tab whose
    * page was read before the socket joined compares it with how long it has been loading (`missedBeforeHello`).
    */
-  quiet: Schema.optional(Schema.Finite)
+  quiet: Schema.optional(Schema.NullOr(Schema.Finite))
 })
 export type Hello = typeof Hello.Type
 
@@ -34,10 +34,17 @@ const QUIET_SLACK_MS = 1_000
 /**
  * Whether a tab's first socket may have missed a frame: its page was read on the server, or by its first queries, at
  * most `loadingFor` ms before the hello came (the document's age, `performance.now()`), and the room sent something
- * since. Durations on either side, so the two clocks need not agree. A hello without `quiet` cannot say: refetch.
+ * since. Durations on either side, so the two clocks need not agree. A hello without a `quiet` (`null`: a room that
+ * could not reckon it) cannot say: refetch.
  */
 export const missedBeforeHello = (hello: Hello, loadingFor: number): boolean =>
-  hello.quiet === undefined || hello.quiet < loadingFor + QUIET_SLACK_MS
+  hello.quiet === undefined || hello.quiet === null || hello.quiet < loadingFor + QUIET_SLACK_MS
+
+/**
+ * How long this document has been open, for `missedBeforeHello`: `performance.now()`, or the wall clock since it began
+ * where that is more, as on a device that slept, which some browsers leave out of `performance.now()`.
+ */
+export const documentAge = (): number => Math.max(performance.now(), Date.now() - performance.timeOrigin)
 
 /** Someone's presence changed: their first tab opened, or their last one closed. */
 export const PresenceFrame = Schema.Struct({

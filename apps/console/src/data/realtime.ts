@@ -1,4 +1,4 @@
-import { Frame, missedBeforeHello } from "@insyte/api/Frames"
+import { documentAge, Frame, missedBeforeHello } from "@insyte/api/Frames"
 import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
@@ -155,7 +155,7 @@ export const connection = (url: string, reconnected: boolean, heard: Heard) =>
         if (frame.value.type === "hello" || frame.value.type === "presence") {
           heard.present(frame.value.presence.map((p) => p.memberId))
         }
-        if (frame.value.type === "hello" && (reconnected || missedBeforeHello(frame.value, performance.now()))) {
+        if (frame.value.type === "hello" && (reconnected || missedBeforeHello(frame.value, documentAge()))) {
           for (const key of EVERYTHING) keys.add(key)
         }
         if (frame.value.type === "hello") liveSignals.emit({ type: "open" })

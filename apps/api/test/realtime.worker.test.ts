@@ -1,4 +1,7 @@
+import { runInDurableObject } from "cloudflare:test"
+import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { ROOM_MEMBER, RoomDurableObject } from "../src/platform/Room.ts"
 import { ok, person, relay } from "./journeys.ts"
 import { call, rpc, sessionMe } from "./support.ts"
 
@@ -29,6 +32,23 @@ const until = async (check: () => boolean, what: string) => {
   }
   throw new Error(`waited for ${what}`)
 }
+
+/** An upgrade straight to a room, as the API Worker forwards it, for `member`. */
+const upgrade = (memberId: string) =>
+  new Request("http://room.test/", { headers: { upgrade: "websocket", [ROOM_MEMBER]: memberId } })
+
+/** A tab joined through `answer` (a room's `fetch`); the hello's `quiet` once it came. */
+const join = async (answer: Promise<Response> | Response) => {
+  const response = await answer
+  expect(response.status).toBe(101)
+  const frames: Array<{ type: string; [field: string]: unknown }> = []
+  response.webSocket!.addEventListener("message", (e) => frames.push(JSON.parse(String(e.data))))
+  response.webSocket!.accept()
+  await until(() => frames.some((f) => f.type === "hello"), "hello")
+  return { socket: response.webSocket!, quiet: frames.find((f) => f.type === "hello")!["quiet"] as number }
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe("realtime", () => {
   it("refuses a request that is no upgrade, and an upgrade without a session", async () => {
@@ -68,33 +88,71 @@ describe("realtime", () => {
     for (const t of [tab, second, elsewhere]) t.socket.close(1000, "done")
   })
 
-  it("says in its hello how long the room has been quiet, so a tab that read its page first can catch up", async () => {
-    const owner = await person("rt-quiet", "Stil B.V.")
-    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
-    const hello = (t: Awaited<ReturnType<typeof open>>) => t.frames.find((f) => f.type === "hello")
+  /*
+   * The hello's `quiet` (how long since the room last sent a frame a tab refetches on), straight on rooms of their own
+   * that nothing else sends to, so each number is the room's own reckoning.
+   */
+  describe("how long the room has been quiet", () => {
+    let rooms = 0
+    const room = () => env.ROOMS.getByName(`ws:quiet-${Date.now()}-${rooms++}`)
+    it("counts from the room's start, says when a frame went out, and leaves typing out", async () => {
+      const stub = room()
+      // Never sent anything: a room that has just started cannot know, so it says "just now".
+      const first = await join(stub.fetch(upgrade("m_1")))
+      expect(first.quiet).toBeGreaterThanOrEqual(0)
+      expect(first.quiet).toBeLessThan(250)
+      // Quiet since: counted from that start, not from some time long before.
+      await wait(300)
+      const second = await join(stub.fetch(upgrade("m_2")))
+      expect(second.quiet).toBeGreaterThanOrEqual(300)
+      expect(second.quiet).toBeLessThan(5_000)
+      // Someone typing changes nothing a tab reads again.
+      await stub.broadcast({ v: 1, type: "chat.typing", conversationId: "c_1", principalId: "p_1" })
+      const typed = await join(stub.fetch(upgrade("m_3")))
+      expect(typed.quiet).toBeGreaterThanOrEqual(300)
+      // A change goes out: the next tab hears it was just now.
+      const before = Date.now()
+      await stub.broadcast({ v: 1, type: "records.changed", kind: "role", ids: [] })
+      const late = await join(stub.fetch(upgrade("m_4")))
+      expect(late.quiet).toBeLessThanOrEqual(Date.now() - before)
+      for (const t of [first, second, typed, late]) t.socket.close(1000, "done")
+    })
 
-    // A room that has just started cannot know what it sent before: it says it may have, a moment ago.
-    const first = await open(owner.cookie)
-    await until(() => hello(first) !== undefined, "hello")
-    expect(hello(first)!["quiet"]).toBeLessThan(1_000)
+    it("wakes over sockets from before it kept the time, and still says a quiet a tab can read", async () => {
+      const stub = room()
+      const old = await join(stub.fetch(upgrade("m_old")))
+      await wait(300)
+      await runInDurableObject(stub, async (_room: RoomDurableObject, state) => {
+        // The sockets as the code before kept them, which a room hibernated over a deploy wakes with.
+        for (const ws of state.getWebSockets()) ws.serializeAttachment({ memberId: "m_old", joinedAt: Date.now() })
+        // Woken: a new instance over the same sockets, as the runtime makes one.
+        const woken = new RoomDurableObject(state, env)
+        const tab = await join(woken.fetch(upgrade("m_new")))
+        expect(Number.isFinite(tab.quiet)).toBe(true)
+        expect(tab.quiet).toBeLessThan(250)
+        // What the new socket keeps is a time too, for the next wake.
+        for (const ws of state.getWebSockets()) {
+          const kept = ws.deserializeAttachment() as { memberId: string; lastFrameAt?: number }
+          if (kept.memberId === "m_new") expect(Number.isFinite(kept.lastFrameAt)).toBe(true)
+        }
+        tab.socket.close(1000, "done")
+      })
+      old.socket.close(1000, "done")
+    })
 
-    // Nothing sent since: the next tab hears the room has been quiet at least as long, kept on the sockets.
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    const quietTab = await open(owner.cookie)
-    await until(() => hello(quietTab) !== undefined, "the quiet hello")
-    expect(hello(quietTab)!["quiet"]).toBeGreaterThanOrEqual(300)
-
-    // A change goes out; a tab joining after it hears it was just now, so its page, read before, is read again.
-    const before = Date.now()
-    ok(await rpc("Roles.create", { label: "Inkoop", from: "service" }, owner.cookie))
-    await relay(workspace)
-    await until(() => first.frames.some(isRole), "records.changed for the role")
-    const late = await open(owner.cookie)
-    await until(() => hello(late) !== undefined, "the late hello")
-    expect(hello(late)!["quiet"]).toBeLessThanOrEqual(Date.now() - before)
-    // The tab already in the room heard the change itself, and its hello does not move.
-    expect(hello(quietTab)!["quiet"]).toBeGreaterThanOrEqual(300)
-
-    for (const t of [first, quietTab, late]) t.socket.close(1000, "done")
+    it("wakes over its sockets with the time of its last frame", async () => {
+      const stub = room()
+      const tab = await join(stub.fetch(upgrade("m_1")))
+      await stub.broadcast({ v: 1, type: "records.changed", kind: "role", ids: [] })
+      await wait(300)
+      await runInDurableObject(stub, async (_room: RoomDurableObject, state) => {
+        const woken = new RoomDurableObject(state, env)
+        const next = await join(woken.fetch(upgrade("m_2")))
+        expect(next.quiet).toBeGreaterThanOrEqual(300)
+        expect(next.quiet).toBeLessThan(5_000)
+        next.socket.close(1000, "done")
+      })
+      tab.socket.close(1000, "done")
+    })
   })
 })

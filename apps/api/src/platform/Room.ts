@@ -21,9 +21,18 @@ interface Attachment {
   readonly joinedAt: number
   /** The tab's own id, which `Live.subscribe` names (M14 step 3); absent on a socket that named none. */
   readonly tab?: string
-  /** When the room last sent a frame a tab refetches on, as it knew at this socket's join or since. */
-  readonly lastFrameAt: number
+  /**
+   * When the room last sent a frame a tab refetches on, as it knew at this socket's join or since; absent on a socket
+   * that joined before the room kept it, which a room woken from hibernation can still hold.
+   */
+  readonly lastFrameAt?: number
 }
+
+/**
+ * How stale the time on the sockets may get before a frame writes it again: well inside the second a tab allows the
+ * room's `quiet` (`missedBeforeHello`), so a busy room does not rewrite every socket for every frame.
+ */
+const KEEP_EVERY_MS = 250
 
 /** A workspace's room: where its members' tabs are, and where its frames go. */
 export const roomOf = (workspaceId: string) => env.ROOMS.getByName(`ws:${workspaceId}`)
@@ -37,14 +46,19 @@ export const ROOM_MEMBER = "x-insyte-room-member"
 export const ROOM_TAB = "x-insyte-room-tab"
 
 export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
-  /** When the room last sent a frame a tab refetches on, or may have: started without sockets, it cannot know. */
+  /** When the room last sent a frame a tab refetches on, or may have: started without that time, it cannot know. */
   private lastFrameAt: number
+  /** When `lastFrameAt` was last written on the sockets. */
+  private keptAt: number
 
   constructor(ctx: DurableObjectState, bindings: Cloudflare.Env) {
     super(ctx, bindings)
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
-    const kept = this.ctx.getWebSockets().map((ws) => (ws.deserializeAttachment() as Attachment).lastFrameAt)
+    const kept = this.ctx.getWebSockets()
+      .map((ws) => (ws.deserializeAttachment() as Attachment).lastFrameAt)
+      .filter((at): at is number => Number.isFinite(at))
     this.lastFrameAt = kept.length > 0 ? Math.max(...kept) : Date.now()
+    this.keptAt = this.lastFrameAt
   }
 
   override fetch(request: Request): Response {
@@ -164,6 +178,8 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
   private sent(frame: unknown) {
     if ((frame as { readonly type?: unknown }).type === "chat.typing") return
     this.lastFrameAt = Date.now()
+    if (this.lastFrameAt - this.keptAt < KEEP_EVERY_MS) return
+    this.keptAt = this.lastFrameAt
     for (const ws of this.ctx.getWebSockets()) {
       ws.serializeAttachment({ ...(ws.deserializeAttachment() as Attachment), lastFrameAt: this.lastFrameAt })
     }
