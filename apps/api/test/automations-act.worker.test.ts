@@ -226,6 +226,61 @@ describe("automations that act", () => {
     expect(activity.rows.filter((r) => r.action === "order.refunded")).toHaveLength(2)
   }, 240_000)
 
+  it("refunds an order in its own currency within a limit in the workspace's, at the ECB rate", async () => {
+    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    const store = await importedStore("act-fx")
+    // The workspace counts in dollars now; the store sells in euros.
+    ok(
+      await rpc("Workspaces.saveRegional", {
+        language: "nl-NL",
+        currencyDisplay: "USD",
+        dateFormat: "DD MMM YYYY",
+        timeFormat: "24h",
+        weekStart: "mon",
+        timezone: "Europe/Amsterdam"
+      }, store.cookie)
+    )
+    const flow = async (name: string, amount: string) => {
+      const { automation } = ok(await rpc("Automations.create", { name }, store.cookie))
+      const id = automation!.automation.id
+      const nodes = [step("t", "trigger.shipping_delay"), step("r", "action.refund", { amount, reason: "" })]
+      ok(await rpc("Automations.saveDraft", { id, name, nodes: nodes as Json }, store.cookie))
+      ok(await rpc("Automations.publish", { id, note: "" }, store.cookie))
+      return id
+    }
+    const small = await flow("Klein terug", "5,00")
+    const large = await flow("Groot terug", "95,00")
+    const orderId = ok(await rpc("Forwarding.list", { view: "to_forward" }, store.cookie)).rows[0]!.orderId
+    const key = await keyOf(store.cookie, "Fx", false)
+
+    await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
+    const runOn = async (id: string) => {
+      const response = await startBy(key, id, orderId)
+      expect(response.status).toBe(200)
+      const runId = (await response.json() as Json).id as string
+      return await until(() => rpc("Runs.get", { id: runId }, store.cookie).then(ok), (d) => d.run.finishedAt !== null)
+    }
+    const done = await runOn(small)
+    expect(done.run.status).toBe("succeeded")
+    expect(done.steps.find((s: Json) => s.nodeId === "r")!.explanation).toBe(
+      "€ 5,00 terugbetaald; Shopify verwerkt het."
+    )
+
+    // $ 100 is € 100 / the euro's rate into the dollar, rounded down; € 95 is more.
+    const rates = (await (await call("http://api.test/api/__dev/fx")).json() as {
+      rates: Array<{ day: string; base: string; quote: string; rate: string }>
+    }).rates.filter((r) => r.base === "EUR" && r.quote === "USD").toSorted((a, b) => b.day.localeCompare(a.day))
+    const limitCents = Math.floor(10_000 / Number(rates[0]!.rate) + 1e-6)
+    const euros = (limitCents / 100).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const refused = await runOn(large)
+    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
+    expect(refused.run).toMatchObject({
+      status: "failed",
+      reason:
+        `“Terugbetalen”: € 95,00 is meer dan de flow per bestelling mag terugbetalen (€ ${euros}, $ 100,00 tegen de ECB-koers). Doe het zelf, of vraag eerst goedkeuring.`
+    })
+  }, 240_000)
+
   it("refunds no more than the flow's owner, its publisher or its starter may, and only in their stores", async () => {
     const store = await importedStore("act-rights")
     const roleWith = async (

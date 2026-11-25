@@ -289,7 +289,7 @@ describe("the catalogue", () => {
         oss: true,
         ossNumber: "NL1"
       }).map((c) => (c.key === undefined ? c : { ...c, of: "Hoofdwinkel" })), // the store's name, as `writeSection` adds it
-      5
+      4
     )
     expectLabelled(
       "retention",

@@ -457,6 +457,60 @@ describe("chargebacks", () => {
     expect(owners.filter((n) => n.kind === "chargeback.deadline")).toHaveLength(1)
   })
 
+  it("counts what was won in the workspace's currency, at each case's rate, and opens a case in its store's", async () => {
+    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    const store = await importedStore("cb-fx")
+    // Won in euros and in dollars on 10 November, when 1 EUR = 1.1214 USD; one still open does not count.
+    const response = await call(`http://api.test/api/__dev/facts/disputes?workspace=${store.workspace}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        insert: [
+          { caseNumber: `FX-E${run}`, openedAt: "2026-11-10T10:00:00Z", status: "won", amountMinor: 2_000 },
+          {
+            caseNumber: `FX-U${run}`,
+            openedAt: "2026-11-10T10:00:00Z",
+            status: "won",
+            currency: "USD",
+            amountMinor: 700
+          },
+          { caseNumber: `FX-O${run}`, openedAt: "2026-11-10T10:00:00Z", amountMinor: 9_000 }
+        ]
+      })
+    })
+    expect(response.status).toBe(200)
+    // $ 7,00 is € 6,24 (0.89174246 a dollar).
+    expect(ok(await rpc("Chargebacks.list", {}, store.cookie)).stats).toMatchObject({
+      won: 2,
+      recoveredMinor: 2_624,
+      currency: "EUR"
+    })
+    ok(
+      await rpc("Workspaces.saveRegional", {
+        language: "nl-NL",
+        currencyDisplay: "USD",
+        dateFormat: "DD MMM YYYY",
+        timeFormat: "24h",
+        weekStart: "mon",
+        timezone: "Europe/Amsterdam"
+      }, store.cookie)
+    )
+    // € 20,00 is $ 22,43.
+    expect(ok(await rpc("Chargebacks.list", {}, store.cookie)).stats).toMatchObject({
+      recoveredMinor: 2_943,
+      currency: "USD"
+    })
+    // A case about one of the store's customers is in the store's currency, not the workspace's.
+    const [customer] = ok(await rpc("Customers.list", { limit: 5 }, store.cookie)).rows
+    const created = ok(
+      await rpc("Chargebacks.createManual", {
+        ...manual,
+        customer: { id: customer!.id, name: customer!.name }
+      }, store.cookie)
+    ).chargebacks[0]!
+    expect(created.currency).toBe("EUR")
+  })
+
   it("numbers two cases opened at once one after the other", async () => {
     const store = await importedStore("cb-race")
     const [a, b] = await Promise.all([

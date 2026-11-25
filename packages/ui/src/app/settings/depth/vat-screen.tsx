@@ -1,18 +1,24 @@
 import { Switch } from "../../../components/switch"
 import { Receipt } from "../../../icons"
-import type { StoreVat } from "../../lib/settings-depth"
+import { ossValid, type StoreVat, vatErrors } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
-import { FieldRow, UnsavedBar } from "../form"
+import { FieldRow, INVALID_CLASS, UnsavedBar, useFieldErrors } from "../form"
 import { SettingCard } from "../setting-card"
 import { useSection, WELL } from "./kit"
 import { useSettingsDepthSource } from "./source"
 
 const yes = (b: boolean) => (b ? "aan" : "uit")
 
+const CURRENCY_NAME: Record<string, string> = { EUR: "euro", USD: "dollar", GBP: "pond" }
+
+/** "USD · dollar", or the code alone for a currency without a Dutch name here; "—" before the store says. */
+const currencyLabel = (code: string | null) =>
+  code === null ? "—" : CURRENCY_NAME[code] === undefined ? code : `${code} · ${CURRENCY_NAME[code]}`
+
 /**
- * Btw (`/settings/vat`, PLAN 43): per store the currency it sells in and how VAT is counted on
- * shipping and refunds, and the OSS registration for selling across the EU. Analyse and the
- * refund amounts read these.
+ * Btw (`/settings/vat`, PLAN 43): per store how VAT is counted on shipping and refunds, beside the
+ * currency it sells in (Shopify's, shown and not set here), and the OSS registration for selling
+ * across the EU. Analyse and the refund amounts read these.
  */
 export function VatPage() {
   const stores = useSettingsDepthSource().stores ?? []
@@ -22,7 +28,6 @@ export function VatPage() {
       const o = a.stores.find((x) => x.storeId === st.storeId)
       const name = stores.find((x) => x.id === st.storeId)?.name ?? st.storeId
       if (!o) continue
-      if (o.currency !== st.currency) out.push([`${name}: valuta`, o.currency, st.currency])
       if (o.vatOnShipping !== st.vatOnShipping) {
         out.push([`${name}: btw over verzending`, yes(o.vatOnShipping), yes(st.vatOnShipping)])
       }
@@ -36,7 +41,21 @@ export function VatPage() {
   })
   const set = (id: string, p: Partial<StoreVat>) =>
     s.setDraft({ ...s.draft, stores: s.draft.stores.map((x) => (x.storeId === id ? { ...x, ...p } : x)) })
-  const ossBad = s.draft.oss && !/^[A-Z]{2}[0-9A-Z]{8,12}$/.test(s.draft.ossNumber.replace(/\s/g, ""))
+  const fe = useFieldErrors(vatErrors(s.draft), { draftKey: JSON.stringify(s.draft) })
+  /*
+   * OSS off takes a number that is not right with it (back to the saved one where that is right), so a number nobody
+   * sees any more is never saved, and does not come back wrong when OSS goes on again.
+   */
+  const setOss = (oss: boolean) =>
+    s.setDraft({
+      ...s.draft,
+      oss,
+      ossNumber: oss || ossValid(s.draft.ossNumber)
+        ? s.draft.ossNumber
+        : ossValid(s.saved.ossNumber)
+        ? s.saved.ossNumber
+        : ""
+    })
   return (
     <>
       <SettingCard
@@ -62,17 +81,7 @@ export function VatPage() {
               <span className="truncate font-medium text-ink">
                 {stores.find((x) => x.id === v.storeId)?.name ?? v.storeId}
               </span>
-              <select
-                value={v.currency}
-                disabled={!s.canEdit}
-                onChange={(e) => set(v.storeId, { currency: e.target.value as StoreVat["currency"] })}
-                aria-label="Valuta"
-                className="field h-8 rounded-md px-2 text-ink text-sm outline-none focus:bg-paper"
-              >
-                <option value="EUR">EUR · euro</option>
-                <option value="USD">USD · dollar</option>
-                <option value="GBP">GBP · pond</option>
-              </select>
+              <span className="text-ink-2 tabular-nums" title="Uit Shopify">{currencyLabel(v.currency)}</span>
               <label className="flex items-center gap-2 text-ink-2">
                 <Switch
                   checked={v.vatOnShipping}
@@ -92,6 +101,10 @@ export function VatPage() {
             </div>
           ))}
         </div>
+        <p className="mt-2 text-ink-3 text-xs">
+          De valuta van een winkel komt uit Shopify. Start, Analyse en Kosten rekenen om naar de valuta die je onder
+          Regio kiest.
+        </p>
       </SettingCard>
       <SettingCard
         title="Verkopen in de EU"
@@ -103,30 +116,24 @@ export function VatPage() {
               <Switch
                 checked={s.draft.oss}
                 disabled={!s.canEdit}
-                onCheckedChange={(oss) => s.setDraft({ ...s.draft, oss })}
+                onCheckedChange={setOss}
               />
               <span className="text-ink text-sm">{s.draft.oss ? "Geregistreerd" : "Niet geregistreerd"}</span>
             </label>
           </FieldRow>
-          {s.draft.oss ?
+          {s.draft.oss || fe.errors["ossNumber"] !== undefined ?
             (
               <FieldRow label="OSS-nummer" hint="Je btw-nummer met landcode.">
                 <span className="flex flex-col gap-1">
                   <input
+                    {...fe.control("ossNumber")}
                     value={s.draft.ossNumber}
                     disabled={!s.canEdit}
                     onChange={(e) => s.setDraft({ ...s.draft, ossNumber: e.target.value.toUpperCase() })}
-                    aria-invalid={ossBad}
                     aria-label="OSS-nummer"
-                    className={cn(WELL, "tabular-nums aria-[invalid=true]:bg-signal-red-bg")}
+                    className={cn(WELL, "tabular-nums", INVALID_CLASS)}
                   />
-                  {ossBad
-                    ? (
-                      <span className="text-signal-red text-xs">
-                        Een nummer als NL123456789B01: landcode en dan cijfers.
-                      </span>
-                    )
-                    : null}
+                  {fe.message("ossNumber")}
                 </span>
               </FieldRow>
             ) :
@@ -134,9 +141,9 @@ export function VatPage() {
         </div>
       </SettingCard>
       <UnsavedBar
-        visible={s.dirty && s.canEdit && !ossBad}
+        visible={s.dirty && s.canEdit}
         onDiscard={s.discard}
-        onSave={() => s.save("Btw opgeslagen", "Analyse en nieuwe terugbetalingen rekenen er vanaf nu mee.")}
+        onSave={fe.guard(() => s.save("Btw opgeslagen", "Analyse en nieuwe terugbetalingen rekenen er vanaf nu mee."))}
       />
     </>
   )

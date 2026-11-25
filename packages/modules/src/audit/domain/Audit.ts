@@ -529,7 +529,6 @@ export const SECTIONS = {
   vat: {
     page: PAGE.vat,
     fields: {
-      currency: { label: of("Valuta") },
       vatOnShipping: { label: of("Btw over verzending"), values: YES_NO },
       refundInclVat: { label: of("Terugbetalen met btw"), values: YES_NO },
       oss: { label: "OSS-registratie", values: { true: "Geregistreerd", false: "Niet geregistreerd" } },

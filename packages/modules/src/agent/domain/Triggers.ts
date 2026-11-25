@@ -400,7 +400,8 @@ export const wismoReply = (f: {
   readonly label: string
 }): string => {
   const o = f.order
-  const label = f.label.replaceAll("{vervoerder}", o.carrier ?? "de vervoerder")
+  // In any case, as Verzending lets it be typed ({Vervoerder} too), so the shopper never reads the braces.
+  const label = f.label.replace(/\{vervoerder\}/gi, () => o.carrier ?? "de vervoerder")
   const lines = [
     f.firstName === "" ? "Hoi," : `Hoi ${f.firstName},`,
     "",
