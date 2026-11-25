@@ -58,8 +58,8 @@ export const knowledgeWrites = {
   archive: ConsoleClient.mutation("Knowledge.archive"),
   dismissGap: ConsoleClient.mutation("Knowledge.dismissGap"),
   linkGap: ConsoleClient.mutation("Knowledge.linkGap"),
-  /** A version's text, for the drawer's diff: read when it opens, not kept. */
-  version: ConsoleClient.mutation("Knowledge.version"),
+  /** Every version's text, for the drawer's diff: read once when it opens, not kept. */
+  versions: ConsoleClient.mutation("Knowledge.versions"),
   firstText: ConsoleClient.mutation("Drafts.knowledgeAnswer"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

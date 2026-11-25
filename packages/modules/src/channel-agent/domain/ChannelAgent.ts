@@ -53,8 +53,11 @@ export const CustomerAgentSettingsInput = Schema.Struct({
   outside: Schema.Literals(["answer", "take"]),
   handover: HandoverRules,
   tone: Schema.Literals(["brand", "short", "formal"]),
-  /** What the shopper reads at a handover; `{wanneer}` becomes when a person is next there. */
-  handoverMessage: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500))
+  /**
+   * What the shopper reads at a handover; `{wanneer}` becomes when a person is next there. Empty passes the schema so
+   * that a save refuses it as itself (`HoursInvalid` with day -1), not as a payload that did not decode.
+   */
+  handoverMessage: Schema.String.check(Schema.isMaxLength(500))
 })
 export type CustomerAgentSettingsInput = typeof CustomerAgentSettingsInput.Type
 
@@ -114,7 +117,7 @@ export class AutoNotAllowedOnChannel
   extends Schema.TaggedError<AutoNotAllowedOnChannel>()("AutoNotAllowedOnChannel", { channel: Schema.String })
 {}
 
-/** A day whose closing time is not after its opening time (0 is Monday). */
+/** A day whose closing time is not after its opening time (0 is Monday), or -1: the handover sentence is empty. */
 export class HoursInvalid extends Schema.TaggedError<HoursInvalid>()("HoursInvalid", { day: Schema.Int }) {}
 
 /** The compensation of a save (`customer_agent.restore`): the settings before it, or none (the default). */

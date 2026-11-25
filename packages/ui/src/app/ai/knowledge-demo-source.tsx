@@ -1,7 +1,7 @@
 import { useParams, useSearch } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { useMyName } from "../ask/agent-demo"
-import { type Article, type Gap, statusOf } from "../lib/knowledge"
+import { type Article, type Gap, PUBLISHED_FOR, statusOf } from "../lib/knowledge"
 import { undoable } from "../lib/undo"
 import { useGate } from "../stores/access-store"
 import { useKnowledge } from "../stores/knowledge-store"
@@ -70,7 +70,7 @@ function useDemoArticleSource(): ArticleSource | null {
         publish ? `“${draft.title}” gepubliceerd` : `Concept van “${draft.title}” opgeslagen`,
         undo,
         publish
-          ? "De klantagent en Vraag Insyte gebruiken vanaf nu deze versie."
+          ? PUBLISHED_FOR[draft.audience]
           : "De agents lezen nog de gepubliceerde versie."
       )
       return Promise.resolve(true)

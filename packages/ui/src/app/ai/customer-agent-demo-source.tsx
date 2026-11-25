@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { type CustomerAgentSettings, nextOpenLabel } from "../lib/customer-agent"
+import { type CustomerAgentSettings, DEFAULT_HANDOVER, nextOpenLabel } from "../lib/customer-agent"
 import { type Article, publishedVersion } from "../lib/knowledge"
 import { undoable } from "../lib/undo"
 import { useGate } from "../stores/access-store"
@@ -16,7 +16,11 @@ function answer(q: string, articles: ReadonlyArray<Article>, s: CustomerAgentSet
   const when = nextOpenLabel(s.hours, new Date())
   const handover = (why: string): TestMsg => ({
     from: "insyte",
-    text: s.handoverMessage.replace("{wanneer}", when === "nu" ? "vandaag nog" : when),
+    // An empty draft sentence says the default one, as the server does.
+    text: (s.handoverMessage.trim() === "" ? DEFAULT_HANDOVER : s.handoverMessage).replace(
+      "{wanneer}",
+      when === "nu" ? "vandaag nog" : when
+    ),
     source: why,
     handover: true
   })
@@ -38,7 +42,9 @@ function answer(q: string, articles: ReadonlyArray<Article>, s: CustomerAgentSet
       if (score > (best?.score ?? 1)) best = { a, score, section }
     }
   }
-  if (!best) return handover("Overgedragen: niet in de kennisbank, de vraag staat bij Nog niet beantwoord")
+  if (!best) {
+    return handover("Overgedragen: niet in de kennisbank; van een echte klant komt de vraag bij Nog niet beantwoord")
+  }
   const text = best.section.replace(/^## .*\n+/, "").replace(/^- /gm, "• ").trim()
   return { from: "insyte", text, source: `Uit Kennisbank: ${best.a.title} · versie ${publishedVersion(best.a)?.n}` }
 }
