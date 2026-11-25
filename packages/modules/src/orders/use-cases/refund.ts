@@ -58,13 +58,6 @@ export const refundOn = Effect.fn("Orders.refundOn")(
                          where r.order_id = o.id and ${sql.literal(COUNTED)}), 0) as refunded_minor
         from orders o where o.id = ${input.id}`
       if (order === undefined) return yield* new NotFound({ entity: "order", id: input.id })
-      const limit = yield* refundLimitIn(sql, order.currency)
-      if (limit !== null) {
-        if (limit.limitMinor === null) return yield* new Conflict({ entity: "refund", reason: "no_fx_rate" })
-        if (input.amountMinor > limit.limitMinor) {
-          return yield* new RefundOverLimit({ ...limit, limitMinor: limit.limitMinor })
-        }
-      }
 
       const readRow = Effect.map(
         sql<Row>`select ${sql.literal(SELECT)} from orders o where o.id = ${input.id}`,
@@ -75,6 +68,15 @@ export const refundOn = Effect.fn("Orders.refundOn")(
       if (earlier !== undefined) {
         if (earlier.orderId !== input.id) return yield* new Conflict({ entity: "refund", reason: "refund_id_taken" })
         return { result: new RefundResult({ refundId: input.refundId, order: yield* readRow }), outboxId: null }
+      }
+
+      // Held to the limit only once it is a new refund: a retry is never refused because the day's rate moved.
+      const limit = yield* refundLimitIn(sql, order.currency)
+      if (limit !== null) {
+        if (limit.limitMinor === null) return yield* new Conflict({ entity: "refund", reason: "no_fx_rate" })
+        if (input.amountMinor > limit.limitMinor) {
+          return yield* new RefundOverLimit({ ...limit, limitMinor: limit.limitMinor })
+        }
       }
 
       const balance = Number(order.totalMinor) - Number(order.refundedMinor)

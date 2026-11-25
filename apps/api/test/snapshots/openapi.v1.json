@@ -2170,7 +2170,7 @@
             }
           }
         },
-        "description": "Refunds part or all of what is left on the order, through its original payments. Irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `orders.write` and `refunds.write`, within the key's limit; `pending` until Shopify took it.",
+        "description": "Refunds part or all of what is left on the order, through its original payments. Irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `orders.write` and `refunds.write`, within the key's limit; `pending` until Shopify took it. The limit is set in the workspace's currency and held against the order's at the latest ECB rate: `422 RefundOverLimitV1` gives it in both, and `409 no_fx_rate` means there is no rate for the order's currency yet.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4385,7 +4385,7 @@
             }
           }
         },
-        "description": "Settles a return that is ready, with a resolution it allows, at the amount the rules give. A refund goes back through the order's payments and is irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `returns.write`, and `refunds.write` within the key's limit for a refund.",
+        "description": "Settles a return that is ready, with a resolution it allows, at the amount the rules give. A refund goes back through the order's payments and is irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `returns.write`, and `refunds.write` within the key's limit for a refund. The limit is set in the workspace's currency and held against the order's at the latest ECB rate: `422 RefundOverLimitV1` gives it in both, and `409 no_fx_rate` means there is no rate for the order's currency yet.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -15603,13 +15603,27 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "currency": {
+                "type": "string"
+              },
+              "role_limit_minor": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "role_currency": {
+                "type": "string"
               }
             },
             "required": [
               "code",
               "message",
               "request_id",
-              "limit_minor"
+              "limit_minor",
+              "currency",
+              "role_limit_minor",
+              "role_currency"
             ],
             "additionalProperties": false
           }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { latestRate, paidOrder, setRates, USD_EUR } from "./currencies.ts"
 import { ok, outboxOf } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
@@ -7,7 +8,8 @@ import { call, rpc } from "./support.ts"
  * The order commands through the public API and MCP (step 9, M7 with M19): a key acts on orders with its scopes, each
  * write once per `Idempotency-Key` (the same key and request answer the first result; the same key with another
  * request is refused), refunds within the role's limit (a key with its own scopes has no refund right), and the
- * same refusals as the console in their `…V1` envelopes.
+ * same refusals as the console in their `…V1` envelopes. An order in another currency than the workspace's is held to
+ * the limit at the latest ECB rate, and the refusal says the limit in both.
  */
 
 // A response body, read loosely as a client would.
@@ -170,5 +172,51 @@ describe("the order commands through the public API and MCP", () => {
     expect(noted.value.internal_note).toBe("Via de agent")
     const overLimit = await mcpCall(agent, "refund_order", { order_id: other.id, amount_minor: 50000 })
     expect(overLimit).toMatchObject({ isError: true, value: { error: { code: "RefundOverLimitV1" } } })
+  })
+
+  it("refunds an order in another currency within the key's limit at the ECB rate, and says it in both", async () => {
+    await setRates([{ base: "USD", quote: "EUR", rate: USD_EUR, ageDays: 0 }])
+    const store = await importedStore("v1-orders-fx")
+    await paidOrder(store, "#USD1", "USD")
+    await paidOrder(store, "#AED1", "AED")
+    // Klantenservice: Terugbetalen up to € 100, in the workspace's euro.
+    const service = ok(
+      await rpc("ApiKeys.create", {
+        label: "Klantenservice VS",
+        access: { kind: "role", roleId: "service" } as never,
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, store.cookie)
+    ).secret
+    const order = (await send("GET", "/orders?q=USD1", service)).body.data[0]
+    expect(order.total).toEqual({ amount_minor: 15000, currency: "USD" })
+
+    const limitMinor = Math.floor(10_000 / await latestRate("USD", "EUR") + 1e-6)
+    expect(await send("POST", `/orders/${order.id}/refunds`, service, { amount_minor: limitMinor + 1 }))
+      .toMatchObject({
+        status: 422,
+        body: {
+          error: {
+            code: "RefundOverLimitV1",
+            limit_minor: limitMinor,
+            currency: "USD",
+            role_limit_minor: 10000,
+            role_currency: "EUR"
+          }
+        }
+      })
+    expect(await send("POST", `/orders/${order.id}/refunds`, service, { amount_minor: limitMinor })).toMatchObject({
+      status: 200,
+      body: { amount: { amount_minor: limitMinor, currency: "USD" }, status: "pending" }
+    })
+
+    // No rate for the dirham: the limit cannot be held, so the refund is not made.
+    const dirham = (await send("GET", "/orders?q=AED1", service)).body.data[0]
+    expect(await send("POST", `/orders/${dirham.id}/refunds`, service, { amount_minor: 100 })).toMatchObject({
+      status: 409,
+      body: { error: { code: "ConflictV1", reason: "no_fx_rate" } }
+    })
   })
 })

@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { mintId } from "@insyte/domain/Ids"
 import { canRole } from "@insyte/domain/Permissions"
+import { minorDigits } from "@insyte/modules/fx/domain/Units"
 import type { OrderChange } from "@insyte/modules/orders/domain/Commands"
 import type { TrackingSent, TrackingSkip } from "@insyte/modules/orders/domain/CustomerMail"
 import type { RefundLimit } from "@insyte/modules/orders/domain/Orders"
@@ -29,10 +30,15 @@ import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refus
 const euros = (minor: number) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
 
-/** `10869` in USD → "US$ 108,69": an amount in its own currency's minor units. */
+/** `10869` in USD → "US$ 108,69": an amount in Insyte's minor units of its currency (two decimals, or none). */
 const moneyIn = (minor: number, currency: string) => {
-  const format = new Intl.NumberFormat("nl-NL", { style: "currency", currency })
-  return format.format(minor / 10 ** (format.resolvedOptions().maximumFractionDigits ?? 2))
+  const digits = minorDigits(currency)
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  }).format(minor / 10 ** digits)
 }
 
 type LimitBasis = Omit<typeof RefundLimit.Type, "limitMinor">

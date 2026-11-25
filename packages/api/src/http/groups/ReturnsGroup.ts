@@ -191,7 +191,7 @@ export class ReturnsGroup extends HttpApiGroup.make("returns")
       error: [...WriteErrors, RefundOverLimitV1]
     }).annotate(
       OpenApi.Description,
-      "Settles a return that is ready, with a resolution it allows, at the amount the rules give. A refund goes back through the order's payments and is irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `returns.write`, and `refunds.write` within the key's limit for a refund."
+      "Settles a return that is ready, with a resolution it allows, at the amount the rules give. A refund goes back through the order's payments and is irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `returns.write`, and `refunds.write` within the key's limit for a refund. The limit is set in the workspace's currency and held against the order's at the latest ECB rate: `422 RefundOverLimitV1` gives it in both, and `409 no_fx_rate` means there is no rate for the order's currency yet."
     )
   )
   .annotate(OpenApi.Title, "Returns")

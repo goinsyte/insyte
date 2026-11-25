@@ -39,8 +39,17 @@ export const ConflictV1 = envelope("ConflictV1", 409, { reason: Schema.String })
 export const ValidationFailedV1 = envelope("ValidationFailedV1", 400, {
   fields: Schema.Record(Schema.String, Schema.String)
 })
-/** More than the key may refund on one order; `limit_minor` is its limit. */
-export const RefundOverLimitV1 = envelope("RefundOverLimitV1", 422, { limit_minor: Schema.Int })
+/**
+ * More than the key may refund on one order. `limit_minor` is its limit in the order's currency (`currency`), the one
+ * `amount_minor` is in; the role's own limit is set in the workspace's (`role_limit_minor` in `role_currency`) and is
+ * converted at the latest ECB rate, so both currencies are the same for an order in the workspace's.
+ */
+export const RefundOverLimitV1 = envelope("RefundOverLimitV1", 422, {
+  limit_minor: Schema.Int,
+  currency: Schema.String,
+  role_limit_minor: Schema.Int,
+  role_currency: Schema.String
+})
 /**
  * An agent's call the workspace's autonomy rules do not allow (M15 step 6, ADR-0027): the action is set to Nooit, or
  * is outside the catalogue; `reason` says which (`policy`, `unknown`). On `/v1` an agent's key only reads: any write is

@@ -2,9 +2,10 @@ import { mintId } from "@insyte/domain/Ids"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { latestRate, paidOrder, setRates, USD_EUR } from "./currencies.ts"
 import { failure, join, ok, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
-import { call, rpc } from "./support.ts"
+import { rpc } from "./support.ts"
 
 /*
  * Refunds (step 9.2, M7.2), against Shopify's recorded twin. Irreversible: no undo token, and Shopify hears it at
@@ -37,84 +38,6 @@ const ownWrite = async (
 const orderNumbered = async (cookie: string, number: string) => {
   const page = ok(await rpc("Orders.list", { limit: 50 }, cookie))
   return page.rows.find((o) => o.number === number)!
-}
-
-/** A paid order of one line at `totalMinor` in `currency` into the store's mirror, as the import writes one. */
-const paidOrder = async (
-  store: { workspace: string; storeId: string },
-  number: string,
-  currency: string,
-  totalMinor = 15000
-) => {
-  const at = new Date(Date.now() - 3_600_000).toISOString()
-  const shopifyId = `gid://shopify/Order/${number.slice(1)}${run}`
-  const line = {
-    shopify_id: `gid://shopify/LineItem/${number.slice(1)}${run}`,
-    order_shopify_id: shopifyId,
-    product_shopify_id: null,
-    variant_shopify_id: null,
-    sku: null,
-    title: "Jas",
-    variant_title: null,
-    quantity: 1,
-    unit_price_minor: totalMinor
-  }
-  const order = {
-    shopify_id: shopifyId,
-    number,
-    customer_shopify_id: null,
-    customer_name: "Klant VS",
-    customer_email: null,
-    status: "paid",
-    payment_status: "paid",
-    fulfillment_status: "unfulfilled",
-    total_minor: totalMinor,
-    subtotal_minor: totalMinor,
-    shipping_minor: 0,
-    tax_minor: 0,
-    discounts_minor: 0,
-    currency,
-    payment_gateway: null,
-    card_last4: null,
-    shipping_address: {
-      name: "Klant VS",
-      line1: "1 Main St",
-      line2: null,
-      city: "Austin",
-      postcode: "78701",
-      region: "TX",
-      country: "US",
-      phone: null
-    },
-    tags: [],
-    note: null,
-    channel: "web",
-    referral_code: null,
-    placed_at: at,
-    paid_at: at,
-    shipped_at: null,
-    cancelled_at: null,
-    refunded_at: null,
-    external_updated_at: at,
-    raw: {}
-  }
-  const written = await call(
-    `http://api.test/api/__dev/facts/orders?workspace=${store.workspace}&store=${store.storeId}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ batch: { orders: [order], lines: [line] } })
-    }
-  )
-  expect(written.status).toBe(200)
-}
-
-/** The latest rate of 1 `base` into `quote`, as `fx_rates` holds it. */
-const latestRate = async (base: string, quote: string) => {
-  const rates = (await (await call("http://api.test/api/__dev/fx")).json() as {
-    rates: Array<{ day: string; base: string; quote: string; rate: string }>
-  }).rates.filter((r) => r.base === base && r.quote === quote).toSorted((a, b) => b.day.localeCompare(a.day))
-  return Number(rates[0]!.rate)
 }
 
 /** A member of the store's workspace in the service role: € 100 per order. */
@@ -212,7 +135,7 @@ describe("refunds", () => {
   })
 
   it("holds an order in another currency to the role's limit at the latest ECB rate", async () => {
-    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    await setRates([{ base: "USD", quote: "EUR", rate: USD_EUR, ageDays: 0 }])
     const store = await importedStore("rfd-fx")
     await paidOrder(store, "#USD1", "USD")
     const service = await serviceMember(store, "rfd-fx")
@@ -232,19 +155,19 @@ describe("refunds", () => {
         await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: limitMinor + 1 }, service)
       )
     ).toMatchObject({ _tag: "RefundOverLimit", ...limit })
-    // $ 105 is under it, though more than the role's 100 read as dollars.
+    // Exactly the converted limit is within it, though more than the role's 100 read as dollars.
     const refunded = ok(
-      await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 10500 }, service)
+      await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: limitMinor }, service)
     )
     expect(refunded.order.id).toBe(order.id)
     const detail = ok(await rpc("Orders.get", { id: order.id }, store.cookie))
-    expect(detail.refunds.map((r) => [r.amountMinor, r.currency])).toEqual([[10500, "USD"]])
+    expect(detail.refunds.map((r) => [r.amountMinor, r.currency])).toEqual([[limitMinor, "USD"]])
     // The owner has no limit, in any currency.
     expect(detail.refundLimit).toBeNull()
   })
 
   it("settles a return in another currency by refund within the role's limit at the ECB rate", async () => {
-    await call("http://api.test/api/__dev/fx/fill", { method: "POST" })
+    await setRates([{ base: "USD", quote: "EUR", rate: USD_EUR, ageDays: 0 }])
     const store = await importedStore("rfd-fx-ret")
     // $ 105: over the role's 100 read as dollars, under € 100 at the rate.
     await paidOrder(store, "#USD2", "USD", 10500)
@@ -274,6 +197,45 @@ describe("refunds", () => {
     expect(resolved.returns[0]!.resolution).toMatchObject({ kind: "refund", amountMinor: 10500 })
     const refunds = ok(await rpc("Orders.get", { id: order.id }, store.cookie)).refunds
     expect(refunds.map((r) => [r.amountMinor, r.currency])).toEqual([[10500, "USD"]])
+  })
+
+  it("answers a retried refund as it was, though a new day's rate lowered the limit since", async () => {
+    // Kronor, which nothing else here converts: € 100 is kr 1.000 at 0,10, kr 500 at 0,20.
+    await setRates([{ base: "SEK", quote: "EUR", rate: "0.10", ageDays: 0 }], true)
+    const store = await importedStore("rfd-fx-retry")
+    await paidOrder(store, "#SEK1", "SEK", 150_000)
+    const service = await serviceMember(store, "rfd-fx-retry")
+    const order = await orderNumbered(service, "#SEK1")
+    const refundId = mintId("rfd")
+    ok(await rpc("Orders.refund", { id: order.id, refundId, amountMinor: 100_000 }, service))
+
+    await setRates([{ base: "SEK", quote: "EUR", rate: "0.20", ageDays: 0 }])
+    // The same request again: the same refund, not held to today's limit.
+    expect(ok(await rpc("Orders.refund", { id: order.id, refundId, amountMinor: 100_000 }, service)).refundId)
+      .toBe(refundId)
+    // A new one is.
+    expect(failure(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 50_001 }, service)))
+      .toMatchObject({ _tag: "RefundOverLimit", limitMinor: 50_000, currency: "SEK" })
+    expect(ok(await rpc("Orders.get", { id: order.id }, store.cookie)).refunds).toHaveLength(1)
+  })
+
+  it("holds no limit with a rate more than a week old, and does with one of a few days", async () => {
+    // Kroner, which nothing else here converts: only a rate of ten days ago.
+    await setRates([{ base: "NOK", quote: "EUR", rate: "0.08", ageDays: 10 }], true)
+    const store = await importedStore("rfd-fx-stale")
+    await paidOrder(store, "#NOK1", "NOK")
+    const service = await serviceMember(store, "rfd-fx-stale")
+    const order = await orderNumbered(service, "#NOK1")
+    expect(ok(await rpc("Orders.get", { id: order.id }, service)).refundLimit).toMatchObject({ limitMinor: null })
+    expect(failure(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 100 }, service)))
+      .toMatchObject({ _tag: "Conflict", reason: "no_fx_rate" })
+    // The owner has no limit to hold.
+    ok(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 100 }, store.cookie))
+
+    // A rate of three days ago is recent enough: € 100 is kr 1.250 at 0,08.
+    await setRates([{ base: "NOK", quote: "EUR", rate: "0.08", ageDays: 3 }])
+    expect(ok(await rpc("Orders.get", { id: order.id }, service)).refundLimit).toMatchObject({ limitMinor: 125_000 })
+    ok(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 100 }, service))
   })
 
   it("refuses a refund held to a limit while there is no rate for the order's currency", async () => {

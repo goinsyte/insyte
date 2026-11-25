@@ -3,7 +3,16 @@ import type { ReturnRow } from "@insyte/modules/returns/domain/Returns"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
 import { Context, Effect, Layer } from "effect"
-import { conflict, notFound, refundV1, scopeMissing, validation, type WriteRefusal, writeV1 } from "../shared/errors.ts"
+import {
+  conflict,
+  notFound,
+  type RefundOverLimitRefusal,
+  refundV1,
+  scopeMissing,
+  validation,
+  type WriteRefusal,
+  writeV1
+} from "../shared/errors.ts"
 import { refundIdOf } from "../shared/refunds.ts"
 import { returnDetailV1, returnPageV1, returnV1 } from "./present.ts"
 
@@ -52,7 +61,7 @@ const resolveV1 = (
     | WriteRefusal
     | { readonly _tag: "IllegalReturnMove"; readonly from: string }
     | { readonly _tag: "ResolutionNotAllowed" }
-    | { readonly _tag: "RefundOverLimit"; readonly limitMinor: number }
+    | RefundOverLimitRefusal
     | { readonly _tag: "RefundOverBalance" }
     | { readonly _tag: "AlreadyRefunded" }
 ) => e._tag === "IllegalReturnMove" || e._tag === "ResolutionNotAllowed" ? returnsV1(e) : refundV1(e)
