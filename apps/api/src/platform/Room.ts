@@ -6,6 +6,11 @@ import { DurableObject, env } from "cloudflare:workers"
  * Presence is its open sockets, by member. It sends what it is given (`broadcast`) and, as people come and go,
  * `presence`. Push-only: a client's messages are pings, answered by the runtime without waking the room.
  *
+ * A tab reads its page before its socket joins, so a frame sent in between never reaches it. The `hello` says how long
+ * the room has been quiet (`quiet`), and the tab refetches only when that is shorter than it has been loading. The room
+ * keeps when it last sent a frame on its sockets' attachments, which outlive hibernation; with no socket to keep it, a
+ * room that has just started cannot know, and says it may have sent one just before.
+ *
  * Plain Durable Object RPC, no Effect: the class is constructed by the runtime, and its methods are a few socket
  * calls. The Worker reaches it through `/api/realtime` (a socket) and the relay's realtime sink (`broadcast`).
  */
@@ -16,7 +21,18 @@ interface Attachment {
   readonly joinedAt: number
   /** The tab's own id, which `Live.subscribe` names (M14 step 3); absent on a socket that named none. */
   readonly tab?: string
+  /**
+   * When the room last sent a frame a tab refetches on, as it knew at this socket's join or since; absent on a socket
+   * that joined before the room kept it, which a room woken from hibernation can still hold.
+   */
+  readonly lastFrameAt?: number
 }
+
+/**
+ * How stale the time on the sockets may get before a frame writes it again: well inside the second a tab allows the
+ * room's `quiet` (`missedBeforeHello`), so a busy room does not rewrite every socket for every frame.
+ */
+const KEEP_EVERY_MS = 250
 
 /** A workspace's room: where its members' tabs are, and where its frames go. */
 export const roomOf = (workspaceId: string) => env.ROOMS.getByName(`ws:${workspaceId}`)
@@ -30,9 +46,19 @@ export const ROOM_MEMBER = "x-insyte-room-member"
 export const ROOM_TAB = "x-insyte-room-tab"
 
 export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
+  /** When the room last sent a frame a tab refetches on, or may have: started without that time, it cannot know. */
+  private lastFrameAt: number
+  /** When `lastFrameAt` was last written on the sockets. */
+  private keptAt: number
+
   constructor(ctx: DurableObjectState, bindings: Cloudflare.Env) {
     super(ctx, bindings)
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
+    const kept = this.ctx.getWebSockets()
+      .map((ws) => (ws.deserializeAttachment() as Attachment).lastFrameAt)
+      .filter((at): at is number => Number.isFinite(at))
+    this.lastFrameAt = kept.length > 0 ? Math.max(...kept) : Date.now()
+    this.keptAt = this.lastFrameAt
   }
 
   override fetch(request: Request): Response {
@@ -45,21 +71,24 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
     const wasHere = this.present().some((p) => p.memberId === memberId)
     this.ctx.acceptWebSocket(server)
     const tab = request.headers.get(ROOM_TAB)
+    const now = Date.now()
     server.serializeAttachment(
-      { memberId, joinedAt: Date.now(), ...(tab === null ? {} : { tab }) } satisfies Attachment
+      { memberId, joinedAt: now, ...(tab === null ? {} : { tab }), lastFrameAt: this.lastFrameAt } satisfies Attachment
     )
-    server.send(JSON.stringify({ v: 1, type: "hello", presence: this.present() }))
+    server.send(JSON.stringify({ v: 1, type: "hello", presence: this.present(), quiet: now - this.lastFrameAt }))
     if (!wasHere) this.send({ v: 1, type: "presence", presence: this.present() }, server)
     return new Response(null, { status: 101, webSocket: client })
   }
 
   /** Sends a frame to every socket in the room. */
   broadcast(frame: unknown): void {
+    this.sent(frame)
     this.send(frame)
   }
 
   /** Sends a frame to one member's sockets only: their notifications, their count. */
   sendTo(memberId: string, frame: unknown): void {
+    this.sent(frame)
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       if ((ws.deserializeAttachment() as Attachment).memberId !== memberId) continue
@@ -140,6 +169,20 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
       since.set(memberId, Math.min(since.get(memberId) ?? joinedAt, joinedAt))
     }
     return [...since].map(([memberId, joinedAt]) => ({ memberId, since: joinedAt }))
+  }
+
+  /**
+   * Notes that the room sent a frame, on every socket too, for the next `hello`. Someone typing changes nothing a tab
+   * reads again; Live's visitors (`sendToTabs`) and presence go to tabs already here.
+   */
+  private sent(frame: unknown) {
+    if ((frame as { readonly type?: unknown }).type === "chat.typing") return
+    this.lastFrameAt = Date.now()
+    if (this.lastFrameAt - this.keptAt < KEEP_EVERY_MS) return
+    this.keptAt = this.lastFrameAt
+    for (const ws of this.ctx.getWebSockets()) {
+      ws.serializeAttachment({ ...(ws.deserializeAttachment() as Attachment), lastFrameAt: this.lastFrameAt })
+    }
   }
 
   private send(frame: unknown, except?: WebSocket) {
