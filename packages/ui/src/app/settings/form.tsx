@@ -1,6 +1,7 @@
 import { useBlocker, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react"
+import { toast } from "sonner"
 import { ChevronDown, Loader } from "../../icons"
 import { cn } from "../lib/utils"
 
@@ -51,22 +52,39 @@ export function Field({
 export function FieldRow({
   label,
   hint,
+  group = false,
   children
 }: {
   label: string
   hint?: string
+  /**
+   * The row holds several controls (a list with its buttons), not one: a group named by the label rather than a
+   * `<label>`, so a click on its text does not press the first button in it.
+   */
+  group?: boolean
   children: ReactNode
 }) {
-  return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: the control is passed as children
-    <label className="grid grid-cols-1 items-start gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]">
-      <span className="flex flex-col gap-0.5 sm:pt-2">
-        <span className="font-medium text-sm text-ink">{label}</span>
-        {hint ? <span className="text-sm text-ink-2">{hint}</span> : null}
-      </span>
-      {children}
-    </label>
+  const head = (
+    <span className="flex flex-col gap-0.5 sm:pt-2">
+      <span className="font-medium text-sm text-ink">{label}</span>
+      {hint ? <span className="text-sm text-ink-2">{hint}</span> : null}
+    </span>
   )
+  const grid = "grid grid-cols-1 items-start gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]"
+  return group
+    ? (
+      <div role="group" aria-label={label} className={grid}>
+        {head}
+        {children}
+      </div>
+    )
+    : (
+      // biome-ignore lint/a11y/noLabelWithoutControl: the control is passed as children
+      <label className={grid}>
+        {head}
+        {children}
+      </label>
+    )
 }
 
 export function TextInput({
@@ -147,6 +165,106 @@ export function SaveButton({
     >
       {label}
     </button>
+  )
+}
+
+/** What is wrong with a form, by field name, in the words the page says under the field. Page order. */
+export type FieldErrors = Readonly<Record<string, string>>
+
+/**
+ * How a save came back: saved, not saved (the host said why), or refused with the server's reason code per field
+ * (`statuses.local.label: "required"`), named as the page names its fields.
+ */
+export type SaveOutcome = boolean | { readonly fields: Readonly<Record<string, string>> }
+
+/** What `useFieldErrors().control` spreads on a control. */
+export type FieldControl = { id: string; "aria-invalid": true | undefined; "aria-describedby": string | undefined }
+
+/** The well of a control with an error: the same red the page uses for a wrong link. */
+export const INVALID_CLASS = "aria-[invalid=true]:bg-signal-red-bg"
+
+/**
+ * Field-level errors on a settings form, one way for every page: the message under the field, the field marked
+ * `aria-invalid` and pointing at the message, and a save that does not go out while a field is wrong. `local` is what the
+ * page checks itself as the draft changes (the server's own rules, said in Dutch); a refusal from the server marks its
+ * fields too, until the draft changes. Saving with a wrong field focuses the first one and says so once, as a summary;
+ * the reason stays at the field, not in a toast that is gone in a few seconds.
+ */
+export function useFieldErrors(
+  local: FieldErrors,
+  {
+    draftKey,
+    say = () => "Dit klopt nog niet."
+  }: {
+    /** The draft as it stands: the server's errors hold until it changes. */
+    draftKey: string
+    /** A server reason code at a field the page did not catch itself, said as a sentence. */
+    say?: (field: string, code: string) => string
+  }
+) {
+  const prefix = useId()
+  const [server, setServer] = useState<{ key: string; fields: FieldErrors } | null>(null)
+  const errors: FieldErrors = server !== null && server.key === draftKey ? { ...server.fields, ...local } : local
+  const idOf = (name: string) => `${prefix}-${name.replace(/[^\w-]/g, "_")}`
+  const focusFirst = (fields: FieldErrors) => {
+    const first = Object.keys(fields)[0]
+    if (first === undefined) return
+    const el = document.getElementById(idOf(first))
+    el?.focus()
+    el?.scrollIntoView?.({ block: "center", behavior: "smooth" })
+  }
+
+  return {
+    errors,
+    /** Moves to the first of these fields, the way a refused save does. */
+    focusFirst,
+    /** Spread on the control: its id, whether it is wrong, and the message that says why. */
+    control: (name: string): FieldControl => ({
+      id: idOf(name),
+      "aria-invalid": errors[name] === undefined ? undefined : true,
+      "aria-describedby": errors[name] === undefined ? undefined : `${idOf(name)}-error`
+    }),
+    /** The message under the field, or nothing while it is right. */
+    message: (name: string) =>
+      errors[name] === undefined ? null : <FieldError id={`${idOf(name)}-error`}>{errors[name]}</FieldError>,
+    /**
+     * The bar's save: refused here while a field is wrong (the first one gets the focus), otherwise the page's own.
+     * Rejects when it did not save, so a held navigation stays where it is. A save the screen runs itself (one that
+     * answers nothing) is handed back as nothing, so the bar waits until the changes are gone, as it does without
+     * the guard.
+     */
+    guard: (save: () => Promise<SaveOutcome> | void) => (): Promise<void> | undefined => {
+      const wrong = Object.keys(local).length
+      if (wrong > 0) {
+        focusFirst(local)
+        toast.error("Nog niet opgeslagen", {
+          description: wrong === 1
+            ? "Eén veld klopt nog niet. Het staat in rood."
+            : `${wrong} velden kloppen nog niet. Ze staan in rood.`
+        })
+        return Promise.reject(new Error("invalid"))
+      }
+      const out = save()
+      if (out === undefined) return undefined
+      return out.then((outcome) => {
+        if (outcome === true) return
+        if (outcome !== false) {
+          const fields = Object.fromEntries(Object.entries(outcome.fields).map(([f, code]) => [f, say(f, code)]))
+          setServer({ key: draftKey, fields })
+          requestAnimationFrame(() => focusFirst(fields))
+        }
+        throw new Error("not saved")
+      })
+    }
+  }
+}
+
+/** One field's error, under it: what is wrong and, where it helps, what would be right. */
+export function FieldError({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <span id={id} className="text-signal-red text-xs">
+      {children}
+    </span>
   )
 }
 
