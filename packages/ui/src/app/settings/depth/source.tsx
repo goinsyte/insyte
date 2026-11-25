@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react"
 import type { Retention, SettingsDepthSeed, TemplateLinks } from "../../lib/settings-depth"
+import type { SaveOutcome } from "../form"
 
 /**
  * What the settings-depth pages (Verzending, Sjablonen, Huisstijl, E-mail en domein, Btw, Gegevens en privacy) read
@@ -76,15 +77,16 @@ export interface DomainHere {
 export interface SettingsDepthSource {
   saved: { [K in DepthSection]?: SettingsDepthSeed[K] }
   /**
-   * Saves one section whole; the host says what it did (with its Undo) or why it did not. Resolves whether it saved: a
-   * page that did not keeps what was typed.
+   * Saves one section whole; the host says what it did (with its Undo) or why it did not. Resolves whether it saved, or
+   * the server's reason code per field it refused, so the page marks those fields: a page that did not save keeps what
+   * was typed.
    */
   save: <K extends DepthSection>(
     key: K,
     next: SettingsDepthSeed[K],
     said: Said,
     log: { page: string; to: string; changes: ReadonlyArray<FieldChange> }
-  ) => Promise<boolean>
+  ) => Promise<SaveOutcome>
   /** How many reply templates use each fixed link; absent, the page's own figures. */
   linkUsage?: Partial<Record<keyof TemplateLinks, number>> | undefined
   /** The stores Btw lists, by id and name. */

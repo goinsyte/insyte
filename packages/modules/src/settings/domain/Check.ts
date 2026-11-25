@@ -41,6 +41,8 @@ const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 /** An OSS number: the country code and then eight to twelve digits or letters, spaces taken out. */
 const OSS = /^[A-Z]{2}[0-9A-Z]{8,12}$/
+/** The one variable a carrier status's sentence knows; any other `{…}` would reach the shopper as written. */
+const SHIP_VARIABLE = /^\{vervoerder\}$/i
 
 export const checkShipping = (value: unknown): Checked<ShippingValue> => {
   const rows = isRecord(value) && Array.isArray(value["statuses"]) ? value["statuses"] : undefined
@@ -64,6 +66,9 @@ export const checkShipping = (value: unknown): Checked<ShippingValue> => {
     const label = text(row["label"])
     if (label === undefined || label === "") fields[`statuses.${s.id}.label`] = "required"
     else if (label.length > 120) fields[`statuses.${s.id}.label`] = "too_long"
+    else if ((label.match(/\{[^{}]*\}/g) ?? []).some((v) => !SHIP_VARIABLE.test(v))) {
+      fields[`statuses.${s.id}.label`] = "unknown_variable"
+    }
     if (!oneOf(SHIP_SHOWS, row["show"])) fields[`statuses.${s.id}.show`] = "invalid"
   }
   return done(fields, () => ({
@@ -145,7 +150,8 @@ export const checkVat = (
   }
   if (typeof value["oss"] !== "boolean") fields["oss"] = "invalid"
   const ossNumber = (text(value["ossNumber"]) ?? "").replace(/\s/g, "").toUpperCase()
-  if (value["oss"] === true && !OSS.test(ossNumber)) fields["ossNumber"] = "format"
+  // Required with OSS on; a number kept with it off is checked all the same, or it comes back when OSS goes on again.
+  if ((value["oss"] === true || ossNumber !== "") && !OSS.test(ossNumber)) fields["ossNumber"] = "format"
   return done(fields, () => ({ stores, oss: value["oss"] as boolean, ossNumber }))
 }
 

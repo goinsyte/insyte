@@ -358,6 +358,17 @@ describe("the reply the agent sends on its own", () => {
         label: "Onderweg met {vervoerder}"
       })
     ).toBe("Hoi,\n\nDe status van je bestelling #1042: Onderweg met PostNL.\nVervoerder: PostNL.")
+
+    // Typed with a capital, as Verzending takes it, the variable is filled all the same.
+    expect(
+      wismoReply({
+        firstName: "",
+        brand: "Noordkust",
+        signed: true,
+        order: order({ trackingUrl: null, expectedOn: null }),
+        label: "Onderweg met {Vervoerder}"
+      })
+    ).toBe("Hoi,\n\nDe status van je bestelling #1042: Onderweg met PostNL.\nVervoerder: PostNL.")
   })
 
   it("passes the check a person's draft is flagged by", () => {
