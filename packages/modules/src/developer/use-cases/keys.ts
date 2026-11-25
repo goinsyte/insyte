@@ -107,12 +107,26 @@ const readKey = (sql: SqlClient.SqlClient, id: string) =>
       ([row]) => row === undefined ? Effect.fail(new NotFound({ entity: "api_key", id })) : Effect.succeed(toView(row))
     ))
 
-const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
-  Effect.flatMap(
-    Effect.service(CurrentPrincipal),
-    (p) =>
-      Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, { action, subjectType: "api_key", subjectId, diff })
-  )
+/** In the Logboek on API-sleutels, by the key's name. */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  subjectId: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
+  Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    const [key] = yield* sql<{ label: string }>`select label from api_keys where id = ${subjectId}`
+    yield* Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, {
+      action,
+      subjectType: "api_key",
+      subjectId,
+      section: "api_keys",
+      diff,
+      log: { name: key?.label, changes }
+    })
+  })
 
 /** A key's access as the catalogue allows it: a role that exists (not the owner's), or scopes clamped per area. */
 const checkAccess = (sql: SqlClient.SqlClient, access: KeyAccess) =>
@@ -237,11 +251,21 @@ export const update = Effect.fn("ApiKeys.update")(function*(input: UpdateKey) {
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      yield* readKey(sql, input.id)
+      const was = yield* readKey(sql, input.id)
       yield* sql`update api_keys set label = coalesce(${input.label?.trim() ?? null}, label),
                    ips = coalesce(${input.ips === undefined ? null : input.ips.map((ip) => ip.trim())}::text[], ips)
                  where id = ${input.id}`
-      yield* audit(sql, "api_key.updated", input.id)
+      yield* audit(
+        sql,
+        "api_key.updated",
+        input.id,
+        undefined,
+        Audit.fieldChanges(
+          { label: was.label, ips: was.ips },
+          { label: input.label?.trim() ?? was.label, ips: input.ips?.map((ip) => ip.trim()) ?? was.ips },
+          ["label", "ips"]
+        )
+      )
       return yield* readKeys(sql)
     })
   )

@@ -30,7 +30,7 @@ export function DemoLogSource({ children }: { children: ReactNode }) {
       exportCsv(
         "logboek",
         ["Wanneer", "Wie", "Pagina", "Wat", "Was", "Werd"],
-        lines.map((r) => [r.at, r.who, r.page, r.field, r.before, r.after])
+        lines.map((r) => [r.at, r.who, r.page, r.field, r.before ?? "", r.after])
       )
   }
   return <LogSourceProvider value={source}>{children}</LogSourceProvider>

@@ -255,7 +255,13 @@ describe("handing a workspace over", () => {
         actorKind: "member",
         actorId: self,
         subjectId: adminId,
-        diff: { owner: [self, adminId], role: ["service", "owner"], formerOwnerRole: "admin" }
+        // The Logboek's note: the new owner by name, as they were called when it happened.
+        diff: {
+          owner: [self, adminId],
+          role: ["service", "owner"],
+          formerOwnerRole: "admin",
+          log: { name: expect.any(String) }
+        }
       }
     ])
   })

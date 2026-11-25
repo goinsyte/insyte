@@ -95,6 +95,19 @@ const diffOf = (from: AutonomyLevels, to: AutonomyLevels) =>
     to: to[id]
   }))
 
+/** What a save changed, as the Logboek lists it: each action's level, then its limits per day and per time. */
+export const policyChanges = (
+  fromLevels: AutonomyLevels,
+  toLevels: AutonomyLevels,
+  fromLimits: Limits,
+  toLimits: Limits
+): Array<Audit.LogChange> => [
+  ...diffOf(fromLevels, toLevels).map((c) => ({ field: "level", key: c.id, before: c.from, after: c.to })),
+  ...[...new Set([...Object.keys(fromLimits), ...Object.keys(toLimits)])].flatMap((id) =>
+    Audit.fieldChanges({ ...fromLimits[id] }, { ...toLimits[id] }, ["perDay", "maxAmountMinor"], { key: id })
+  )
+]
+
 /** Writes `levels` and `limits` as the next version on the caller's transaction; the version written, or none. */
 const write = Effect.fn("Autonomy.write")(function*(
   sql: SqlClient.SqlClient,
@@ -126,7 +139,9 @@ const write = Effect.fn("Autonomy.write")(function*(
     action: "autonomy_policy.changed",
     subjectType: "autonomy_policy",
     subjectId: principal.workspaceId,
-    diff: { version, changes }
+    section: "autonomy",
+    diff: { version, changes },
+    log: { changes: policyChanges(before, levels, limitsOf(was.limits), limits) }
   })
   return version
 })

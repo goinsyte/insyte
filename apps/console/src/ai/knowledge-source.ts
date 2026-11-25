@@ -6,6 +6,7 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { useMemo } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { KNOWLEDGE, knowledgeWrites } from "../data/knowledge.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 import { sayAiRefusal } from "./drafts.tsx"
@@ -88,7 +89,7 @@ const notDone = (error: unknown) =>
 type Undo = { readonly token: string } | null
 
 function useUndo() {
-  const undo = useAtomSet(knowledgeWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(knowledgeWrites.undo)
   return (title: string, ticket: Undo, description?: string) => {
     if (ticket === null) return void toast.success(title, description === undefined ? undefined : { description })
     undoable(

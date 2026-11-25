@@ -117,7 +117,7 @@ function SheetContent({
         {showCloseButton && (
           <SheetPrimitive.Close className="absolute top-4 right-4 cursor-pointer rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden disabled:pointer-events-none">
             <X className="size-4" />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">Sluiten</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>

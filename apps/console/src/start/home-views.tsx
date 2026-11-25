@@ -17,6 +17,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo, useRef, useState } from "react"
 import { activityAtom, activityKey, agendaAtom, agendaKey, TODOS, todoWrites, workAtom } from "../data/home.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { QUEUE, queueWrites } from "../data/queue.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { usePrefSection } from "../frame/prefs.ts"
@@ -66,9 +67,10 @@ export function ConsoleWork(
   const addTodo = useAtomSet(todoWrites.add)
   const toggleTodo = useAtomSet(todoWrites.toggle)
   const setStatus = useAtomSet(ticketWrites.setStatus, { mode: "promiseExit" })
-  const undoTicket = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
-  const markSeen = useAtomSet(queueWrites.markSeen, { mode: "promiseExit" })
-  const undoQueue = useAtomSet(queueWrites.undo, { mode: "promiseExit" })
+  const undoTicket = useAtomSetInTurn(ticketWrites.undo)
+  // The same atoms as the Start queue's: in turn with its writes.
+  const markSeen = useAtomSetInTurn(queueWrites.markSeen)
+  const undoQueue = useAtomSetInTurn(queueWrites.undo)
   const current = useRef(pref)
   current.current = pref
   if (items === undefined) return <WidgetBones rows={6} />

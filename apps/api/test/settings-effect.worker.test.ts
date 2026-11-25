@@ -115,7 +115,13 @@ describe("settings that take effect", () => {
 
     // The portal in its own look.
     const handle = ok(await rpc("Returns.settings", undefined, store.cookie)).portal.handle
-    expect(ok(await rpc("Portal.store", { handle })).look).toEqual({ color: null, logoUrl: null })
+    const unsaved = ok(await rpc("Portal.store", { handle }))
+    expect(unsaved.look).toEqual({ color: null, logoUrl: null })
+    expect(unsaved.contact).toEqual({ website: null, support: null })
+    const shopName = unsaved.name
+    // Huisstijl saved for its colour alone keeps the name the portal had: the sender starts as that name.
+    await save(store.cookie, "brand", (v: Record<string, unknown>) => ({ ...v, color: "#1f3a5f" }))
+    expect(ok(await rpc("Portal.store", { handle })).name).toBe(shopName)
 
     // Saved: Huisstijl (a logo and a dark colour), Verzending (every status worded), Sjablonen (the review link).
     const logo = await upload(store.cookie, "logo.png", "image/png", PNG)
@@ -123,7 +129,14 @@ describe("settings that take effect", () => {
     await save(
       store.cookie,
       "brand",
-      (v: Record<string, unknown>) => ({ ...v, logoFileId: logo.fileId, color: "#7a1f3d" })
+      (v: Record<string, unknown>) => ({
+        ...v,
+        logoFileId: logo.fileId,
+        color: "#7a1f3d",
+        sender: "Effect Winkel",
+        website: `https://effect-${run}.example`,
+        support: `hulp@effect-${run}.example`
+      })
     )
     await save(store.cookie, "shipping", (v: { statuses: Array<{ id: string; show: string }> }) => ({
       statuses: v.statuses.map((s) => ({ ...s, label: `Stand ${s.id} bij {vervoerder}`, show: "all" }))
@@ -132,7 +145,12 @@ describe("settings that take effect", () => {
     await save(store.cookie, "links", () => ({ review, unsubscribe: "", restock: "" }))
 
     const logoPath = `/api/brand/${store.workspace}/logo/${logo.fileId}`
-    expect(ok(await rpc("Portal.store", { handle })).look).toEqual({ color: "#7A1F3D", logoUrl: logoPath })
+    const saved = ok(await rpc("Portal.store", { handle }))
+    expect(saved.look).toEqual({ color: "#7A1F3D", logoUrl: logoPath })
+    // The portal is headed with Huisstijl's name, not the shop's own, and says how to reach the store at its foot.
+    expect(saved.name).toBe("Effect Winkel")
+    expect(saved.name).not.toBe(shopName)
+    expect(saved.contact).toEqual({ website: `https://effect-${run}.example`, support: `hulp@effect-${run}.example` })
     // The logo is anyone's to load, without a session, and the edge cache answers the next one; a logo uploaded and
     // never saved is not, nor one under another workspace.
     const served = await call(`http://api.test${logoPath}`)
@@ -260,6 +278,21 @@ describe("settings that take effect", () => {
         body: `${"x".repeat(99_975)} {voorraad_link}`
       }, store.cookie)
     )).toMatchObject({ _tag: "Invalid", fields: { body: "too_long" } })
+    // A mail that asks for the unsubscribe link does not go while none is saved, reply, new mail or forward: the line
+    // the law wants on a marketing mail never drops out.
+    expect(failure(
+      await rpc("Threads.compose", {
+        to: customer,
+        subject: "Weer binnen",
+        body: "Hoi,\n\nHij is er weer: {voorraad_link}\n\nLiever geen mails meer? Schrijf je uit via {uitschrijf_link}"
+      }, store.cookie)
+    )).toMatchObject({ _tag: "Invalid", fields: { unsubscribe_link: "missing" } })
+    expect(failure(
+      await rpc("Threads.reply", {
+        threadId: delivered.threadId,
+        body: "Hoi,\n\nSchrijf je uit via {uitschrijf_link}"
+      }, store.cookie)
+    )).toMatchObject({ _tag: "Invalid", fields: { unsubscribe_link: "missing" } })
     await sentMail(store.workspace)
     const [mail] = await captured(customer, replied.message.id)
     expect(mail?.kind).toBe("support.message")
@@ -269,5 +302,19 @@ describe("settings that take effect", () => {
     expect(mail?.look ?? null).toBeNull()
     const fresh = (await captured(customer)).find((m) => m.reference !== replied.message.id)
     expect(fresh?.subject).toBe(`Weer binnen: https://effect-${run}.example/terug`)
+    // Saved, the same mail goes with the link in.
+    await save(store.cookie, "links", (v: Record<string, unknown>) => ({
+      ...v,
+      unsubscribe: `https://effect-${run}.example/uit`
+    }))
+    const unsubscribing = ok(
+      await rpc("Threads.reply", {
+        threadId: delivered.threadId,
+        body: "Hoi,\n\nSchrijf je uit via {uitschrijf_link}"
+      }, store.cookie)
+    )
+    await sentMail(store.workspace)
+    const [withLink] = await captured(customer, unsubscribing.message.id)
+    expect(withLink?.bodyText).toBe(`Hoi,\n\nSchrijf je uit via https://effect-${run}.example/uit`)
   }, 180_000)
 })

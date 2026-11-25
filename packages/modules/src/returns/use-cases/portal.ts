@@ -113,9 +113,11 @@ export const store = Effect.fn("Portal.store")(function*(handle: string) {
     Effect.gen(function*() {
       const s = yield* load(sql)
       const look = yield* CustomerFacing.look(sql, "page")
+      const contact = yield* CustomerFacing.contact(sql)
       return new PortalStore({
         handle,
-        name: yield* storeName(sql),
+        // Huisstijl's "Afzendernaam" where it is saved: the shop's technical name is not what the shopper knows.
+        name: contact.name ?? (yield* storeName(sql)),
         on: s.portal.on,
         intro: s.portal.intro,
         done: s.portal.done,
@@ -130,7 +132,8 @@ export const store = Effect.fn("Portal.store")(function*(handle: string) {
         offered: [...s.offered],
         giftCardBonusPct: s.giftCardBonusPct,
         claimSteps: [...s.claimSteps],
-        look: { color: look.color, logoUrl: look.logoPath }
+        look: { color: look.color, logoUrl: look.logoPath },
+        contact: { website: contact.website, support: contact.support }
       })
     }))
 })

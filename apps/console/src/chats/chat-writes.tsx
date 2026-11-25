@@ -5,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { Exit } from "effect"
 import { toast } from "sonner"
 import { CHAT_PAGES, chatKey, CHATS, chatWrites } from "../data/chats.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { TICKETS } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 import { ticketOf } from "../tickets/ticket-of.ts"
@@ -84,9 +85,9 @@ export function useChatWrites(
     runCommand: useAtomSet(chatWrites.runCommand, { mode: "promiseExit" }),
     confirm: useAtomSet(chatWrites.confirm, { mode: "promiseExit" }),
     decline: useAtomSet(chatWrites.decline, { mode: "promiseExit" }),
-    undoAction: useAtomSet(chatWrites.undoAction, { mode: "promiseExit" }),
+    undoAction: useAtomSetInTurn(chatWrites.undoAction),
     createTicket: useAtomSet(chatWrites.createTicket, { mode: "promiseExit" }),
-    undo: useAtomSet(chatWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(chatWrites.undo)
   }
   const undo = async (token: string, conversationId: string) => {
     const exit = await write.undo({ payload: { token }, ...keys(conversationId) })

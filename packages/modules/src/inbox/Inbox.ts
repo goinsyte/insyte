@@ -8,6 +8,7 @@ import { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
 import type {
   ChannelChange,
+  ChannelGreetingInput,
   ChannelIdInput,
   ChannelStatus,
   ChatDraftInput,
@@ -111,6 +112,9 @@ export class InboxService extends Context.Service<InboxService, {
   readonly disconnectChannel: (
     input: typeof ChannelIdInput.Type
   ) => Effect.Effect<ChannelChange, Forbidden | NotFound, R>
+  readonly setChannelGreeting: (
+    input: typeof ChannelGreetingInput.Type
+  ) => Effect.Effect<ChannelChange, Forbidden | NotFound, R>
 }>()("modules/InboxService") {
   // A database that does not answer is a defect, as everywhere. The relay and the tickets link are taken once.
   static readonly layer = Layer.effect(
@@ -160,7 +164,8 @@ export class InboxService extends Context.Service<InboxService, {
         discardDraft: (input) => run(withChat((c) => c.discardDraft(input))),
         channels: run(withChannels((c) => c.status())),
         connectChannel: (input) => run(withChannels((c) => c.connect(input))),
-        disconnectChannel: (input) => run(withChannels((c) => c.disconnect(input)))
+        disconnectChannel: (input) => run(withChannels((c) => c.disconnect(input))),
+        setChannelGreeting: (input) => run(withChannels((c) => c.setGreeting(input)))
       }
     })
   )

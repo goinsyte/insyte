@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import { BrandLogo } from "../marketplace/brand-logos"
 import { InPlaceApp } from "../marketplace/in-place-app"
 import { PermissionsDialog } from "../marketplace/marketplace-dialogs"
 import { useMarketplaceState } from "../shell/state"
+import { useMarketplaceModalStore } from "../stores/marketplace-modal-store"
 import { SettingCard } from "./setting-card"
 
 export function SettingsAppsPage() {
@@ -24,6 +24,8 @@ export function SettingsAppsPage() {
   const [detail, setDetail] = useState<Extension | null>(null)
   const [permissionsFor, setPermissionsFor] = useState<Extension | null>(null)
   const [running, setRunning] = useState<Extension | null>(null)
+  // The Marketplace opens over this page, so closing it lands here again.
+  const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
 
   const installed = useMemo(
     () => apps.filter((e) => isInstalled(e.id)),
@@ -32,17 +34,19 @@ export function SettingsAppsPage() {
 
   return (
     <>
+      {/* The page is titled Apps already; with nothing installed, the empty state's button is the only way there. */}
       <SettingCard
-        title="Apps"
-        action={
-          <Link
-            to="/marketplace"
+        title="Geïnstalleerd"
+        action={installed.length === 0 ? null : (
+          <button
+            type="button"
+            onClick={openMarketplace}
             className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-3 font-medium text-base text-ink hover:bg-mist"
           >
             Marketplace bekijken
             <ArrowUpRight className="size-4" strokeWidth={1.75} />
-          </Link>
-        }
+          </button>
+        )}
       >
         {installed.length === 0 ?
           (
@@ -53,12 +57,13 @@ export function SettingsAppsPage() {
               <p className="max-w-[380px] text-base text-ink-3 leading-[1.6]">
                 Koppelingen voor e-mail, retouren, afhandeling, fraude en meer.
               </p>
-              <Link
-                to="/marketplace"
+              <button
+                type="button"
+                onClick={openMarketplace}
                 className="mt-1 flex h-8 items-center gap-2 rounded-md bg-abyss px-3 font-medium text-base text-mesh-ink shadow-primary transition hover:bg-abyss-2 active:scale-[0.98]"
               >
                 Marketplace bekijken
-              </Link>
+              </button>
             </div>
           ) :
           (

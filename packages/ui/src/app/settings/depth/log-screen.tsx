@@ -99,14 +99,24 @@ export function LogPage() {
                   <PersonDisc seed={r.who} name={r.who} size={20} />
                   <span className="truncate text-ink">{r.who}</span>
                 </span>
-                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-ink">{r.field}</span>
-                  <span className="rounded bg-signal-red-bg px-1.5 text-ink-2 line-through decoration-ink-3/60">
-                    {r.before}
-                  </span>
-                  <ArrowRight aria-hidden className="size-3 text-ink-4" strokeWidth={1.75} />
-                  <span className="rounded bg-signal-green-bg px-1.5 text-ink">{r.after}</span>
-                </span>
+                {r.before === null ?
+                  (
+                    // An event: what happened, and to what; nothing it was.
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-ink">{r.field}</span>
+                      {r.after === "" ? null : <span className="rounded bg-mist px-1.5 text-ink">{r.after}</span>}
+                    </span>
+                  ) :
+                  (
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-ink">{r.field}</span>
+                      <span className="rounded bg-signal-red-bg px-1.5 text-ink-2 line-through decoration-ink-3/60">
+                        {r.before}
+                      </span>
+                      <ArrowRight aria-hidden className="size-3 text-ink-4" strokeWidth={1.75} />
+                      <span className="rounded bg-signal-green-bg px-1.5 text-ink">{r.after}</span>
+                    </span>
+                  )}
                 {r.to === "" ?
                   <span className="truncate text-ink-2">{r.page}</span> :
                   (

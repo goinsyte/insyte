@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
 import { createHmac } from "node:crypto"
-import { admit, newContext, onPreview, previewRequest } from "./access.ts"
+import { admit, guarded, newContext, onPreview, previewRequest } from "./access.ts"
 
 /*
  * Step 1's journey (15, "Done when"): register → the mail → verify → onboarding; signing in before verifying and with
@@ -57,13 +57,13 @@ async function signIn(page: Page, email: string, password: string) {
 const hydrated = (page: Page) => expect(page.locator("html[data-hydrated]")).toHaveCount(1)
 
 /** The person's onboarding step and the autonomy policy answered late; Access's own route still adds its headers. */
-const lateReads = async (route: Route) => {
+const lateReads = guarded(async (route: Route) => {
   const body = route.request().postData() ?? ""
   if (body.includes("\"Onboarding.me\"") || body.includes("\"Autonomy.get\"")) {
     await new Promise((resolve) => setTimeout(resolve, 2500))
   }
   await route.fallback()
-}
+})
 
 test("@auth register, verify, sign out and in, reset the password", async ({ page, request }) => {
   const email = `e2e-${Date.now().toString(36)}@example.com`

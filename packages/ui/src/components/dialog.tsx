@@ -112,7 +112,7 @@ function DialogContent({
             className="absolute top-3 right-3 flex size-8 cursor-pointer items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
           >
             <X />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">Sluiten</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>
@@ -150,7 +150,7 @@ function DialogFooter({
       {...props}
     >
       {children}
-      {showCloseButton && <DialogPrimitive.Close render={<Button variant="ghost" />}>Close</DialogPrimitive.Close>}
+      {showCloseButton && <DialogPrimitive.Close render={<Button variant="ghost" />}>Sluiten</DialogPrimitive.Close>}
     </div>
   )
 }

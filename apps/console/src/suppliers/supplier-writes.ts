@@ -5,6 +5,7 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import type { ForwardPref, SupplierInput, SupplierRow } from "@insyte/ui/app/suppliers/source"
 import { Exit, Redacted } from "effect"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { PRODUCTS } from "../data/products.ts"
 import { SUPPLIERS, supplierWrites } from "../data/suppliers.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -40,7 +41,7 @@ export function useSupplierCommands() {
     connectApi: useAtomSet(supplierWrites.connectApi, { mode: "promiseExit" }),
     disconnectApi: useAtomSet(supplierWrites.disconnectApi, { mode: "promiseExit" }),
     testConnection: useAtomSet(supplierWrites.testConnection, { mode: "promiseExit" }),
-    undo: useAtomSet(supplierWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(supplierWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {

@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { AlertTriangle, CheckCircle2, Copy, Mail, RefreshCcw } from "../../../icons"
 import { ConfirmDialog } from "../../common/confirm-dialog"
 import { formatRelative } from "../../lib/format"
-import type { DnsRecord, Domain } from "../../lib/settings-depth"
+import { type DnsRecord, type Domain, senderProblems } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
 import { FieldRow, UnsavedBar } from "../form"
 import { SettingCard, StatusPill } from "../setting-card"
@@ -88,6 +88,9 @@ export function EmailDomainPage() {
 
   const [removing, setRemoving] = useState(false)
   const state = here?.state ?? "ready"
+  const problems = senderProblems(s.draft.from, s.draft.replyTo, d.domain)
+  // Who a shopper's mail comes from now: the saved address once the domain is ready, else Insyte's own.
+  const sending = state === "ready" && all && d.from.trim() !== "" ? d.from.trim() : null
   const setUp = state === "unclaimed" || state === "taken" || (state === "failed" && d.records.length === 0)
 
   return (
@@ -193,24 +196,53 @@ export function EmailDomainPage() {
       <SettingCard title="Afzenders" subtitle="Van welk adres Insyte mailt, en waar een antwoord landt.">
         <div className="flex flex-col">
           <FieldRow label="Mails van Insyte" hint="Sjablonen, retourmails en wat de klantagent mailt.">
-            <input
-              value={s.draft.from}
-              disabled={!s.canEdit}
-              onChange={(e) => s.setDraft({ ...s.draft, from: e.target.value })}
-              type="email"
-              aria-label="Mails van Insyte"
-              className={WELL}
-            />
+            <span className="flex flex-col gap-1.5">
+              <input
+                value={s.draft.from}
+                disabled={!s.canEdit}
+                onChange={(e) => s.setDraft({ ...s.draft, from: e.target.value })}
+                type="email"
+                placeholder={d.domain === "" ? "Eerst een domein instellen" : `support@${d.domain}`}
+                aria-label="Mails van Insyte"
+                aria-invalid={problems.from !== undefined}
+                className={cn(WELL, "aria-[invalid=true]:bg-signal-red-bg")}
+              />
+              {problems.from === undefined
+                ? (
+                  <span className="text-ink-3 text-xs">
+                    {sending === null
+                      ? "Nu: het adres van Insyte, in de naam van je winkel. Je eigen adres gaat in zodra je domein klaar is."
+                      : `Nu: ${sending}.`}
+                  </span>
+                )
+                : <span className="text-signal-red text-xs">{problems.from}</span>}
+            </span>
           </FieldRow>
-          <FieldRow label="Antwoorden naar" hint="Komt binnen in de Inbox.">
-            <input
-              value={s.draft.replyTo}
-              disabled={!s.canEdit}
-              onChange={(e) => s.setDraft({ ...s.draft, replyTo: e.target.value })}
-              type="email"
-              aria-label="Antwoorden naar"
-              className={WELL}
-            />
+          <FieldRow
+            label="Antwoorden naar"
+            hint="Het adres van een gekoppelde mailbox, dan komt een antwoord binnen in de Inbox."
+          >
+            <span className="flex flex-col gap-1.5">
+              <input
+                value={s.draft.replyTo}
+                disabled={!s.canEdit}
+                onChange={(e) => s.setDraft({ ...s.draft, replyTo: e.target.value })}
+                type="email"
+                placeholder="Geen: antwoorden gaan naar de afzender"
+                aria-label="Antwoorden naar"
+                aria-invalid={problems.replyTo !== undefined}
+                className={cn(WELL, "aria-[invalid=true]:bg-signal-red-bg")}
+              />
+              {problems.replyTo === undefined
+                ? (
+                  <span className="text-ink-3 text-xs">
+                    {s.draft.replyTo.trim() === ""
+                      ? "Leeg: een antwoord op een retour- of vertragingsmail gaat naar de afzender, niet vanzelf naar de Inbox. Antwoorden op mails uit de Inbox komen er altijd."
+                      : "Antwoorden op mails uit de Inbox gaan altijd naar hun eigen mailbox."}
+                  </span>
+                )
+                : <span className="text-signal-red text-xs">{problems.replyTo}</span>}
+            </span>
           </FieldRow>
         </div>
       </SettingCard>
@@ -230,7 +262,16 @@ export function EmailDomainPage() {
           />
         )
         : null}
-      <UnsavedBar visible={s.dirty && s.canEdit} onDiscard={s.discard} onSave={() => s.save("Afzenders opgeslagen")} />
+      <UnsavedBar
+        visible={s.dirty && s.canEdit}
+        onDiscard={s.discard}
+        onSave={() => {
+          // Said at the field already; the bar stays, and saving waits until the address is right.
+          const first = problems.from ?? problems.replyTo
+          if (first !== undefined) return void toast.error("Verbeter eerst de afzenders", { description: first })
+          return s.save("Afzenders opgeslagen")
+        }}
+      />
     </>
   )
 }

@@ -66,6 +66,7 @@ export const outboxOf = async (workspace: string) =>
         relayedAt: string | null
         cancelled: boolean
         due: boolean
+        deadLetteredAt: string | null
       }
     >
   }).events
@@ -97,6 +98,40 @@ export const relay = async (workspace: string) => {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error(`the outbox of ${workspace} did not drain`)
+}
+
+const pendingTasksOf = async (workspace: string) =>
+  (await (await call(`http://api.test/api/__dev/pending-tasks?workspace=${workspace}`)).json() as {
+    tasks: Array<{ kind: string; ref: string }>
+  }).tasks
+
+/**
+ * Until nothing runs in the background for these workspaces any more: every due event relayed, and every task kept for
+ * the queue (`pending_tasks`: an agent's turn, a ticket to classify) run. The Worker's own kicks reach the queue's real
+ * consumer a second or so after a write and what it runs logs; a file that ends meanwhile has that line arrive while
+ * vitest closes the file ("Closing rpc while onUserConsoleLog was pending"), which fails the run with every test
+ * passed. A file whose writes kick the queue waits for this in its `afterAll`, with a hook timeout above `withinMs`, so
+ * that what is still running is named here rather than as a timed-out hook. A dead-lettered event is never relayed, and
+ * is not waited for.
+ */
+export const quiet = async (workspaces: Iterable<string>, withinMs = 45_000) => {
+  const deadline = Date.now() + withinMs
+  for (const workspace of workspaces) {
+    for (;;) {
+      // The outbox first: a due event relayed in between keeps its task, which the read after it then sees.
+      const due = (await outboxOf(workspace)).filter((e) =>
+        e.relayedAt === null && !e.cancelled && e.due && e.deadLetteredAt === null
+      )
+      const tasks = await pendingTasksOf(workspace)
+      if (due.length === 0 && tasks.length === 0) break
+      if (Date.now() > deadline) {
+        const left = [...due.map((e) => `event ${e.event} ${e.id}`), ...tasks.map((t) => `${t.kind} ${t.ref}`)]
+        throw new Error(`${workspace} still has work in the background after ${withinMs / 1000} s: ${left.join(", ")}`)
+      }
+      if (due.length > 0) await consume(due.map((e) => e.id))
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+  }
 }
 /** As if the undo window had passed. */
 export const pastUndo = (workspace: string) =>

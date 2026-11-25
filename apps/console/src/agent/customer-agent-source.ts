@@ -8,6 +8,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { toast } from "sonner"
 import { agentDayAtom, agentWrites, CUSTOMER_AGENT } from "../data/agent.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 import { undoRefusal } from "./customer-agent-undo.ts"
 
@@ -63,7 +64,7 @@ const notSaved = (error: unknown) =>
 export function useConsoleCustomerAgentSource(view: ChannelAgentView): CustomerAgentSource {
   const set = useAtomSet(agentWrites.setCustomerAgent, { mode: "promiseExit" })
   const test = useAtomSet(agentWrites.testCustomerAgent, { mode: "promiseExit" })
-  const undo = useAtomSet(agentWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(agentWrites.undo)
   const day = Option.getOrUndefined(AsyncResult.value(useAtomValue(agentDayAtom)))
   const settingsGate = useGate("settings", 2)
   const aiGate = useGate("ai.autonomy")

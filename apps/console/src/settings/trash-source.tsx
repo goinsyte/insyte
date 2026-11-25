@@ -8,6 +8,7 @@ import { useState } from "react"
 import { AUTOMATIONS } from "../data/automations.ts"
 import { COSTS } from "../data/costs.ts"
 import { COURSES } from "../data/courses.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { TRASH, trashWrites } from "../data/settings-log.ts"
 import { SHEETS } from "../data/sheets.ts"
 import { SUPPLIERS } from "../data/suppliers.ts"
@@ -61,7 +62,8 @@ export function useConsoleTrashSource(list: TrashList, canEdit: boolean): TrashS
     restore: useAtomSet(trashWrites.restore, { mode: "promiseExit" }),
     purge: useAtomSet(trashWrites.purge, { mode: "promiseExit" }),
     empty: useAtomSet(trashWrites.empty, { mode: "promiseExit" }),
-    undo: useAtomSet(trashWrites.undo, { mode: "promiseExit" })
+    // Putting back items of several kinds gives several tickets: undoing spends them in turn.
+    undo: useAtomSetInTurn(trashWrites.undo)
   }
   // Put back or purged here: gone from the list before the refetch arrives.
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())

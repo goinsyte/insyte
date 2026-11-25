@@ -7,10 +7,10 @@ import {
 } from "@insyte/modules/channel-agent/domain/Rules"
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
-import { failure, join, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
+import { failure, join, ok, outboxOf, pastUndo, quiet, relay, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -75,9 +75,19 @@ const deliver = async (task: AgentTask) => {
   return getQueueResult(batch, ctx)
 }
 
+/** Every workspace the file chats in, for `quiet` once it is done. */
+const workspaces = new Set<string>()
+
+/*
+ * A shopper's message also kicks its event onto the real queue, whose consumer runs the agent's turn again a second
+ * later (seen already, it does nothing) and logs it: the last tests' turns would log after the file has ended.
+ */
+afterAll(() => quiet(workspaces), 60_000)
+
 /** A workspace with a store, a published chapter for the customer agent, and the ways the tests chat in it. */
 const chatStore = async (tag: string) => {
   const store = await importedStore(tag)
+  workspaces.add(store.workspace)
   const created = ok(
     await rpc("Knowledge.create", { title: "Retourneren", audience: "customer_agent", body: RETURNS }, store.cookie)
   )

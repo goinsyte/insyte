@@ -104,6 +104,13 @@ export const hostOf = (raw: string): { readonly host: string; readonly literal: 
   }
 }
 
+/**
+ * An endpoint as the Logboek names it: its description, else its host. Never its address: a hook's path or query often
+ * is its password (a Slack or Zapier hook), and the Logboek is read by more people than the Webhooks page and kept.
+ */
+export const endpointName = (url: string, description = ""): string =>
+  description.trim() !== "" ? description.trim() : hostOf(url)?.host ?? "Webhook"
+
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("")
 
 /** `hex(hmac-sha256(secret, t + "." + body))`, the `v1` of `Insyte-Signature`. */

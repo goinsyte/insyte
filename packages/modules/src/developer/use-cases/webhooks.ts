@@ -9,8 +9,9 @@ import type { SqlClient } from "effect/sql"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { storesSaid } from "../../shared/use-cases/LogNames.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
-import { HEADER_NAME, HEADER_VALUE, isForbiddenHeader, urlRefusal } from "../domain/Delivery.ts"
+import { endpointName, HEADER_NAME, HEADER_VALUE, isForbiddenHeader, urlRefusal } from "../domain/Delivery.ts"
 import {
   EndpointChange,
   type EndpointInput,
@@ -119,18 +120,54 @@ export const readOne = (sql: SqlClient.SqlClient, id: string) =>
         : Effect.succeed(toView(row))
   )
 
-const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
-  Effect.flatMap(
-    Effect.service(CurrentPrincipal),
-    (p) =>
-      Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, {
-        action,
-        subjectType: "webhook_endpoint",
-        subjectId,
-        section: "webhooks",
-        diff
-      })
+/** In the Logboek on Webhooks, by the endpoint's description or host, never its address (`endpointName`). */
+const audit = (
+  sql: SqlClient.SqlClient,
+  action: string,
+  subjectId: string,
+  diff?: Record<string, unknown>,
+  changes?: ReadonlyArray<Audit.LogChange>
+) =>
+  Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    const [endpoint] = yield* sql<{ url: string; description: string }>`
+      select url, description from webhook_endpoints where id = ${subjectId}`
+    yield* Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, {
+      action,
+      subjectType: "webhook_endpoint",
+      subjectId,
+      section: "webhooks",
+      diff,
+      log: { name: endpoint === undefined ? undefined : endpointName(endpoint.url, endpoint.description), changes }
+    })
+  })
+
+type Form = Omit<Settings, "autoDisabledAt" | "consecutiveFailures">
+
+const flatForm = (s: Form) => ({
+  description: s.description,
+  events: [...s.events].sort(),
+  apiVersion: s.apiVersion,
+  stores: s.stores === "all" ? "all" : [...s.stores].sort(),
+  headers: s.headers.map((h) => h.key).sort(),
+  retry: s.retry,
+  active: s.active
+})
+
+/**
+ * What a save of the form changed, as the Logboek lists it. The address only as changed, never what it was or became
+ * (its path is often the hook's password); a header by its name, never its value; the stores by `stores`' names.
+ */
+export const endpointChanges = (
+  before: Form,
+  after: Form,
+  stores?: { readonly before: string; readonly after: string }
+): Array<Audit.LogChange> => [
+  ...(before.url === after.url ? [] : [{ field: "url", before: null, after: null }]),
+  ...Audit.fieldChanges(flatForm(before), flatForm(after), Object.keys(flatForm(after))).map((c) =>
+    c.field === "stores" && stores !== undefined ? { ...c, before: stores.before, after: stores.after } : c
   )
+]
 
 /** What the form may not hold, field by field (widgets/05 §5.3, Forms). */
 const checkInput = (sql: SqlClient.SqlClient, input: EndpointInput) =>
@@ -257,7 +294,7 @@ export const update = Effect.fn("Webhooks.update")(function*(input: UpdateEndpoi
       const headers = yield* sealHeaders(input.headers, before.headers)
       // Switching an endpoint on from the form clears Insyte's own switch-off, as "Weer aanzetten" does.
       const reopened = input.active && (!before.active || before.autoDisabledAt !== null)
-      yield* writeSettings(sql, input.id, {
+      const next: Settings = {
         url: input.url.trim(),
         description: input.description.trim(),
         events: [...new Set(input.events)],
@@ -268,8 +305,18 @@ export const update = Effect.fn("Webhooks.update")(function*(input: UpdateEndpoi
         active: input.active,
         autoDisabledAt: reopened ? null : before.autoDisabledAt,
         consecutiveFailures: reopened && before.autoDisabledAt !== null ? 0 : before.consecutiveFailures
-      })
-      yield* audit(sql, "webhook.updated", input.id, { url: before.url === input.url.trim() ? undefined : "changed" })
+      }
+      yield* writeSettings(sql, input.id, next)
+      yield* audit(
+        sql,
+        "webhook.updated",
+        input.id,
+        { url: before.url === input.url.trim() ? undefined : "changed" },
+        endpointChanges(before, next, {
+          before: yield* storesSaid(sql, before.stores),
+          after: yield* storesSaid(sql, next.stores)
+        })
+      )
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
         compensation: { op: "settings", id: input.id, before: snapshot(before) }
@@ -499,14 +546,16 @@ export const purgeIn = Effect.fn("Webhooks.purge")(function*(
   actor: Audit.Actor
 ) {
   if (ids.length === 0) return
-  const gone = yield* sql<{ id: string }>`
-    delete from webhook_endpoints where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id`
+  const gone = yield* sql<{ id: string; url: string; description: string }>`
+    delete from webhook_endpoints where id in ${sql.in([...new Set(ids)])} and deleted_at is not null
+    returning id, url, description`
   for (const e of gone) {
     yield* Audit.write(sql, workspaceId, actor, {
       action: "webhook.purged",
       subjectType: "webhook_endpoint",
       subjectId: e.id,
-      section: "webhooks"
+      section: "webhooks",
+      log: { name: endpointName(e.url, e.description) }
     })
   }
 })

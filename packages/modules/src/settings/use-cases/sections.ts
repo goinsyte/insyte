@@ -69,14 +69,22 @@ const RETENTION_START: RetentionValue = {
   }))
 }
 
+/**
+ * Huisstijl before it is saved. Its sender is the name the returns portal already shows, the one store's, else the
+ * workspace's, so saving the page for its colour alone does not rename the store to the shopper.
+ */
 const brandDefaults = (sql: SqlClient.SqlClient) =>
   Effect.map(
-    sql<{ name: string }>`select name from workspaces where id = app_workspace_id()`,
+    sql<{ name: string; stores: ReadonlyArray<string> }>`
+      select w.name, coalesce((select array_agg(s.name order by s.created_at) from (
+               select name, created_at from stores where status <> 'disconnected' order by created_at limit 2
+             ) s), '{}') as stores
+      from workspaces w where w.id = app_workspace_id()`,
     (rows): BrandValue => ({
       logoFileId: null,
       color: "#1F3A5F",
       font: "Systeem",
-      sender: rows[0]?.name ?? "",
+      sender: rows[0]?.stores.length === 1 ? rows[0].stores[0]! : rows[0]?.name ?? "",
       website: "",
       support: "",
       widget: "right"
@@ -203,7 +211,8 @@ export interface FieldChange {
   readonly after: unknown
 }
 
-const changes = (section: SettingsSectionId, before: unknown, after: unknown): Array<FieldChange> => {
+/** What a save changed, field by field, as `writeSection` logs it: each a field the Logboek's catalogue names. */
+export const changes = (section: SettingsSectionId, before: unknown, after: unknown): Array<FieldChange> => {
   const out: Array<FieldChange> = []
   const field = (name: string, a: unknown, b: unknown, key?: string) => {
     if (JSON.stringify(a) !== JSON.stringify(b)) {
@@ -313,13 +322,21 @@ export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function
     yield* sql`update files set published_at = coalesce(published_at, now())
                where id = ${logo} and kind = 'logo' and deleted_at is null`
   }
+  // Btw's fields are per store: the line names the store as it was called then.
+  const stores = section === "vat" ? new Map((yield* storesOf(sql)).map((s) => [s.id, s.name])) : undefined
   for (const c of changes(section, before, next)) {
+    const of = c.key === undefined ? undefined : stores?.get(c.key)
     yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
       action: `settings.${section}.${c.field}`,
       subjectType: "workspace_settings",
       subjectId: section,
       section,
-      diff: { ...(c.key === undefined ? {} : { key: c.key }), before: c.before, after: c.after }
+      diff: {
+        ...(c.key === undefined ? {} : { key: c.key }),
+        ...(of === undefined ? {} : { of }),
+        before: c.before,
+        after: c.after
+      }
     })
   }
   return before
