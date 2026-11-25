@@ -1,5 +1,10 @@
 import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
-import { ASK_PROOF, HANDOVER_REFUSED, PROOF_FAILED } from "@insyte/modules/channel-agent/domain/Rules"
+import {
+  ASK_PROOF,
+  DEFAULT_HANDOVER_MESSAGE,
+  HANDOVER_REFUSED,
+  PROOF_FAILED
+} from "@insyte/modules/channel-agent/domain/Rules"
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -1033,6 +1038,29 @@ describe("the customer agent, tuned", () => {
     expect(ok(await rpc("ChannelAgent.get", undefined, s.cookie)).settings.handoverMessage).toBe(
       SETTINGS.handoverMessage
     )
+  })
+
+  it("refuses an empty handover sentence as itself, and tries a message on it with the default words", async () => {
+    await s.configure()
+    for (const handoverMessage of ["", "   "]) {
+      expect(
+        failure(await rpc("ChannelAgent.set", { ...SETTINGS, handoverMessage } as never, s.cookie)),
+        handoverMessage
+      )
+        .toMatchObject({ _tag: "HoursInvalid", day: -1 })
+    }
+    expect(ok(await rpc("ChannelAgent.get", undefined, s.cookie)).settings.handoverMessage).toBe(
+      SETTINGS.handoverMessage
+    )
+    const tried = ok(
+      await rpc(
+        "ChannelAgent.test",
+        { text: "Ik wil een mens spreken", settings: { ...SETTINGS, handoverMessage: "" } } as never,
+        s.cookie
+      )
+    )
+    expect(tried).toMatchObject({ text: expect.stringContaining(DEFAULT_HANDOVER_MESSAGE.split(" Je hoort")[0]!) })
+    expect(tried.handover).toMatchObject({ reason: "asks_person" })
   })
 
   it("shows its chat draft in the inbox, and the team sends, takes or throws it away, each with its Undo", async () => {

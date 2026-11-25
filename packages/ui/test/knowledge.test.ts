@@ -3,6 +3,7 @@ import {
   type Article,
   diffLines,
   LIMIT,
+  PUBLISHED_FOR,
   publishedVersion,
   revertTo,
   saveVersion,
@@ -56,5 +57,13 @@ describe("the diff", () => {
       { kind: "same", text: "c" },
       { kind: "added", text: "d" }
     ])
+  })
+})
+
+describe("what a publish says", () => {
+  it("names only the agents the chapter is for", () => {
+    expect(PUBLISHED_FOR.customer_agent).toBe("De klantagent gebruikt vanaf nu deze versie.")
+    expect(PUBLISHED_FOR.assistant).toBe("Vraag Insyte gebruikt vanaf nu deze versie.")
+    expect(PUBLISHED_FOR.both).toContain("De klantagent en Vraag Insyte")
   })
 })

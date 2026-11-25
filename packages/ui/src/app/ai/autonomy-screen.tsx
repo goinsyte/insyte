@@ -41,7 +41,7 @@ const GUIDE = [
   },
   {
     title: "Ook voor je eigen agents",
-    body: "Een agent via een API-sleutel, of straks via MCP, volgt dezelfde regels.",
+    body: "Een agent via een API-sleutel of MCP volgt dezelfde regels.",
     art: "keys"
   }
 ] as const

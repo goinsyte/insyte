@@ -4,7 +4,7 @@ import { BookOpen, MessageCircle, Plus, Sparkles, X } from "../../icons";
 import { ReadOnlyNotice } from "../access/read-only-notice";
 import { EmptyPage } from "../common/empty-page";
 import { PageGuide } from "../common/page-guide";
-import { FormDialog } from "../common/form-dialog";
+import { Field, FormDialog } from "../common/form-dialog";
 import { BandedList, SettingCard, StatusPill } from "../settings/setting-card";
 import { AUDIENCE_LABEL, type Audience, CHANNEL_LABEL, type Gap, LIMIT, STATUS_LABEL, SUGGESTED } from "../lib/knowledge";
 import { formatRelative } from "../lib/format";
@@ -163,8 +163,12 @@ function NewArticleDialog({ open, onClose, onCreate }: { open: boolean; onClose:
 				onClose();
 			}}
 		>
-			<input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Bijvoorbeeld: Verzending buiten de EU" aria-label="Titel" className="field h-11 rounded-lg px-3.5 text-base text-ink outline-none placeholder:text-ink-3 focus:bg-paper" />
-			<AudiencePicker value={audience} onChange={setAudience} />
+			<Field label="Titel" hint={title.trim() ? undefined : "Geef het hoofdstuk eerst een titel."}>
+				<input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Bijvoorbeeld: Verzending buiten de EU" className="field h-11 rounded-lg px-3.5 text-base text-ink outline-none placeholder:text-ink-3 focus:bg-paper" />
+			</Field>
+			<Field label="Voor wie">
+				<AudiencePicker value={audience} onChange={setAudience} />
+			</Field>
 		</FormDialog>
 	);
 }
@@ -180,6 +184,8 @@ export function AudiencePicker({ value, onChange, disabled }: { value: Audience;
 		</span>
 	);
 }
+// A radiogroup names itself: a Field around it is not a <label> (see `Field`).
+AudiencePicker.namesItself = true;
 
 /** "Toevoegen aan…": pick the chapter the answer belongs in; the editor opens with the question as a new section. */
 function GapDialog({ gap, articles, onClose }: { gap: Gap | null; articles: ReadonlyArray<KnowledgeRow>; onClose: () => void }) {

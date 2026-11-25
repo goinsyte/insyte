@@ -48,6 +48,8 @@ function Editor({ source }: { source: ArticleSource }) {
 	const [versions, setVersions] = useState(false);
 	const st = statusOf({ ...a, ...draft });
 	const over = draft.body.length > LIMIT;
+	// An empty chapter answers nothing: it may be kept as a draft, not published.
+	const empty = draft.body.trim() === "";
 	const area = useRef<HTMLTextAreaElement>(null);
 
 	const publishGate = source.publishGate(draft.audience);
@@ -184,7 +186,7 @@ function Editor({ source }: { source: ArticleSource }) {
 							<button type="button" disabled={over || (!dirty && st !== "changed" && st !== "draft")} onClick={() => keep(false)} className="flex h-8 items-center rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink disabled:opacity-45">
 								Opslaan als concept
 							</button>
-							<button type="button" disabled={over || !publishGate.ok || (!dirty && st === "published")} title={publishGate.ok ? undefined : publishGate.reason} onClick={() => keep(true)} className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45">
+							<button type="button" disabled={over || empty || !publishGate.ok || (!dirty && st === "published")} title={!publishGate.ok ? publishGate.reason : empty ? "Schrijf eerst de tekst" : undefined} onClick={() => keep(true)} className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45">
 								Publiceren
 							</button>
 						</>
@@ -260,7 +262,8 @@ function VersionDrawer({ open, source, canRevert, onClose }: { open: boolean; so
 						<section className="flex flex-col gap-2 px-5 pb-6">
 							<div className="flex items-center justify-between">
 								<h3 className="font-medium text-ink-3 text-xs">{before ? `Anders dan versie ${before.n}` : "De eerste versie"}</h3>
-								{canRevert && chosen.n !== current ? (
+								{/* Only once the texts are read, and not for an empty one (a chapter's first): that would publish nothing. */}
+								{canRevert && chosen.n !== current && loaded !== null && chosen.body.trim() !== "" ? (
 									<button
 										type="button"
 										onClick={() => {

@@ -191,7 +191,7 @@ function Welcome({ onPick, compact }: { onPick: (s: string) => void; compact: bo
 				</h2>
 				<p className="max-w-[52ch] text-base text-ink-2 leading-relaxed">
 					{needs === null ? "Ik lees de wachtrij van vandaag als je erom vraagt." : `Ik heb de wachtrij van vandaag gelezen: ${needs} ${needs === 1 ? "zaak wacht" : "zaken wachten"} op jou.`} Ik kan bestellingen, tickets,
-					chargebacks en leveranciers doorzoeken en uitwerken wat ik zou doen als voorstel. Ik werk binnen de regels die jij stelt: wat geld of klanten raakt, leg ik eerst aan je voor.
+					chargebacks en leveranciers doorzoeken en uitwerken wat ik zou doen als voorstel. Zelf wijzig ik niets: ik lees alleen, en wat er moet gebeuren doe je zelf.
 				</p>
 			</div>
 			<ul className="flex flex-col gap-1">
