@@ -114,7 +114,12 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   await dialog.getByRole("button", { name: "Koppelen" }).click()
   await expect(page.getByText(/Websitechat gekoppeld aan/)).toBeVisible()
 
-  await shopper.goto(`${storefront}/`)
+  // The isolate that answered the first 404 may hold "no chat here" for half a minute (`routeOf`): the storefront is
+  // loaded again until the bubble shows, as a shopper's next page would.
+  await expect(async () => {
+    await shopper.goto(`${storefront}/`)
+    await expect(shopper.getByRole("button", { name: "Chat met ons" })).toBeVisible({ timeout: 5_000 })
+  }).toPass({ timeout: 45_000 })
   await shopper.getByRole("button", { name: "Chat met ons" }).click()
   await shopper.getByLabel("Je bericht").fill("Waar blijft mijn pakket?")
   await shopper.getByRole("button", { name: "Verstuur" }).click()
@@ -153,4 +158,6 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   const read = await thread.json() as { ok: { takenOverBy: string | null; handedBackAt: string | null } }
   expect(read.ok.takenOverBy).toBeNull()
   expect(read.ok.handedBackAt).not.toBeNull()
+  // The widget keeps polling: a request still handed on when the test ends is dropped, not failed.
+  await shopper.unrouteAll({ behavior: "ignoreErrors" })
 })
