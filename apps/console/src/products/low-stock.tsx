@@ -8,6 +8,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useState } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { lowStockAtom } from "../data/products.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
@@ -24,7 +25,7 @@ export function ConsoleLowStock() {
   const gate = useGate("support", 2)
   const page = Option.getOrUndefined(AsyncResult.value(useAtomValue(lowStockAtom)))
   const restock = useAtomSet(ticketWrites.restock, { mode: "promiseExit" })
-  const undo = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(ticketWrites.undo)
   const [decided, setDecided] = useState<Record<string, Decision>>({})
 
   if (!gate.ok || page === undefined) return null

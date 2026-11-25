@@ -5,6 +5,7 @@ import type { Currency, Order } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { useRef } from "react"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 import { customerOf } from "./customers-source.ts"
@@ -75,7 +76,7 @@ export function arrivingCustomerDetail(row: CustomerRow): CustomerDetailSource {
 export function useCustomerNewTicket(d: CustomerDetail): (() => void) | undefined {
   const gate = useGate("support", 2)
   const create = useAtomSet(ticketWrites.create, { mode: "promiseExit" })
-  const undo = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(ticketWrites.undo)
   const busy = useRef(false)
   if (!gate.ok) return undefined
   const c = d.customer

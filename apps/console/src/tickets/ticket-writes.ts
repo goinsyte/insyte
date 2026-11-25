@@ -6,6 +6,7 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import type { BulkChange, Said, TicketCommands, TicketPatch } from "@insyte/ui/app/tickets/source"
 import { Exit } from "effect"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -113,7 +114,7 @@ const changeOf = (change: BulkChange) => (t: Ticket): Ticket => {
 export function useNotifyCustomer(): (ticket: Ticket) => Promise<boolean> {
   const keys = { reactivityKeys: [...TICKETS] }
   const send = useAtomSet(ticketWrites.emailCustomer, { mode: "promiseExit" })
-  const undo = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(ticketWrites.undo)
   return async (ticket) => {
     // Its own id, so a request that is sent twice (a retry on a bad connection) mails the shopper once.
     const exit = await send({ payload: { id: ticket.id, mailId: mintId("eml") }, ...keys })
@@ -153,7 +154,7 @@ export function useTicketCommands(show: (overlay: Overlay) => void, reset: () =>
     watch: useAtomSet(ticketWrites.watch, { mode: "promiseExit" }),
     unwatch: useAtomSet(ticketWrites.unwatch, { mode: "promiseExit" }),
     comment: useAtomSet(ticketWrites.comment, { mode: "promiseExit" }),
-    undo: useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(ticketWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {

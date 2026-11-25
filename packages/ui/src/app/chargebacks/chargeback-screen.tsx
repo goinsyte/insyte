@@ -104,7 +104,7 @@ function CaseView({ c }: { c: Chargeback }) {
   async function draw() {
     if (!commands.draw) return
     setBuilding(true)
-    await commands.draw(c.id)
+    await commands.draw([c])
     setBuilding(false)
   }
 

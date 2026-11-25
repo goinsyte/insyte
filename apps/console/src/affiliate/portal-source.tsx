@@ -42,6 +42,7 @@ import {
   affiliateProfileAtom,
   affiliateResourcesAtom
 } from "../data/affiliate-portal.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
 /*
@@ -271,7 +272,7 @@ export function ConsoleAffiliatePortal({ me, children }: { me: AffiliateMe; chil
     archiveLink: useAtomSet(affiliatePortalWrites.archiveLink, { mode: "promiseExit" }),
     saveProfile: useAtomSet(affiliatePortalWrites.saveProfile, { mode: "promiseExit" }),
     savePayment: useAtomSet(affiliatePortalWrites.savePayment, { mode: "promiseExit" }),
-    undo: useAtomSet(affiliatePortalWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(affiliatePortalWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {

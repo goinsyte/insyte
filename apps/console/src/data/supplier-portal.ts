@@ -78,8 +78,6 @@ export const portalWrites = {
   accept: ConsoleClient.mutation("SupplierPortal.orders.accept"),
   ship: ConsoleClient.mutation("SupplierPortal.orders.ship"),
   reportProblem: ConsoleClient.mutation("SupplierPortal.orders.reportProblem"),
-  /** An order's page, read for its packing slip. */
-  order: ConsoleClient.mutation("SupplierPortal.orders.get"),
   saveStock: ConsoleClient.mutation("SupplierPortal.products.saveStock"),
   setReporting: ConsoleClient.mutation("SupplierPortal.products.setReporting"),
   undo: ConsoleClient.mutation("SupplierPortal.undo")

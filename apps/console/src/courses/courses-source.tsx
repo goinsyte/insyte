@@ -7,6 +7,7 @@ import { Exit } from "effect"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { COURSES, courseWrites } from "../data/courses.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
@@ -177,7 +178,7 @@ export function useConsoleCoursesSource(catalogue: CourseCatalogue): CoursesSour
     reset: useAtomSet(courseWrites.reset, { mode: "promiseExit" }),
     ask: useAtomSet(courseWrites.ask, { mode: "promiseExit" }),
     answer: useAtomSet(courseWrites.answer, { mode: "promiseExit" }),
-    undo: useAtomSet(courseWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(courseWrites.undo)
   }
   const keys = { reactivityKeys: COURSES }
   const undo = (token: string, after?: () => void) =>

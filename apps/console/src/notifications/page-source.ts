@@ -7,6 +7,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { NOTES } from "../data/frame.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { noteTabAtom, noteWrites, reReadNotes } from "../data/notifications.ts"
 import { toNote } from "../frame/notes.ts"
 
@@ -85,11 +86,13 @@ export function useConsoleNotificationsSource(prefs: NotifyPrefs): Notifications
   const waiting = { inbox: inboxResult.waiting, later: laterResult.waiting, cleared: clearedResult.waiting }
   const reading = waiting.inbox || waiting.later || waiting.cleared
 
+  // In turn: read and unread go as two writes, an Undo can snooze to several times, and E pressed down the list clears
+  // note after note before the first came back.
   const write = {
-    setRead: useAtomSet(noteWrites.setRead, { mode: "promiseExit" }),
-    clear: useAtomSet(noteWrites.clear, { mode: "promiseExit" }),
-    restore: useAtomSet(noteWrites.restore, { mode: "promiseExit" }),
-    snooze: useAtomSet(noteWrites.snooze, { mode: "promiseExit" }),
+    setRead: useAtomSetInTurn(noteWrites.setRead),
+    clear: useAtomSetInTurn(noteWrites.clear),
+    restore: useAtomSetInTurn(noteWrites.restore),
+    snooze: useAtomSetInTurn(noteWrites.snooze),
     setPref: useAtomSet(noteWrites.setPref, { mode: "promiseExit" })
   }
   const reRead = useAtomSet(reReadNotes)

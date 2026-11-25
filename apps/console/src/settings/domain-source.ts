@@ -6,6 +6,7 @@ import type { SettingsDepthSource } from "@insyte/ui/app/settings/depth/source"
 import { Exit } from "effect"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { DEPTH, depthWrites, sendingDomainAtom } from "../data/settings-depth.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -104,7 +105,7 @@ export function useConsoleDomainSource(state: SendingDomainState): SettingsDepth
   const verify = useAtomSet(depthWrites.verifyDomain, { mode: "promiseExit" })
   const setUp = useAtomSet(depthWrites.setUpDomain, { mode: "promiseExit" })
   const remove = useAtomSet(depthWrites.removeDomain, { mode: "promiseExit" })
-  const undo = useAtomSet(depthWrites.undo, { mode: "promiseExit" })
+  const undo = useAtomSetInTurn(depthWrites.undo)
   const refresh = useAtomRefresh(sendingDomainAtom)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)

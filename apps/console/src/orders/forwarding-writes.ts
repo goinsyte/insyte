@@ -5,6 +5,7 @@ import { forwardSentence, type ForwardVia } from "@insyte/ui/app/lib/forwarding"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit } from "effect"
 import { FORWARDING, forwardingWrites } from "../data/forwarding.ts"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { ORDERS } from "../data/orders.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
@@ -39,7 +40,7 @@ export function useForwardingCommands() {
     forward: useAtomSet(forwardingWrites.forward, { mode: "promiseExit" }),
     markConfirmed: useAtomSet(forwardingWrites.markConfirmed, { mode: "promiseExit" }),
     reroute: useAtomSet(forwardingWrites.reroute, { mode: "promiseExit" }),
-    undo: useAtomSet(forwardingWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(forwardingWrites.undo)
   }
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {

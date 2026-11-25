@@ -21,6 +21,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useEffect } from "react"
 import { toast } from "sonner"
+import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { channelsAtom, INBOX, inboxWrites, threadAtom } from "../data/inbox.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
 import { bubbleOf } from "./thread-of.ts"
@@ -71,7 +72,7 @@ function useDraftActions(
     send: useAtomSet(inboxWrites.sendDraft, { mode: "promiseExit" }),
     use: useAtomSet(inboxWrites.useDraft, { mode: "promiseExit" }),
     discard: useAtomSet(inboxWrites.discardDraft, { mode: "promiseExit" }),
-    undo: useAtomSet(inboxWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(inboxWrites.undo)
   }
   const draft = detail.draft
   if (draft === null) return undefined
@@ -155,7 +156,7 @@ function Banner(
   const write = {
     takeOver: useAtomSet(inboxWrites.takeOver, { mode: "promiseExit" }),
     handBack: useAtomSet(inboxWrites.handBack, { mode: "promiseExit" }),
-    undo: useAtomSet(inboxWrites.undo, { mode: "promiseExit" })
+    undo: useAtomSetInTurn(inboxWrites.undo)
   }
   // The letter's own read, every five seconds: the list's row may be older.
   const state = detail.thread.agentState ?? undefined
