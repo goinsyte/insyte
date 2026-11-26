@@ -6,8 +6,10 @@ import type { ChatList } from "@insyte/modules/chats/domain/Chats"
 import type { CourseCatalogue } from "@insyte/modules/courses/domain/Courses"
 import type { ChannelStatus } from "@insyte/modules/inbox/domain/Chat"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
+import type { QueueList } from "@insyte/modules/queue/domain/Queue"
 import type { SheetList } from "@insyte/modules/sheets/domain/Sheets"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
+import { useHydrated } from "@insyte/ui/app/hooks/use-hydrated"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
 import { navActions, navPrefsOf } from "@insyte/ui/app/lib/nav-model"
@@ -115,6 +117,7 @@ const NO_COURSES = Atom.make(AsyncResult.initial<CourseCatalogue, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
 const NO_CHANNELS = Atom.make(AsyncResult.initial<ChannelStatus, never>())
 const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
+const NO_QUEUE = Atom.make(AsyncResult.initial<QueueList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
 const MADE_HERE = new Set([
@@ -208,7 +211,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const otherCounts = value(useAtomValue(COUNTED_AREAS.has(area) ? navCountsAtom(area) : NO_COUNTS))
   const areaCounts = ticketCounts ?? inboxCounts ?? otherCounts
   // Start's queue figures, on every page: the panel's "Wacht op jou" and "Voorstellen klaar", the top bar's proposals.
-  const queueCounts = value(useAtomValue(queueCountsAtom))?.counts
+  // Read in the browser only: no loader waits for them, and a read the server's render starts but does not wait for is
+  // cut off when the request ends, in the middle of its database transaction.
+  const hydrated = useHydrated()
+  const queueCounts = value(useAtomValue(hydrated ? queueCountsAtom : NO_QUEUE))?.counts
   // The Marketplace (M17 step 3): read while its modal is open or Instellingen → Apps shows.
   const marketplace = useConsoleMarketplace()
   const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
