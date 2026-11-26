@@ -58,6 +58,9 @@ export function useBeginConnect(returnPath: string) {
   const begin = useAtomSet(storeWrites.beginConnect, { mode: "promiseExit" })
   return async (domain: string): Promise<void> => {
     const started = await run(begin({ payload: { shopDomain: domain, returnPath } }))
-    if (started !== undefined) window.location.assign(started.authorizeUrl)
+    if (started === undefined) return
+    window.location.assign(started.authorizeUrl)
+    // The page is leaving for Shopify: nothing here goes back to idle meanwhile.
+    return new Promise<never>(() => {})
   }
 }

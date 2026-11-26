@@ -199,6 +199,8 @@ export function OnboardingScreen({ slug, register = false }: {
 
   const seed = view.staat === "leeg" ? ANALYSIS.first : view.staat === "druk" ? ANALYSIS.busy : ANALYSIS.settled
   const mode = analysisMode(form.connected, seed)
+  // The error state: the store's first import gave up, and the sync step asks to connect it again.
+  const importFailed = form.connected && view.staat === "fout"
   const prepared = form.prepared ?? defaultPrepared(mode)
   const levels = form.levels ?? proposedLevels(form.answers)
 
@@ -262,6 +264,15 @@ export function OnboardingScreen({ slug, register = false }: {
   }
 
   const next = async () => {
+    if (step === "sync" && importFailed) {
+      // "Opnieuw koppelen": Shopify's approval, and the import runs again.
+      setBusy(true)
+      await pause(900)
+      setBusy(false)
+      setView({ staat: "gewoon" })
+      toast({ title: "Winkel opnieuw gekoppeld", body: "De import begint opnieuw.", tone: "good" })
+      return
+    }
     const check = validate()
     setErrors(check.errors ?? {})
     setRefused(null)
@@ -285,6 +296,11 @@ export function OnboardingScreen({ slug, register = false }: {
   const skip = () => {
     if (step === "store") set({ connected: false })
     if (step === "analysis") set({ prepared: [] })
+    // Without the import there is nothing to analyse: on to ready, past the analysis and the offline plan.
+    if (step === "sync") {
+      go("ready")
+      return
+    }
     const to = steps[index + 1]
     if (to !== undefined) go(to)
   }
@@ -302,6 +318,7 @@ export function OnboardingScreen({ slug, register = false }: {
     errors,
     mode,
     seed,
+    importFailed,
     prepared,
     levels,
     register,
@@ -527,6 +544,7 @@ type StepArgs = {
   readonly onGoogle: () => Promise<void>
   readonly back: () => void
   readonly onRead: () => void
+  readonly importFailed: boolean
 }
 
 function renderStep(a: StepArgs): StepContent {
@@ -762,6 +780,20 @@ function renderStep(a: StepArgs): StepContent {
         skip: form.connected ? undefined : "Nu overslaan"
       }
     case "sync":
+      if (a.importFailed) {
+        return {
+          head: (
+            <Heading title="De eerste import is mislukt.">
+              Koppel je winkel opnieuw om het nog eens te proberen, of ga verder zonder en koppel later via Instellingen
+              › Koppelingen.
+            </Heading>
+          ),
+          body: null,
+          primary: "Opnieuw koppelen",
+          busy: "Shopify wordt geopend",
+          skip: "Nu overslaan"
+        }
+      }
       return {
         head: (
           <Heading title={form.connected ? "Alles wordt opgehaald." : "Geen winkel, geen import."}>
@@ -771,7 +803,8 @@ function renderStep(a: StepArgs): StepContent {
           </Heading>
         ),
         body: <SyncProgress connected={form.connected} store={a.seed.store} domain={shopDomain(form.shop)} />,
-        primary: form.connected ? "Laat Insyte kijken" : "Verder"
+        primary: form.connected ? "Laat Insyte kijken" : "Verder",
+        ...(form.connected ? { skip: "Nu overslaan" } : {})
       }
     case "analysis": {
       const copy = analysisCopy(a.mode, form.read, a.seed)

@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react"
 import { Check, Loader } from "../../icons"
 import { Field } from "../common/form-dialog"
 import { persistStep } from "../lib/onboarding-api"
+import type { PlanTile } from "../lib/plan-tile"
 import { cn } from "../lib/utils"
 import { BrandLogo } from "../marketplace/brand-logos"
 import type { StepDef } from "./onboarding-shell"
@@ -64,12 +65,25 @@ const PLANS: Plan[] = [
 export type PlanChoice = Plan["id"]
 export type BillingChoice = "monthly" | "annual"
 
-/** `onStart` starts the trial where the host has a server (the console: `Onboarding.advance`); it throws to refuse. */
-export function planStep({ data, patch, next, onStart }: {
+/** The reference's own plans, for a host without a server (the design app). */
+const DESIGN_TILES: ReadonlyArray<PlanTile> = PLANS.map((p) => ({
+  id: p.id,
+  name: p.name,
+  hint: p.tagline,
+  monthly: `$${p.priceMonthly}`,
+  annual: `$${p.priceAnnual}`
+}))
+
+/**
+ * `onStart` starts the trial where the host has a server (the console: `Onboarding.advance`); it throws to refuse.
+ * `plans` are that server's (seats, stores and Stripe's prices); without them the reference's own.
+ */
+export function planStep({ data, patch, next, onStart, plans = DESIGN_TILES }: {
   data: OnboardingData
   patch: (p: OnboardingData) => void
   next: () => void
   onStart?: ((plan: PlanChoice, billing: BillingChoice) => Promise<void>) | undefined
+  plans?: ReadonlyArray<PlanTile> | undefined
 }): StepDef {
   const d = data as Record<string, string | undefined>
   return {
@@ -89,6 +103,7 @@ export function planStep({ data, patch, next, onStart }: {
     },
     content: (
       <PlanPicker
+        plans={plans}
         value={(d.plan as Plan["id"]) ?? "growth"}
         billing={(d.billing as "monthly" | "annual") ?? "monthly"}
         onPlan={(p) => patch({ plan: p })}
@@ -98,16 +113,22 @@ export function planStep({ data, patch, next, onStart }: {
   }
 }
 
+/** The store step's answer to "Verder" before a store is connected. */
+export const CONNECT_FIRST = "Koppel eerst je winkel, of sla deze stap over."
+
 /**
- * `onSkip` leaves the store for later where the host has a server. `onConnect` is how that host connects one (the
- * console since M6.2: to Shopify's approval page, back to the next step); without it the field is shown but cannot
- * connect, and the step can only be skipped. The design app simulates the hand-off.
+ * "Verder" goes on with the store connected, "Nu overslaan" without it (the v2 design's two buttons). `onSkip` leaves
+ * the store for later where the host has a server, and `onContinue` goes on with the store that server says is
+ * connected (it throws the sentence to show when there is none). `onConnect` is how that host connects one (the console
+ * since M6.2: to Shopify's approval page, back to the next step); without it the field is shown but cannot connect, and
+ * the step can only be skipped. The design app simulates the hand-off.
  */
-export function storeStep({ data, patch, next, onSkip, onConnect }: {
+export function storeStep({ data, patch, next, onSkip, onContinue, onConnect }: {
   data: OnboardingData
   patch: (p: OnboardingData) => void
   next: () => void
   onSkip?: (() => Promise<void>) | undefined
+  onContinue?: (() => Promise<void>) | undefined
   /** Sends the person to Shopify for `<handle>.myshopify.com`; resolves only if it could not (and said why). */
   onConnect?: ((domain: string) => Promise<void>) | undefined
 }): StepDef {
@@ -118,17 +139,28 @@ export function storeStep({ data, patch, next, onSkip, onConnect }: {
     subtitle:
       "We halen bestellingen, producten, klanten en voorraad op. Je trekt de toegang altijd in via Shopify-beheer.",
     canContinue: true,
-    primaryLabel: shopConnected ? "Doorgaan" : "Nu overslaan",
+    primaryLabel: "Verder",
     busyLabel: "Bezig met opslaan",
-    optional: !shopConnected,
     onPrimary: async () => {
-      if (onSkip !== undefined) {
-        await onSkip()
+      if (onContinue !== undefined) {
+        await onContinue()
         return
       }
-      persistStep("store", { storeSkipped: !shopConnected })
+      if (!shopConnected) throw new Error(CONNECT_FIRST)
+      persistStep("store", { storeSkipped: false })
       next()
     },
+    ...(shopConnected ? {} : {
+      skipLabel: "Nu overslaan",
+      onSkip: async () => {
+        if (onSkip !== undefined) {
+          await onSkip()
+          return
+        }
+        persistStep("store", { storeSkipped: true })
+        next()
+      }
+    }),
     content: (
       <ShopifyConnect
         data={data as Record<string, string | boolean | undefined>}
@@ -170,11 +202,13 @@ export function readyStep({ data, finish, onReady, content }: {
 /* ─── Plan picker — SelectionGroup with right-aligned price + billing toggle ── */
 
 function PlanPicker({
+  plans,
   value,
   billing,
   onPlan,
   onBilling
 }: {
+  plans: ReadonlyArray<PlanTile>
   value: Plan["id"]
   billing: "monthly" | "annual"
   onPlan: (p: Plan["id"]) => void
@@ -219,17 +253,17 @@ function PlanPicker({
         columns={1}
         label="Abonnement"
       >
-        {PLANS.map((p) => {
-          const price = billing === "annual" ? p.priceAnnual : p.priceMonthly
+        {plans.map((p) => {
+          const price = billing === "annual" ? p.annual : p.monthly
           return (
             <SelectionTile
               key={p.id}
               id={p.id}
               label={p.name}
-              hint={p.tagline}
+              hint={p.hint}
               meta={
                 <span className="flex items-baseline gap-0.5 font-medium tabular-nums text-[15px] text-ink tabular-nums">
-                  ${price}
+                  {price ?? "–"}
                   <span className="text-[11px] text-ink-3">/mnd</span>
                 </span>
               }

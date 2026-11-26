@@ -214,6 +214,28 @@ describe("a store's first import", () => {
     expect(ok(await onboarding.start(founder.cookie)).done).toContain("store")
   })
 
+  it("lets onboarding go on without the first import, left for later, straight to ready", async () => {
+    const founder = await person(`backfill-later`, "Later B.V.")
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, founder.cookie))
+    const shop = `bf-later-${run}.myshopify.com`
+    const { authorizeUrl } = ok(
+      await rpc("Stores.beginConnect", { shopDomain: shop, returnPath: "/onboarding" }, founder.cookie)
+    )
+    const state = new URL(authorizeUrl).searchParams.get("state")!
+    await back(founder.cookie, { code: "abc", shop, state, hmac: "valid", timestamp: "1" })
+    ok(await onboarding.advance({ step: "store", choice: "connected" }, founder.cookie))
+    // Still importing: waiting for it is refused, going on without it is not. The analysis needs the import, so the
+    // steps it feeds are skipped, as skipping the store skips them.
+    expect(failure(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({
+      _tag: "StepNotReady",
+      missing: "import"
+    })
+    expect(ok(await onboarding.advance({ step: "sync", choice: "later" }, founder.cookie))).toMatchObject({
+      step: "ready"
+    })
+    expect(ok(await onboarding.advance({ step: "ready" }, founder.cookie))).toMatchObject({ completed: true })
+  })
+
   it("refreshes a lapsing token once, however many ask", async () => {
     const store = await connected("refresh", "short")
     const connectionId = await connectionOf(store.workspace, store.storeId)
