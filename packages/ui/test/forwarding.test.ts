@@ -63,7 +63,8 @@ describe("waiting", () => {
 
   it("says how long in hours and days", () => {
     const since = new Date(T0).toISOString()
-    expect(waitedLabel(since, T0 + 10 * 60_000)).toBe("zojuist")
+    expect(waitedLabel(since, T0 + 30_000)).toBe("zojuist")
+    expect(waitedLabel(since, T0 + 26 * 60_000)).toBe("26 min")
     expect(waitedLabel(since, T0 + 5 * HOUR)).toBe("5 u")
     expect(waitedLabel(since, T0 + 31 * HOUR)).toBe("1 d 7 u")
   })

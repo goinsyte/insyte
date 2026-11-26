@@ -10,8 +10,13 @@ import { storeWrites } from "../data/stores.ts"
  * from the stores page's source, so Start's reconnect plate does not carry that page into the dashboard's chunk.
  */
 
+/** What a refusal can offer besides saying why: connecting the store again, when Shopify must approve new rights. */
+interface Offers {
+  readonly reconnect?: (() => void) | undefined
+}
+
 /** What a refused store write says, as a toast. */
-const refused = (error: unknown) => {
+const refused = (error: unknown, offers: Offers) => {
   const tagged = error as { _tag?: string; [field: string]: unknown }
   switch (tagged._tag) {
     case "Forbidden":
@@ -29,7 +34,10 @@ const refused = (error: unknown) => {
     case "PixelInstallFailed":
       return void (tagged["reason"] === "scope"
         ? toast.error("Keur eerst de nieuwe rechten goed in Shopify", {
-          description: "Koppel de winkel opnieuw, dan vraagt Shopify toestemming voor Live."
+          description: "Koppel de winkel opnieuw, dan vraagt Shopify toestemming voor Live.",
+          ...(offers.reconnect === undefined
+            ? {}
+            : { action: { label: "Opnieuw koppelen", onClick: offers.reconnect } })
         })
         : tagged["reason"] === "unavailable"
         ? toast.error("Live kan hier nog niet worden aangezet")
@@ -42,11 +50,11 @@ const refused = (error: unknown) => {
 }
 
 /** A store write's value, or `undefined` once its refusal was said. */
-export async function run<A>(write: Promise<Exit.Exit<A, unknown>>): Promise<A | undefined> {
+export async function run<A>(write: Promise<Exit.Exit<A, unknown>>, offers: Offers = {}): Promise<A | undefined> {
   const exit = await write
   if (Exit.isSuccess(exit)) return exit.value
   const failure = exit.cause.reasons.find((r) => r._tag === "Fail")
-  refused(failure === undefined ? Cause.squash(exit.cause) : failure.error)
+  refused(failure === undefined ? Cause.squash(exit.cause) : failure.error, offers)
   return undefined
 }
 

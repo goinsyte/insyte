@@ -1,24 +1,31 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+import { formatDate, type Notation } from "../lib/format"
 import { FieldRow, SelectInput, UnsavedBar } from "./form"
 import { SettingCard } from "./setting-card"
 import { type RegionalFields, useRegionalSource } from "./workspace-source"
 
 /* Each choice is stored as its code (`workspaces.regional`) and read as the design names it. */
-const LANGUAGES = [
-  { value: "nl-NL", label: "Nederlands" },
-  { value: "en-US", label: "English (United States)" },
-  { value: "en-GB", label: "English (United Kingdom)" },
-  { value: "de-DE", label: "Deutsch" },
-  { value: "fr-FR", label: "Français" }
-]
+/*
+ * Insyte speaks Dutch only, so Dutch is the one language offered. A workspace that saved another before keeps it, read
+ * by its name, until someone picks Nederlands: nothing reads the language yet, so it changes nothing either way.
+ */
+const LANGUAGES = [{ value: "nl-NL", label: "Nederlands" }]
+const OTHER_LANGUAGES: Record<string, string> = {
+  "en-US": "Engels (VS)",
+  "en-GB": "Engels (VK)",
+  "de-DE": "Duits",
+  "fr-FR": "Frans"
+}
 /* The reporting currency (`workspaces.currency`): what the figures are counted in. Each store sells in Shopify's. */
 const CURRENCIES = [
   { value: "EUR", label: "EUR · euro" },
   { value: "USD", label: "USD · Amerikaanse dollar" },
   { value: "GBP", label: "GBP · Brits pond" }
 ]
-const DATE_FORMATS = ["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"]
+/** One fixed day, so the server's page and the browser's write the same example whatever the hour. */
+const EXAMPLE_DATE = new Date("2026-11-23T12:00:00Z")
+const DATE_FORMATS: ReadonlyArray<Notation["dateFormat"]> = ["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"]
 const TIME_FORMATS = [{ value: "24h", label: "24-uurs" }, { value: "12h", label: "12-uurs" }]
 const WEEK_STARTS = [
   { value: "mon", label: "Maandag" },
@@ -45,6 +52,14 @@ export function RegionalPage() {
   const timezones = TIMEZONES.some((z) => z.value === form.timezone)
     ? TIMEZONES
     : [...TIMEZONES, { value: form.timezone, label: form.timezone }]
+  const languages = LANGUAGES.some((l) => l.value === form.language)
+    ? LANGUAGES
+    : [...LANGUAGES, { value: form.language, label: OTHER_LANGUAGES[form.language] ?? form.language }]
+  // Each date notation read as an example date written in it, as the console writes dates.
+  const dateFormats = DATE_FORMATS.map((f) => ({
+    value: f,
+    label: formatDate(EXAMPLE_DATE, undefined, { dateFormat: f, timeFormat: "24h" })
+  }))
 
   const save = async () => {
     setSaving(true)
@@ -59,8 +74,8 @@ export function RegionalPage() {
     <>
       <SettingCard title="Taal en notatie">
         <div className="flex flex-col">
-          <FieldRow label="Taal">
-            <SelectInput value={form.language} onChange={(v) => set("language", v)} options={LANGUAGES} />
+          <FieldRow label="Taal" hint="Insyte is er alleen in het Nederlands.">
+            <SelectInput value={form.language} onChange={(v) => set("language", v)} options={languages} />
           </FieldRow>
           <FieldRow
             label="Valuta"
@@ -78,7 +93,7 @@ export function RegionalPage() {
             )
             : null}
           <FieldRow label="Datumnotatie">
-            <SelectInput value={form.dateFormat} onChange={(v) => set("dateFormat", v)} options={DATE_FORMATS} />
+            <SelectInput value={form.dateFormat} onChange={(v) => set("dateFormat", v)} options={dateFormats} />
           </FieldRow>
           <FieldRow label="Tijdnotatie">
             <SelectInput value={form.timeFormat} onChange={(v) => set("timeFormat", v)} options={TIME_FORMATS} />

@@ -169,17 +169,70 @@ describe("templates", () => {
 
   it("computes the profit template from Insyte's figures", () => {
     const figures: Figures = (metric) =>
-      metric === "omzet" ? 10_000 : metric === "advertentiekosten" ? 2_000 : metric === "overige_kosten" ? 1_000 : 50
+      metric === "omzet"
+        ? 10_000
+        : metric === "advertentiekosten"
+        ? 2_000
+        : metric === "overige_kosten"
+        ? 1_000
+        : metric === "terugbetaald_omzet"
+        ? 500
+        : 50
     const t = profitTab("t1")
     const ev = evaluator({ tabs: [t], figures }, "t1")
     // A row per month, then the total: revenue, ROAS, net and margin are formulas over the linked cells.
     expect(ev.value("B2")).toBe(10_000)
-    expect(ev.value("E2")).toBe(5)
-    expect(ev.value("G2")).toBe(7_000)
-    expect(ev.value("H2")).toBeCloseTo(0.7)
+    expect(ev.value("F2")).toBe(5)
+    // Net profit takes the refunds on counted orders off, so the margin is not the revenue's.
+    expect(ev.value("H2")).toBe(6_500)
+    expect(ev.value("I2")).toBeCloseTo(0.65)
     expect(ev.value(`B${MONTH_ROWS.length + 2}`)).toBe(50_000)
+    expect(ev.value(`H${MONTH_ROWS.length + 2}`)).toBe(32_500)
     expect(ev.value("B10")).toBe("ja")
     expect(isLinked([t])).toBe(true)
+    expect(figureRequests([t]).map((r) => r.metric)).toContain("terugbetaald_omzet")
+  })
+
+  it("keeps the profit template whole for months without figures and without ad spend", () => {
+    // A store weeks old: Insyte has no figures before its first order, and no ads anywhere.
+    const figures: Figures = (metric, month) =>
+      month !== MONTH_ROWS.at(-1)![1]
+        ? null
+        : metric === "omzet"
+        ? 1_000
+        : metric === "terugbetaald_omzet"
+        ? 100
+        : metric === "overige_kosten"
+        ? 200
+        : metric === "bestellingen"
+        ? 4
+        : 0
+    const t = profitTab("t1")
+    const ev = evaluator({ tabs: [t], figures }, "t1")
+    expect(Object.keys(t.cells).map((a) => ev.value(a)).filter(isErr)).toEqual([])
+    // An earlier month is empty, not an error.
+    expect(["B2", "C2", "D2", "E2", "F2", "G2", "H2", "I2"].map((a) => ev.value(a) ?? "")).toEqual(Array(8).fill(""))
+    // The last month and the total: no ROAS without ads, net profit after refunds and costs.
+    expect(ev.value("F6")).toBe("")
+    expect(ev.value("H6")).toBe(700)
+    expect(ev.value("I6")).toBeCloseTo(0.7)
+    expect(ev.value("B7")).toBe(1_000)
+    expect(ev.value("F7")).toBe("")
+    expect(ev.value("H7")).toBe(700)
+    expect(ev.value("I7")).toBeCloseTo(0.7)
+    expect(ev.value("B10")).toBe("ja")
+    // Without a margin for the last month there is no answer to the goal either.
+    const none = evaluator({ tabs: [t], figures: () => null }, "t1")
+    expect(none.value("I6")).toBe("")
+    expect(none.value("B10")).toBe("")
+  })
+
+  it("keeps a figure that cannot be read an error in the profit and the totals, never a short sum", () => {
+    const figures: Figures = (metric) =>
+      metric === "overige_kosten" ? { error: "#N/B", why: "Insyte kan dit cijfer nu niet ophalen." } : 1_000
+    const ev = evaluator({ tabs: [profitTab("t1")], figures }, "t1")
+    for (const a of ["G2", "H2", "I2", "G7", "H7", "I7", "B10"]) expect(isErr(ev.value(a))).toBe(true)
+    expect(ev.value("B7")).toBe(5_000)
   })
 
   it("writes a blank sheet as one empty tab", () => {

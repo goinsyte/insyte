@@ -5,6 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { monthRowsTo, TEMPLATES, templateTabs } from "@insyte/domain/sheet-templates"
 import {
+  beforeFirst,
   figureKey,
   figureRequests,
   type Figures,
@@ -518,10 +519,15 @@ export const restore = Effect.fn("Sheets.restoreSnapshot")(function*(sql: SqlCli
   yield* changed(sql, [...undo.sheets.map((s) => s.id), ...undo.shares.filter((x) => x.on).map((x) => x.id)])
 })
 
-/** A figure as the engine reads it: the number, or the error code a CSV cell shows. */
-const engineFigure = (f: { readonly value: number | null; readonly error: string | null }): number | SheetError =>
+/** A figure as the engine reads it: the number, empty before the first order, or the error code a CSV cell shows. */
+const engineFigure = (
+  f: { readonly value: number | null; readonly error: string | null; readonly resolved?: string | null | undefined },
+  months: ReadonlyArray<string>
+): number | SheetError | null =>
   f.value !== null
     ? f.value
+    : f.error === "no_month" && beforeFirst(f.resolved, months)
+    ? null
     : f.error === "unknown_metric"
     ? { error: "#NAAM?", why: "" }
     : f.error === "no_ads"
@@ -545,9 +551,14 @@ export const exportTab = Effect.fn("Sheets.export")(function*(input: ExportInput
       const tab = tabs.find((t) => t.id === input.tabId) ?? tabs[0]
       if (tab === undefined) return yield* new SheetNotFound({ id: input.id })
       const requests = figureRequests(tabs)
-      const read = requests.length === 0 ? { figures: [] } : yield* figures.read(sql, requests)
-      const known = new Map(read.figures.map((f) => [figureKey(f.metric, f.month), engineFigure(f)]))
-      const lookup: Figures = (metric, month) => known.get(figureKey(metric, month)) ?? { error: "#N/B", why: "" }
+      const read = requests.length === 0 ? { figures: [], months: [] } : yield* figures.read(sql, requests)
+      const known = new Map(read.figures.map((f) => [figureKey(f.metric, f.month), engineFigure(f, read.months)]))
+      // `null` is an answer (empty before the first order); only a figure never read is an error.
+      const lookup: Figures = (metric, month) => {
+        const key = figureKey(metric, month)
+        const v = known.get(key)
+        return v === undefined ? { error: "#N/B", why: "" } : v
+      }
       const rows = tabRows({ tabs, figures: lookup }, tab.id)
       yield* audit(sql, "sheets.export", sheet.id, { tab: tab.id, format: input.format })
       return new SheetExport({

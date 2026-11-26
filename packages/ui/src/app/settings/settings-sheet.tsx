@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
  */
 export function SettingsSheet({ title, icon: Icon, children }: { title: string; icon: IconComponent; children: ReactNode }) {
 	return (
-		<div className="relative isolate flex min-h-full min-w-0 shrink-0 flex-col bg-paper px-3 py-3 sm:px-5 sm:py-5">
+		<div className="relative isolate flex min-h-full min-w-0 flex-1 shrink-0 flex-col bg-paper px-3 py-3 sm:px-5 sm:py-5">
 			{/* The ground around the sheet carries /login's dot grid, faded toward the middle, so the
 			    margin reads as the drawing board the sheet is laid on rather than as empty white. */}
 			<div

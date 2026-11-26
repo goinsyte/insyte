@@ -3,6 +3,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { Config, Effect, Schema } from "effect"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { throughGate } from "../domain/Gate.ts"
+import type { IncidentFacts } from "../domain/Health.ts"
 import {
   addLine,
   backfillQuery,
@@ -13,7 +14,13 @@ import {
   FOLLOW_UP_PAGE,
   type PageSizes
 } from "../domain/Mirror.ts"
-import { ShopifyGraphql } from "../domain/Ports.ts"
+import {
+  missingScope,
+  refusalMessage,
+  ShopifyGraphql,
+  type ShopifyRefused,
+  type TokenRefused
+} from "../domain/Ports.ts"
 import { applyBatch, settleStock } from "./mirror.ts"
 import { connectionAt, wholeNode } from "./reads.ts"
 
@@ -182,7 +189,8 @@ const fetchPage = Effect.fn("Stores.backfill.fetch")(
 /**
  * Reads and writes pages of `resource` from its checkpoint until the step's time or pages are spent, each one
  * checkpointed. Answers whether the resource is done, how long Shopify asked to wait (`0`: not throttled), and the
- * mirror's counts.
+ * mirror's counts. A refusal no retry changes (`refusalOf`) gives the import up here, in the step, so the step
+ * succeeds with `refused` and the Workflow stops; any other failure fails the step, which is retried.
  */
 export const readPages = Effect.fn("Stores.backfill.pages")(function*(ctx: BackfillContext, resource: Resource) {
   const { sizes, stepPages } = yield* settings
@@ -192,13 +200,29 @@ export const readPages = Effect.fn("Stores.backfill.pages")(function*(ctx: Backf
   let waitMs = 0
   while (state.phase !== "done" && read < stepPages && Date.now() - began < STEP_BUDGET_MS) {
     const cursor = state.phase === "reading" ? state.cursor : null
+    const stop = <E extends ShopifyRefused | TokenRefused>(error: E) => {
+      const refused = refusalOf(error)
+      return refused === null ? Effect.fail(error) : Effect.succeed({ page: null, throttled: 0, refused })
+    }
     const fetched = yield* fetchPage(ctx, resource, cursor, sizes).pipe(
-      Effect.map((page) => ({ page, throttled: 0 })),
-      Effect.catchTag(
-        "ShopifyThrottled",
-        (throttled) => Effect.succeed({ page: null, throttled: Math.max(MIN_WAIT_MS, throttled.retryAfterMs) })
-      )
+      Effect.map((page) => ({ page, throttled: 0, refused: null })),
+      Effect.catchTags({
+        ShopifyThrottled: (throttled) =>
+          Effect.succeed({ page: null, throttled: Math.max(MIN_WAIT_MS, throttled.retryAfterMs), refused: null }),
+        ShopifyRefused: stop,
+        TokenRefused: stop
+      })
     )
+    if (fetched.refused !== null) {
+      yield* Effect.logWarning("backfill: Shopify refused the import, not retried", {
+        storeId: ctx.storeId,
+        resource,
+        refused: fetched.refused.facts.refused
+      })
+      yield* giveUp(ctx, fetched.refused.reason, fetched.refused.facts)
+      const counts = yield* countsOf(ctx.storeId)
+      return { done: false, waitMs: 0, pages: read, counts, refused: fetched.refused.reason as string | null }
+    }
     if (fetched.page === null) {
       // A short wait is had here; a long one, or one past the step's time, is the Workflow's to sleep on.
       if (fetched.throttled <= WAIT_IN_STEP_MS && Date.now() - began + fetched.throttled < STEP_BUDGET_MS) {
@@ -218,7 +242,13 @@ export const readPages = Effect.fn("Stores.backfill.pages")(function*(ctx: Backf
     state = next === null ? { phase: "done" } : { phase: "reading", cursor: next }
     yield* checkpoint(ctx, resource, state)
   }
-  return { done: state.phase === "done", waitMs, pages: read, counts: yield* countsOf(ctx.storeId) }
+  return {
+    done: state.phase === "done",
+    waitMs,
+    pages: read,
+    counts: yield* countsOf(ctx.storeId),
+    refused: null as string | null
+  }
 })
 
 /** The first import is in: the store is connected and synced, and the workspace hears it. */
@@ -248,18 +278,47 @@ export const finish = Effect.fn("Stores.backfill.finish")(function*(ctx: Backfil
 })
 
 /**
- * The backfill gave up (its retries are spent, or the token was refused): the store needs the operator, and the
- * connection's health says why (M6.1's incidents).
+ * A refusal no retry changes, as the incident's facts: Shopify no longer accepts the token (401, or a refresh it
+ * refused), or it denies the call (403: a grant the store has not approved, or data the app is not approved for, such
+ * as protected customer data). `null` for anything a retry may mend (a 5xx, a timeout) and for a store disconnected
+ * while it imported.
  */
-export const giveUp = Effect.fn("Stores.backfill.giveUp")(function*(ctx: BackfillContext, reason: string) {
-  const db = yield* Db
-  yield* db.scopedFor((sql) =>
-    Effect.gen(function*() {
-      yield* sql`update stores set status = 'action_required' where id = ${ctx.storeId} and status = 'connecting'`
-      yield* sql`insert into connection_incidents (id, workspace_id, connection_id, kind, tried)
-                 values (${mintId("inc")}, app_workspace_id(), ${ctx.connectionId}, 'sync_failed',
-                         ${JSON.stringify([{ step: "backfill", reason: reason.slice(0, 300) }])}::jsonb)
-                 on conflict (connection_id, kind) where resolved_at is null do update set tried = excluded.tried`
-    })
-  )
-})
+export const refusalOf = (
+  error: ShopifyRefused | TokenRefused
+): { readonly reason: string; readonly facts: IncidentFacts } | null => {
+  if (error._tag === "TokenRefused") {
+    return error.reason === "expired" ? { reason: "the store's token was refused", facts: { refused: "token" } } : null
+  }
+  if (error.status === 401) return { reason: refusalMessage(error), facts: { refused: "token" } }
+  if (error.status !== 403) return null
+  const scope = missingScope(error)
+  return {
+    reason: refusalMessage(error),
+    facts: scope === undefined ? { refused: "data" } : { refused: "scope", missing: [scope] }
+  }
+}
+
+/**
+ * The backfill gave up (its retries are spent, or Shopify refused it): the store needs the operator, and the
+ * connection's health says why (M6.1's incidents). A refusal (`facts.refused`) is noted as one: no retry was made.
+ */
+export const giveUp = Effect.fn("Stores.backfill.giveUp")(
+  function*(ctx: BackfillContext, reason: string, facts: IncidentFacts = {}) {
+    const db = yield* Db
+    const tried = [{
+      step: "backfill",
+      outcome: facts.refused === undefined ? "failed" : "refused",
+      reason: reason.slice(0, 300)
+    }]
+    yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        yield* sql`update stores set status = 'action_required' where id = ${ctx.storeId} and status = 'connecting'`
+        yield* sql`insert into connection_incidents (id, workspace_id, connection_id, kind, facts, tried)
+                   values (${mintId("inc")}, app_workspace_id(), ${ctx.connectionId}, 'sync_failed',
+                           ${JSON.stringify(facts)}::jsonb, ${JSON.stringify(tried)}::jsonb)
+                   on conflict (connection_id, kind) where resolved_at is null
+                   do update set facts = excluded.facts, tried = excluded.tried`
+      })
+    )
+  }
+)

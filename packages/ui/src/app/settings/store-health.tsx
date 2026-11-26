@@ -71,7 +71,7 @@ function IncidentCard({ incident }: { incident: StoreIncident }) {
               {incident.tried.map((t, n) => (
                 // oxlint-disable-next-line react/no-array-index-key -- the steps only grow, in order
                 <li key={n} className="flex gap-2.5 text-sm text-ink-2">
-                  <span className="w-10 shrink-0 text-ink-3 tabular-nums">{t.at}</span>
+                  <span className="min-w-10 shrink-0 whitespace-nowrap text-ink-3 tabular-nums">{t.at}</span>
                   <span className="min-w-0">{t.text}</span>
                 </li>
               ))}

@@ -51,6 +51,18 @@ export const LINK_DAYS: ReadonlyArray<{ id: InviteLink["days"]; label: string }>
   { id: 30, label: "30 dagen" }
 ]
 
+/**
+ * A store chip clicked in the store picker. From "all" it narrows to that one store; within a pick it goes on or off.
+ * A pick never turns into "all", not even one holding every store there is now: "all" takes in the stores connected
+ * later too, and only the "Alle winkels" chip grants that. The last store of a pick stays: an empty pick would grant
+ * nothing, and falling back to "all" would grant everything.
+ */
+export function toggleStore(value: StoreAccess, id: string): StoreAccess {
+  if (value === "all") return [id]
+  if (!value.includes(id)) return [...value, id]
+  return value.length === 1 ? value : value.filter((x) => x !== id)
+}
+
 export const isExpired = (i: Invite, at = Date.now()) => i.expiresAt <= at
 
 export const token = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6)

@@ -246,6 +246,60 @@ describe("Rekenbladen", () => {
     expect(ok(await rpc("Analytics.figures", { requests }, people.view)).figures[1]!.value).toBe(value(after, 1))
   })
 
+  it("takes off only the refunds on orders revenue counts, so a full refund is not taken off twice", async () => {
+    const requests = ["omzet", "terugbetaald", "terugbetaald_omzet"].map((metric) => ({ metric, month: C }))
+    await call(`http://api.test/api/__dev/facts/drain?workspace=${workspace}`, { method: "POST" })
+    const before = ok(await rpc("Analytics.figures", { requests }, people.owner))
+
+    // Two months back: €100 refunded in full, and €80 of which €30 came back.
+    const full = { ...order(21, at(C), 10_000), status: "refunded", payment_status: "refunded" }
+    const partial = { ...order(22, at(C, 11), 8000), payment_status: "partially_refunded" }
+    const refund = (n: number, amountMinor: number) => ({
+      shopify_id: `gid://shopify/Refund/${id(n)}`,
+      order_shopify_id: `gid://shopify/Order/${id(n)}`,
+      amount_minor: amountMinor,
+      currency: "EUR",
+      note: null,
+      created_at: at(C, 15)
+    })
+    const write = await call(`http://api.test/api/__dev/facts/orders?workspace=${workspace}&store=${storeId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ batch: { orders: [full, partial], refunds: [refund(21, 10_000), refund(22, 3000)] } })
+    })
+    expect(write.status).toBe(200)
+    await call(`http://api.test/api/__dev/facts/drain?workspace=${workspace}`, { method: "POST" })
+    const after = ok(await rpc("Analytics.figures", { requests }, people.owner))
+    const moved = (i: number) => (after.figures[i]!.value ?? 0) - (before.figures[i]!.value ?? 0)
+
+    // Revenue leaves the full refund's order out and counts the other at its total.
+    expect(moved(0)).toBeCloseTo(80, 6)
+    // Terugbetaald is every refund; the part of revenue given back is the partial one alone.
+    expect(moved(1)).toBeCloseTo(130, 6)
+    expect(moved(2)).toBeCloseTo(30, 6)
+
+    // The profit template's net profit for that month moves by revenue less that part: 80 - 30.
+    const made = ok(
+      await rpc("Sheets.create", {
+        template: "blank",
+        title: "Winst",
+        tabs: [tab({
+          A1: `=INSYTE("omzet"; "${C}")-INSYTE("terugbetaald_omzet"; "${C}")`,
+          A2: `=INSYTE("omzet"; "2001-01")`,
+          A3: `=INSYTE("omzet"; "2999-01")`
+        })]
+      }, people.owner)
+    )
+    const file = ok(await rpc("Sheets.export", { id: made.sheet.id, format: "csv" }, people.owner))
+    const [net, early, later] = file.content.replace(/^﻿/, "").split("\n")
+    expect(Number(net!.replace(/\./g, "").replace(",", "."))).toBeCloseTo(
+      (after.figures[0]!.value ?? 0) - (after.figures[2]!.value ?? 0),
+      2
+    )
+    // A month before the first order is empty; one Insyte has no figures for otherwise stays an error.
+    expect([early, later], file.content).toEqual(["", "#N/B"])
+  })
+
   it("lets a key read its member's sheets over /v1", async () => {
     const key = ok(
       await rpc("ApiKeys.create", {

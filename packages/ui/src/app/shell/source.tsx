@@ -206,10 +206,14 @@ export interface ShellSource {
 	>;
 }
 
-/** What the palette lists under Bestellingen, Klanten, Tickets, Inbox and Chats. */
+/** What the palette lists under Bestellingen, Klanten, Producten, Leveranciers, Tickets, Inbox and Chats. */
 export type RecordHits = {
 	orders: ReadonlyArray<{ id: string; number: string; customer: string }>;
 	customers: ReadonlyArray<{ id: string; name: string; email: string }>;
+	/** Products: the title and its vendor. */
+	products: ReadonlyArray<{ id: string; title: string; vendor: string }>;
+	/** Suppliers: the name and the contact address. */
+	suppliers: ReadonlyArray<{ id: string; name: string; email: string }>;
 	tickets: ReadonlyArray<{ id: string; number: string; title: string }>;
 	/** Mail threads: the subject and who wrote in. */
 	threads: ReadonlyArray<{ id: string; subject: string; from: string }>;

@@ -75,7 +75,66 @@ const drawnRowFor = async (cookie: string, subjectId: string) => {
   return undefined
 }
 
+/** An MCP tool called with a key, its answer read as the client reads it. */
+const tool = async (token: string, name: string, args: Record<string, unknown>) => {
+  const version = "2026-07-28"
+  const response = await call(`${HOST}/mcp`, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      "MCP-Protocol-Version": version,
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": name,
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name,
+        arguments: args,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": version,
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": { name: "insyte-test", version: "1.0.0" }
+        }
+      }
+    })
+  })
+  const text = await response.text()
+  const message: Json = response.headers.get("content-type")?.includes("text/event-stream")
+    ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5))).find((m) => "id" in m)
+    : JSON.parse(text)
+  return JSON.parse(message.result.content[0].text) as Json
+}
+
 describe("plates and proposals", () => {
+  it("says why an agent's refund was refused for its amount, not that the record changed", async () => {
+    const store = await importedStore("pp-refund")
+    const agent = ok(
+      await rpc("ApiKeys.create", {
+        label: "Agent",
+        access: { kind: "role", roleId: "service" },
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: true
+      }, store.cookie)
+    ).secret
+    const order = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#1001")!
+    // Eerst vragen, the default: the agent's refund is a proposal a person files.
+    const asked = await tool(agent, "refund_order", { order_id: order.id, amount_minor: 99_999_999 })
+    expect(asked).toMatchObject({ object: "agent_proposal" })
+    const refused = failure(await rpc("Proposals.file", { id: asked.proposal_id }, store.cookie)) as Json
+    expect(refused).toMatchObject({
+      _tag: "ProposalStale",
+      refusal: { reason: "over_balance", currency: order.currency }
+    })
+    expect(refused.refusal.balanceMinor).toBeGreaterThan(0)
+  }, 120_000)
+
   it("draws a return's plate, files it as the person with Undo, and refuses a role that may not approve", async () => {
     const store = await importedStore("pp-life")
     const { started, line } = await startReturn(store.cookie, store.workspace)

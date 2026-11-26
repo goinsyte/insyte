@@ -962,7 +962,7 @@ export const SUB_PANELS: Record<string, SubPanelConfig | null> = {
 	"/automations": AUTOMATIONS_PANEL,
 	"/chargebacks": CHARGEBACKS_PANEL,
 	"/analytics": null,
-	"/costs": null,
+	"/costs": SHEETS_PANEL,
 	"/marketplace": null,
 	"/settings": SETTINGS_PANEL,
 	"/notifications": NOTIFICATIONS_PANEL,

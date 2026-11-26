@@ -46,42 +46,69 @@ export function monthRowsTo(current: string, count = 5): MonthRows {
   })
 }
 
+/** A figure for a month: empty before the store's first order (`beforeFirst`), an error where it cannot be read. */
+const figure = (metric: string, m: string) => `=INSYTE("${metric}"; "${m}")`
+
+/**
+ * A month before the store's first order reads as an empty cell (the figures answer it so), and a ratio without a
+ * denominator as empty, not #DEEL/0!, so the template is whole for a store that is weeks old. A figure that cannot be
+ * read stays an error, and so does every cell that sums it, so a total is never short without saying so. Revenue
+ * counts an order at its total and leaves a wholly refunded one out (`@insyte/domain/Revenue`), so net profit takes
+ * off only what was refunded on the orders it counts (`terugbetaald_omzet`), the partial refunds. Kosten's net profit
+ * takes no refunds off, so the two differ by those.
+ */
 export function profitTab(id: string, months: MonthRows = MONTH_ROWS): Tab {
   const n = months.length
   const last = n + 1
+  const total = last + 1
   return tabFrom(
     id,
     "Overzicht",
     [
-      ["Maand", "Omzet", "Bestellingen", "Advertenties", "ROAS", "Overige kosten", "Nettowinst", "Marge"],
+      [
+        "Maand",
+        "Omzet",
+        "Terugbetaald op omzet",
+        "Bestellingen",
+        "Advertenties",
+        "ROAS",
+        "Overige kosten",
+        "Nettowinst",
+        "Marge"
+      ],
       ...months.map(([label, m], i) => {
         const r = i + 2
         return [
           label,
-          [`=INSYTE("omzet"; "${m}")`, "money"],
-          [`=INSYTE("bestellingen"; "${m}")`, "integer"],
-          [`=INSYTE("advertentiekosten"; "${m}")`, "money"],
-          [`=B${r}/D${r}`, "number"],
-          [`=INSYTE("overige_kosten"; "${m}")`, "money"],
-          [`=B${r}-D${r}-F${r}`, "money"],
-          [`=G${r}/B${r}`, "percent"]
+          [figure("omzet", m), "money"],
+          [figure("terugbetaald_omzet", m), "money"],
+          [figure("bestellingen", m), "integer"],
+          [figure("advertentiekosten", m), "money"],
+          [`=ALS(E${r}=0; ""; B${r}/E${r})`, "number"],
+          [figure("overige_kosten", m), "money"],
+          [`=ALS(AANTAL(B${r})=0; ""; B${r}-C${r}-E${r}-G${r})`, "money"],
+          [`=ALS(B${r}=0; ""; H${r}/B${r})`, "percent"]
         ] as const
       }),
       [
         ["Totaal", undefined, true],
         [`=SOM(B2:B${last})`, "money", true],
-        [`=SOM(C2:C${last})`, "integer", true],
-        [`=SOM(D2:D${last})`, "money", true],
-        [`=B${last + 1}/D${last + 1}`, "number", true],
-        [`=SOM(F2:F${last})`, "money", true],
+        [`=SOM(C2:C${last})`, "money", true],
+        [`=SOM(D2:D${last})`, "integer", true],
+        [`=SOM(E2:E${last})`, "money", true],
+        [`=ALS(E${total}=0; ""; B${total}/E${total})`, "number", true],
         [`=SOM(G2:G${last})`, "money", true],
-        [`=G${last + 1}/B${last + 1}`, "percent", true]
+        [`=SOM(H2:H${last})`, "money", true],
+        [`=ALS(B${total}=0; ""; H${total}/B${total})`, "percent", true]
       ],
       [],
       ["Doel nettomarge", ["25%", "percent"]],
-      [`Haalt ${months[n - 1]?.[0] ?? "de laatste maand"} het doel?`, `=ALS(H${last}>=B${last + 3}; "ja"; "nee")`]
+      [
+        `Haalt ${months[n - 1]?.[0] ?? "de laatste maand"} het doel?`,
+        `=ALS(AANTAL(I${last})=0; ""; ALS(I${last}>=B${total + 2}; "ja"; "nee"))`
+      ]
     ],
-    { A: 150, B: 120, D: 120, F: 130, G: 120 }
+    { A: 150, B: 120, C: 160, E: 120, G: 130, H: 120 }
   )
 }
 
@@ -114,7 +141,7 @@ export const TEMPLATES: ReadonlyArray<{ id: TemplateId; title: string; body: str
   {
     id: "profit",
     title: "Winst per maand",
-    body: "Omzet, advertenties, overige kosten en nettowinst, met de marge tegen je doel."
+    body: "Omzet, terugbetalingen, advertenties, overige kosten en nettowinst, met de marge tegen je doel."
   },
   {
     id: "ads",

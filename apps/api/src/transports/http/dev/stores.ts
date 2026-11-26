@@ -62,8 +62,8 @@ const StoreMirror = HttpRouter.add(
           select title, status from products where store_id = ${store} order by title`,
         customers: sql<{ name: string; email: string | null }>`
           select name, email from customers where store_id = ${store} order by shopify_id`,
-        inbound: sql<{ topic: string; processed: boolean; error: string | null }>`
-          select topic, processed_at is not null as processed, left(error, 300) as error from inbound_events
+        inbound: sql<{ id: string; topic: string; processed: boolean; error: string | null }>`
+          select id, topic, processed_at is not null as processed, left(error, 300) as error from inbound_events
           where store_id = ${store} order by received_at`,
         gdpr: sql<{ kind: string; completed: boolean }>`
           select kind, completed_at is not null as completed from gdpr_requests order by received_at`,

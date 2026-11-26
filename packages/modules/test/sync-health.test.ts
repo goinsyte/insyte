@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest"
 import {
   assess,
   findingSentence,
+  handlingSentence,
   missingScopes,
   type Observed,
   type OpenIncident,
+  remedySentence,
+  resolvedFindingSentence,
   stateOf,
   triedSentence,
   triedSummary,
   when
 } from "../src/stores/domain/Health.ts"
+import { ShopifyRefused, TokenRefused } from "../src/stores/domain/Ports.ts"
+import { refusalOf } from "../src/stores/use-cases/backfill.ts"
 import { grantGone } from "../src/stores/use-cases/token.ts"
 
 /*
@@ -177,12 +182,72 @@ describe("the words", () => {
     )
   })
 
+  it("says why a first import Shopify refused stopped, and that only the operator can mend it", () => {
+    expect(findingSentence("sync_failed", { refused: "token" })).toBe(
+      "De eerste import is gestopt: Shopify accepteert de toegang van Insyte niet meer."
+    )
+    expect(findingSentence("sync_failed", { refused: "scope", missing: ["read_customers"] })).toBe(
+      "De eerste import is gestopt: Insyte mag de klanten niet lezen."
+    )
+    expect(findingSentence("sync_failed", { refused: "data" })).toBe(
+      "De eerste import is gestopt: Shopify geeft Insyte geen toegang tot een deel van de winkelgegevens."
+    )
+    // Insyte does not try again: the operator does something.
+    expect(handlingSentence("sync_failed", { refused: "scope", missing: ["read_customers"] })).toBeNull()
+    expect(remedySentence("sync_failed", { refused: "token" })).toBe(
+      "Koppel de winkel opnieuw, dan vraagt Shopify je toestemming."
+    )
+    // Data Shopify withholds until it approves Insyte: reconnecting does not help, so no remedy; Insyte settles it.
+    expect(remedySentence("sync_failed", { refused: "data" })).toBeNull()
+    expect(handlingSentence("sync_failed", { refused: "data" })).toBe("Insyte zoekt dit uit; je hoeft niets te doen")
+    expect(triedSentence({ at: NOW, step: "backfill", outcome: "refused", since: null, reason: null }, NOW)).toBe(
+      "Stopte de eerste import meteen: Shopify weigerde"
+    )
+    // A sync that fails for another reason is still Insyte's to retry.
+    expect(handlingSentence("sync_failed", {})).toBe("Insyte probeert het elk kwartier opnieuw")
+  })
+
+  it("takes a 401 or a 403 as a refusal no retry changes, and a 429 or a 5xx as worth another try", () => {
+    expect(refusalOf(new ShopifyRefused({ status: 401, reason: "Invalid API key" }))?.facts).toEqual({
+      refused: "token"
+    })
+    expect(
+      refusalOf(new ShopifyRefused({ status: 403, reason: "Access denied", scope: "read_customers" }))?.facts
+    ).toEqual({ refused: "scope", missing: ["read_customers"] })
+    expect(refusalOf(new ShopifyRefused({ status: 403, reason: "not approved" }))?.facts).toEqual({ refused: "data" })
+    expect(refusalOf(new TokenRefused({ reason: "expired" }))?.facts).toEqual({ refused: "token" })
+    expect(refusalOf(new TokenRefused({ reason: "disconnected" }))).toBeNull()
+    expect(refusalOf(new ShopifyRefused({ status: 429, reason: "Too Many Requests" }))).toBeNull()
+    expect(refusalOf(new ShopifyRefused({ status: 502, reason: "Bad Gateway" }))).toBeNull()
+  })
+
   it("names the day of a time that is not today, so a night's finding read later says which night", () => {
     expect(when(NOW - HOUR, NOW)).toBe("02:00")
     expect(when(NOW - DAY, NOW)).toBe("12 nov 03:00")
     expect(findingSentence("webhook_gap", { since: NOW - DAY }, NOW)).toBe(
       "Er komen sinds 12 nov 03:00 geen webhooks van Shopify binnen."
     )
+  })
+
+  it("says a resolved finding in the past tense, so it does not read as still going on", () => {
+    expect(resolvedFindingSentence("sync_failed", {}, NOW)).toBe("Synchroniseren met Shopify lukte niet.")
+    expect(resolvedFindingSentence("webhook_gap", { since: NOW - HOUR }, NOW)).toBe(
+      "Er kwamen sinds 02:00 geen webhooks van Shopify binnen."
+    )
+    expect(resolvedFindingSentence("scope_missing", { missing: ["read_orders"] }, NOW)).toBe(
+      "Insyte mocht de bestellingen niet lezen."
+    )
+    const kinds = [
+      "webhook_gap",
+      "token_expiring",
+      "token_expired",
+      "scope_missing",
+      "rate_limited",
+      "sync_failed"
+    ] as const
+    for (const kind of kinds) {
+      expect(resolvedFindingSentence(kind, {}, NOW)).not.toBe(findingSentence(kind, {}, NOW))
+    }
   })
 
   it("puts a connection in a word: broken over warning over importing", () => {

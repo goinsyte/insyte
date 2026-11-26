@@ -6,6 +6,7 @@ import {
   type HealthLine,
   type IncidentKind,
   remedySentence,
+  resolvedFindingSentence,
   triedSentence
 } from "@insyte/modules/stores/domain/Health"
 import type { StoreHealth, StoreIncident, SyncLine } from "@insyte/ui/app/lib/types/sync-health"
@@ -30,8 +31,10 @@ const today = new Intl.DateTimeFormat("nl-NL", { dateStyle: "short", timeZone: Z
 const when = (at: number, now: number) =>
   today.format(at) === today.format(now) ? clock.format(at) : dayClock.format(at).replace(" om", "")
 
+// A store that is fine says "Gekoppeld", as one without a sync check does: the time of its last sync follows in the
+// row's detail ("Gesynchroniseerd om 16:15"), which would otherwise say the same word twice.
 const STATE: Record<ConnectionHealth["state"], Pick<StoreHealth, "tone" | "label">> = {
-  ok: { tone: "success", label: "Gesynchroniseerd" },
+  ok: { tone: "success", label: "Gekoppeld" },
   warning: { tone: "warning", label: "Let op" },
   broken: { tone: "danger", label: "Actie nodig" },
   importing: { tone: "info", label: "Importeren" },
@@ -41,11 +44,13 @@ const STATE: Record<ConnectionHealth["state"], Pick<StoreHealth, "tone" | "label
 const incidentOf = (i: ConnectionHealth["incidents"][number], now: number): StoreIncident => ({
   id: i.id,
   tone: BROKEN.has(i.kind) ? "danger" : "warning",
-  finding: findingSentence(i.kind, i.facts, now),
-  next: handlingSentence(i.kind) ?? remedySentence(i.kind),
+  finding: i.resolvedAt === null
+    ? findingSentence(i.kind, i.facts, now)
+    : resolvedFindingSentence(i.kind, i.facts, now),
+  next: handlingSentence(i.kind, i.facts) ?? remedySentence(i.kind, i.facts),
   tried: i.tried.map((t) => ({ at: when(t.at, now), text: triedSentence(t, now) })),
   since: `Sinds ${when(i.openedAt, now)}`,
-  told: i.notified === null ? null : `Gemeld aan ${i.notified}`,
+  told: i.notifiedYou ? "Gemeld aan jou" : i.notified === null ? null : `Gemeld aan ${i.notified}`,
   resolved: i.resolvedAt === null ?
     null :
     `Opgelost ${today.format(i.resolvedAt) === today.format(now) ? "om " : ""}${when(i.resolvedAt, now)}`
@@ -59,7 +64,7 @@ export const storeHealthOf = (c: ConnectionHealth, now = Date.now()): StoreHealt
     `Gesynchroniseerd ${today.format(c.lastSyncedAt) === today.format(now) ? "om " : ""}${when(c.lastSyncedAt, now)}`,
   incidents: c.incidents.map((i) => incidentOf(i, now)),
   reconnect: c.state === "broken" &&
-    c.incidents.some((i) => i.resolvedAt === null && remedySentence(i.kind) !== null)
+    c.incidents.some((i) => i.resolvedAt === null && remedySentence(i.kind, i.facts) !== null)
 })
 
 /** What needs attention, in a few words after the store's name. */

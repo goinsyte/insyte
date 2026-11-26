@@ -159,7 +159,7 @@ const desired = Effect.fn("Queue.desired")(function*(sql: SqlClient.SqlClient) {
   >`
     select s.variant_id, s.product_id, s.store_id, p.title as product, v.title as variant
     from stockouts s join products p on p.id = s.product_id join variants v on v.id = s.variant_id
-    where s.to_at is null and p.status = 'active'`
+    where s.to_at is null and p.status = 'active' and not p.is_gift_card`
   for (const s of soldOut) {
     out.push({
       kind: "stock_out",
@@ -208,7 +208,7 @@ const desired = Effect.fn("Queue.desired")(function*(sql: SqlClient.SqlClient) {
       storeId: i.storeId,
       dedupeKey: `connection_incident:${i.id}`,
       signal: BROKEN.has(kind) ? "red" : "amber",
-      title: [`${i.storeName}: ${findingSentence(kind, i.facts).replace(/\.$/, "")}`, handlingSentence(kind)]
+      title: [`${i.storeName}: ${findingSentence(kind, i.facts).replace(/\.$/, "")}`, handlingSentence(kind, i.facts)]
         .filter((part) => part !== null)
         .join(" · "),
       valueMinor: null,

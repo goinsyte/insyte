@@ -162,8 +162,9 @@ const actorOf = (p: { readonly kind: PrincipalKind; readonly id: string }) => ({
 /**
  * "Uitvoeren zoals getekend": the plate's command, run as the person, then the proposal executed (or `filed`, where what
  * it sends leaves after the undo window) and the queue brought in line. Refused as the command refuses it (`Forbidden`
- * without the permission, `ProposalStale` once the record moved on); nothing is kept of a refused filing. A plate whose
- * command did not go (`execution_failed`) is filed the same way again: "Opnieuw proberen".
+ * without the permission, `ProposalStale` once the record moved on, or with why a refund's amount was refused); nothing
+ * is kept of a refused filing. A plate whose command did not go (`execution_failed`) is filed the same way again:
+ * "Opnieuw proberen".
  */
 export const file = Effect.fn("Proposals.file")(function*(id: string) {
   const principal = yield* CurrentPrincipal
@@ -176,6 +177,7 @@ export const file = Effect.fn("Proposals.file")(function*(id: string) {
       const action = decodeAction(JSON.parse(p.action))
       const ran = yield* links.run(action)
       if (ran === "stale") return yield* new ProposalStale({ id })
+      if ("refused" in ran) return yield* new ProposalStale({ id, refusal: ran.refused })
       // What still has to leave (a mail in line) is `filed` until the relay sends it; the rest ran on this call.
       yield* sql`update proposals set state = ${ran.pending ? "filed" : "executed"}, filed_by = ${principal.id},
                                       filed_at = now(), on_behalf_of = ${principal.id}, execution_error = null,

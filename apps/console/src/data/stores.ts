@@ -1,4 +1,5 @@
 import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { HealthView } from "@insyte/modules/stores/domain/Health"
 import { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -39,10 +40,21 @@ export const syncStatusAtom = Atom.family((id: string) =>
   ConsoleClient.query("Stores.syncStatus", { id }, { reactivityKeys: [...STORE_SYNC, `store-sync:${id}`] })
 )
 
-/** Each store's sync health, for Winkels; a role without `data` or `integrations` reads none. */
-export const healthAtom = ConsoleClient.query("Connections.health", undefined, {
-  reactivityKeys: [...HEALTH, ...STORES]
-})
+/**
+ * Each store's sync health, for Winkels; a role without `data` or `integrations` reads none. Primed by the route's
+ * loader beside the stores, so a row says its sync word on first paint instead of "Gekoppeld" and then the health.
+ */
+export const healthAtom = Atom.serializable(
+  ConsoleClient.query("Connections.health", undefined, { reactivityKeys: [...HEALTH, ...STORES] }),
+  {
+    key: "stores-health",
+    schema: AsyncResult.Schema({
+      success: HealthView,
+      error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+    }),
+    skipInitialRun: true
+  }
+)
 
 /** The top bar's line, read again on a connection's change; the frame's own until then. */
 export const healthLineAtom = ConsoleClient.query("Shell.health", undefined, { reactivityKeys: [...HEALTH, ...STORES] })

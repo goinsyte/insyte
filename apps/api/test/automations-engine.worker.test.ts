@@ -256,4 +256,61 @@ describe("the automation engine", () => {
     kicked.mockRestore()
     socket.close(1000, "done")
   }, 180_000)
+
+  it("tells the tabs of a run skipped past the hour's limit, which starts no Workflow to tell them", async () => {
+    const store = await importedStore("engine-skipped")
+    const { automation } = ok(await rpc("Automations.create", { name: "Vol uur" }, store.cookie))
+    const id = automation!.automation.id
+    const nodes = [
+      TRIGGER,
+      step("f", "condition.filter", { expression: "{{order.total}} < 0" }),
+      step("k", "action.tag_customer", { tag: "nooit" })
+    ]
+    ok(await rpc("Automations.saveDraft", { id, name: "Vol uur", nodes: nodes as Json }, store.cookie))
+    ok(await rpc("Automations.publish", { id, note: "" }, store.cookie))
+    ok(await rpc("Automations.updateSettings", { id, rateLimit: 30 }, store.cookie))
+
+    // The hour filled by hand: 30 runs on an order.
+    const key = ok(
+      await rpc("ApiKeys.create", {
+        label: "Beheer",
+        access: { kind: "role", roleId: "admin" } as never,
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, store.cookie)
+    ).secret
+    const orderId = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows[0]!.id
+    await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
+    const startByHand = async (i: number): Promise<Response> => {
+      const started = await call(`http://api.public.test/v1/automations/${id}/runs`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${key}`,
+          "content-type": "application/json",
+          "idempotency-key": `full-${i}-${crypto.randomUUID()}`
+        },
+        body: JSON.stringify({ order_id: orderId })
+      })
+      // More than a key's 10 a second: wait as the door says, then ask again.
+      if (started.status !== 429) return started
+      await new Promise((resolve) => setTimeout(resolve, Number(started.headers.get("retry-after") ?? "1") * 1000))
+      return startByHand(i)
+    }
+    for (let i = 0; i < 30; i++) expect((await startByHand(i)).status).toBe(200)
+
+    // The sweep delays #1003: its run is written skipped, and one frame-to-be says so, with its id.
+    const before = new Set((await outboxOf(store.workspace)).map((e) => e.id))
+    expect((await sweep(store.workspace)).status).toBe(200)
+    await relay(store.workspace)
+    const skipped = (await runsOf(store.workspace)).runs.filter((r) => r.automationId === id && r.status === "skipped")
+    expect(skipped.map((r) => r.reason)).toEqual(["De limiet van 30 runs per uur is bereikt."])
+    const told = (await outboxOf(store.workspace)).filter((e) =>
+      !before.has(e.id) && e.event === "records.changed" && e.payload["kind"] === "automation_run" &&
+      (e.payload["ids"] as Array<string>).includes(skipped[0]!.id)
+    )
+    expect(told).toHaveLength(1)
+    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
+  }, 240_000)
 })

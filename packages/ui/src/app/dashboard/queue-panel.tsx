@@ -6,7 +6,7 @@ import { FilterButton, FilterChips } from "../filters/filter-bar"
 import { useListFilter } from "../filters/use-list-filter"
 import { applyFilter, type FilterField } from "../lib/filter"
 import { cn } from "../lib/utils"
-import { PlateEmpty, type PlatePhase, PlateView } from "./plate"
+import { PlateEmpty, type PlateOpen, type PlatePhase, PlateView } from "./plate"
 
 /*
  * "Je wachtrij" and its plate (PLAN, widgets/02 widget `queue`), out of the Start screen so a host can give it rows:
@@ -28,6 +28,8 @@ export type QueueEntry = {
   due: string
   state: QueueState
   plate?: Plate | undefined
+  /** Where the row is handled when no plate is drawn for it: its record, and the next step. */
+  open?: PlateOpen | undefined
   redraws: number
 }
 
@@ -318,7 +320,13 @@ export function useQueuePanel(
                   onDiscard={() => decide(selected, "discarded")}
                 />
               ) :
-              <PlateEmpty onDismiss={() => decide(selected, "discarded")} settling={phase !== "drawn"} />}
+              (
+                <PlateEmpty
+                  onDismiss={() => decide(selected, "discarded")}
+                  settling={phase !== "drawn"}
+                  open={selected.open}
+                />
+              )}
           </motion.div>
         ) :
         null}

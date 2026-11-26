@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
-import { type ReactElement, useMemo, useState } from "react"
+import { type ReactElement, useEffect, useMemo, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -44,7 +44,11 @@ function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) 
 export function SuppliersPage() {
   const source = useSuppliersSource()
   const { rows, Empty, Closing } = source
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(source.opened ?? null)
+  // A supplier asked for while the page is open (a search hit) opens too.
+  useEffect(() => {
+    if (source.opened !== undefined) setOpenId(source.opened)
+  }, [source.opened])
   const [inviting, setInviting] = useState<Supplier | null>(null)
   const [editing, setEditing] = useState<Row | "new" | null>(null)
   const quality = source.qualityOf
@@ -231,7 +235,10 @@ export function SuppliersPage() {
         null}
       <SupplierDialog
         row={open}
-        onClose={() => setOpenId(null)}
+        onClose={() => {
+          setOpenId(null)
+          source.onClosed?.()
+        }}
         onInvite={(s) => setInviting(s)}
         onEdit={save
           ? (r) => setEditing(r)

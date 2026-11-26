@@ -2,10 +2,24 @@ import { createElement, type FunctionComponent } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type ReturnSettingsDraft, returnSettingsErrors, windowErrors } from "../src/app/lib/returns.ts"
-import { brandErrors, shippingErrors, unknownVariables, vatErrors } from "../src/app/lib/settings-depth.ts"
+import { brandErrors, linkErrors, shippingErrors, unknownVariables, vatErrors } from "../src/app/lib/settings-depth.ts"
 
 // Loaded the way `field.test.ts` loads components: their own imports are written for the bundler.
 const form = "../src/app/settings/form.tsx"
+const notifications = "../src/app/lib/notifications.ts"
+const workspace = "../src/app/settings/workspace-source.tsx"
+const { notifyErrors } = (await import(/* @vite-ignore */ notifications)) as {
+  notifyErrors: (
+    prefs: { quiet: { on: boolean; from: string; to: string; weekend: boolean } }
+  ) => Record<string, string>
+}
+const { accountErrors, RegionalSourceProvider } = (await import(/* @vite-ignore */ workspace)) as {
+  accountErrors: (
+    account: { workspace: string; legalEntity: string; billingEmail: string },
+    alerts: { delayHours: string; disputeAmount: string }
+  ) => Record<string, string>
+  RegionalSourceProvider: FunctionComponent<{ value: unknown; children: unknown }>
+}
 const { useFieldErrors } = (await import(/* @vite-ignore */ form)) as {
   useFieldErrors: (
     local: Record<string, string>,
@@ -61,6 +75,58 @@ describe("Huisstijl", () => {
       "website",
       "support"
     ])
+  })
+})
+
+describe("Sjablonen", () => {
+  it("marks a link that is no https link, and takes an empty one", () => {
+    expect(linkErrors({ review: "", unsubscribe: "https://shop.nl/uit", restock: " https://shop.nl/terug " })).toEqual(
+      {}
+    )
+    expect(linkErrors({ review: "shop.nl", unsubscribe: "http://shop.nl", restock: "" })).toEqual({
+      review: "Een link begint met https:// en heeft een domein.",
+      unsubscribe: "Een link begint met https:// en heeft een domein."
+    })
+    expect(linkErrors({ review: `https://shop.nl/${"x".repeat(500)}`, unsubscribe: "", restock: "" }))
+      .toHaveProperty("review")
+  })
+})
+
+describe("Account", () => {
+  const account = { workspace: "Northwind", legalEntity: "Northwind B.V.", billingEmail: "" }
+  const alerts = { delayHours: "48", disputeAmount: "100" }
+
+  it("takes what the server takes: an empty billing address, a dispute from 0", () => {
+    expect(accountErrors(account, alerts)).toEqual({})
+    expect(accountErrors({ ...account, billingEmail: "facturen@northwind.nl" }, { ...alerts, disputeAmount: "0" }))
+      .toEqual({})
+  })
+
+  it("says a wrong billing address and empty or out-of-range thresholds at their fields", () => {
+    expect(accountErrors({ ...account, billingEmail: "geen-email" }, alerts)).toEqual({
+      billingEmail: "Een e-mailadres als facturen@jouwbedrijf.nl."
+    })
+    expect(accountErrors(account, { delayHours: "", disputeAmount: "" })).toEqual({
+      delayHours: "Vul een aantal uren in, 1 of meer.",
+      disputeAmount: "Vul een bedrag in, 0 of meer."
+    })
+    expect(accountErrors(account, { ...alerts, delayHours: "0" })).toHaveProperty("delayHours")
+    expect(accountErrors(account, { ...alerts, delayHours: "721" })).toEqual({
+      delayHours: "Hooguit 720 uur, dat is 30 dagen."
+    })
+    expect(Object.keys(accountErrors({ ...account, workspace: " ", legalEntity: "x".repeat(201) }, alerts))).toEqual([
+      "workspace",
+      "legalEntity"
+    ])
+  })
+})
+
+describe("Meldingen", () => {
+  it("marks quiet hours that end when they begin, only while they are on", () => {
+    const quiet = { on: true, from: "22:00", to: "22:00", weekend: false }
+    expect(notifyErrors({ quiet })).toEqual({ quiet: "Kies een eind dat niet gelijk is aan het begin." })
+    expect(notifyErrors({ quiet: { ...quiet, on: false } })).toEqual({})
+    expect(notifyErrors({ quiet: { ...quiet, to: "07:00" } })).toEqual({})
   })
 })
 
@@ -213,5 +279,42 @@ describe("useFieldErrors' guard", () => {
     await expect(fe.guard(() => Promise.resolve(false))()).rejects.toThrow()
     await expect(fe.guard(() => Promise.resolve({ fields: { returnDays: "too_small" } }))()).rejects.toThrow()
     expect(focused).toEqual([fe.control("returnDays")["id"]])
+  })
+})
+
+/*
+ * Regio offers Dutch only, as the app is; a language saved before stays shown as itself. The date notations read as a
+ * date written in them, not as their codes.
+ */
+describe("Regio", () => {
+  const regional = "../src/app/settings/regional-screen.tsx"
+
+  it("offers Nederlands, keeps a language saved before, and shows each date notation as a date", async () => {
+    const { RegionalPage } = (await import(/* @vite-ignore */ regional)) as { RegionalPage: FunctionComponent }
+    const saved = {
+      language: "de-DE",
+      currency: "EUR",
+      dateFormat: "DD MMM YYYY",
+      timeFormat: "24h",
+      weekStart: "mon",
+      timezone: "Europe/Amsterdam"
+    }
+    const out = renderToStaticMarkup(
+      createElement(RegionalSourceProvider, {
+        value: { saved, save: () => Promise.resolve(true) },
+        children: createElement(RegionalPage)
+      })
+    )
+    const options = [...out.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => ({
+      value: m[1]!,
+      label: m[2]!
+    }))
+    expect(options.filter((o) => /^[a-z]{2}-[A-Z]{2}$/.test(o.value))).toEqual([
+      { value: "nl-NL", label: "Nederlands" },
+      { value: "de-DE", label: "Duits" }
+    ])
+    const dates = options.filter((o) => o.value.includes("YYYY"))
+    expect(dates.map((o) => o.value)).toEqual(["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"])
+    expect(dates.map((o) => o.label)).toEqual(["23 nov 2026", "nov 23, 2026", "2026-11-23"])
   })
 })

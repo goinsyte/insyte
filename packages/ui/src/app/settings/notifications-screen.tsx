@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
-import { toast } from "sonner"
 import { Checkbox } from "../../components/checkbox"
 import { Switch } from "../../components/switch"
 import { Bell, Eye, Mail, Moon, Send } from "../../icons"
@@ -14,10 +13,11 @@ import {
   type EventDef,
   EVENTS,
   heard,
+  notifyErrors,
   type NotifyPrefs
 } from "../lib/notifications"
 import { cn } from "../lib/utils"
-import { FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form"
+import { FieldRow, INPUT_CLASS, INVALID_CLASS, SelectInput, UnsavedBar, useFieldErrors } from "./form"
 import { type PushHere, type SlackHere, useNotificationSettingsSource } from "./notifications-source"
 import { SettingCard } from "./setting-card"
 
@@ -75,9 +75,14 @@ export function NotificationSettings() {
   const source = useNotificationSettingsSource()
   const { saved, notes, email } = source
   const [draft, setDraft] = useState<NotifyPrefs>(saved)
-  const [saving, setSaving] = useState(false)
   const savedKey = JSON.stringify(saved)
   const dirty = JSON.stringify(draft) !== savedKey
+  const fe = useFieldErrors(notifyErrors(draft), {
+    draftKey: JSON.stringify(draft),
+    say: () => "Kies een eind dat niet gelijk is aan het begin."
+  })
+  // Both times are the one field: the first takes the focus, both are marked and point at the message.
+  const quiet = fe.control("quiet")
 
   // A fresh read of the saved settings (a save, its undo, another tab) is what the page shows.
   useEffect(() => setDraft(saved), [savedKey])
@@ -243,24 +248,30 @@ export function NotificationSettings() {
             </span>
           </FieldRow>
           <FieldRow label="Van en tot" hint={source.timezone}>
-            <span className="flex items-center gap-2">
-              <input
-                type="time"
-                value={draft.quiet.from}
-                disabled={!draft.quiet.on}
-                onChange={(e) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, from: e.target.value } }))}
-                aria-label="Stil vanaf"
-                className={cn(INPUT_CLASS, "w-32 tabular-nums disabled:opacity-50")}
-              />
-              <span className="text-ink-3 text-sm">tot</span>
-              <input
-                type="time"
-                value={draft.quiet.to}
-                disabled={!draft.quiet.on}
-                onChange={(e) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, to: e.target.value } }))}
-                aria-label="Stil tot"
-                className={cn(INPUT_CLASS, "w-32 tabular-nums disabled:opacity-50")}
-              />
+            <span className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-2">
+                <input
+                  {...quiet}
+                  type="time"
+                  value={draft.quiet.from}
+                  disabled={!draft.quiet.on}
+                  onChange={(e) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, from: e.target.value } }))}
+                  aria-label="Stil vanaf"
+                  className={cn(INPUT_CLASS, INVALID_CLASS, "w-32 tabular-nums disabled:opacity-50")}
+                />
+                <span className="text-ink-3 text-sm">tot</span>
+                <input
+                  aria-invalid={quiet["aria-invalid"]}
+                  aria-describedby={quiet["aria-describedby"]}
+                  type="time"
+                  value={draft.quiet.to}
+                  disabled={!draft.quiet.on}
+                  onChange={(e) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, to: e.target.value } }))}
+                  aria-label="Stil tot"
+                  className={cn(INPUT_CLASS, INVALID_CLASS, "w-32 tabular-nums disabled:opacity-50")}
+                />
+              </span>
+              {fe.message("quiet")}
             </span>
           </FieldRow>
           <FieldRow label="Weekend">
@@ -319,22 +330,15 @@ export function NotificationSettings() {
 
       <UnsavedBar
         visible={dirty}
-        saving={saving}
         onDiscard={() => setDraft(saved)}
-        onSave={() => {
-          if (saving) return
-          if (draft.quiet.on && draft.quiet.from === draft.quiet.to) {
-            toast.error("Stille uren hebben een begin en een eind nodig die niet gelijk zijn")
-            return
-          }
-          setSaving(true)
-          void source.save(draft, {
+        onSave={fe.guard(() =>
+          source.save(draft, {
             label: "Meldingen opgeslagen",
             detail: admin === undefined || shown === undefined || admin.length === 0
               ? undefined
               : `Je ziet nu ${shown} van ${admin.length} meldingen in de app.`
-          }).finally(() => setSaving(false))
-        }}
+          })
+        )}
       />
       <PageGuide id="settings.notifications" title="Meldingen" steps={GUIDE} />
     </>

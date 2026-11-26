@@ -20,7 +20,7 @@ export const GetAnalyticsOverview = Tool.make("get_analytics_overview", {
 
 export const GetFigures = Tool.make("get_figures", {
   description:
-    "The figures a sheet's INSYTE() reads, per whole calendar month (the month under way to today), inside the key's stores, money in major units of the workspace's currency: omzet, bestellingen, gemiddelde_bestelling, terugbetaald, chargebacks (put under dispute that month), advertentiekosten, overige_kosten, kosten, nettowinst, marge (a fraction), roas, advertenties_meta, advertenties_google. Revenue per marketing channel (omzet_meta and the like) is not kept yet and answers unavailable; roas without ad spend answers no_ads. Needs analytics.read.",
+    "The figures a sheet's INSYTE() reads, per whole calendar month (the month under way to today), inside the key's stores, money in major units of the workspace's currency: omzet, bestellingen, gemiddelde_bestelling, terugbetaald, terugbetaald_omzet (refunded on the orders omzet counts), chargebacks (put under dispute that month), advertentiekosten, overige_kosten, kosten, nettowinst, marge (a fraction), roas, advertenties_meta, advertenties_google. Revenue per marketing channel (omzet_meta and the like) is not kept yet and answers unavailable; roas without ad spend answers no_ads. Needs analytics.read.",
   parameters: Schema.Struct({
     metrics: Schema.String.annotate({ description: "Comma-separated metrics, e.g. omzet,nettowinst,marge." }),
     months: Schema.optional(Schema.String).annotate({

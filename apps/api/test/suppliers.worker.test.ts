@@ -39,6 +39,19 @@ describe("suppliers", () => {
     expect(failure(await rpc("Suppliers.get", { id: "sup_none" }, store.cookie))).toMatchObject({ _tag: "NotFound" })
   })
 
+  it("is found by the palette's search, by name, and opens on Leveranciers", async () => {
+    const store = await importedStore("sup-search")
+    const atelier = ok(await rpc("Suppliers.list", {}, store.cookie)).rows[0]!
+    const hits = ok(await rpc("Search.records", { q: "atelier" }, store.cookie))
+    expect(hits.map((h) => [h.kind, h.title, h.href])).toEqual([
+      ["supplier", "Atelier Noord", `/suppliers?supplier=${atelier.id}`]
+    ])
+    // Products come back to the palette too, with their own page.
+    const products = ok(await rpc("Search.records", { q: "canvas", kinds: ["product", "supplier"] }, store.cookie))
+    expect(products.map((h) => [h.kind, h.title])).toEqual([["product", "Canvas tas"]])
+    expect(products[0]!.href).toBe(`/products/${products[0]!.id}`)
+  })
+
   it("makes, edits, pauses, assigns and removes, each with one Undo", async () => {
     const store = await importedStore("sup-commands")
     const bag = await productNamed(store.cookie, "Canvas tas")

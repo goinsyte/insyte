@@ -9,16 +9,19 @@ import { SuppliersPage } from "@insyte/ui/app/suppliers/suppliers-screen"
 import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { useMemo } from "react"
 import { suppliersAtom } from "../data/suppliers.ts"
 import { useConsoleSuppliersSource } from "../suppliers/suppliers-source.tsx"
 
 /**
  * Leveranciers (step 10.1, M8.1): the reference's suppliers page over `Suppliers.list`, in the frame. The loader reads
  * them on the server; until they are in, the reference's table skeleton stands in. A role that may not see suppliers is
- * told which permission it misses.
+ * told which permission it misses. `?supplier=` opens that supplier's dialog (the palette's hit).
  */
 export const Route = createFileRoute("/_frame/suppliers")({
   head: () => ({ meta: [{ title: "Leveranciers · Insyte" }] }),
+  validateSearch: (s: Record<string, unknown>): { supplier?: string } =>
+    typeof s["supplier"] === "string" && s["supplier"] !== "" ? { supplier: s["supplier"] } : {},
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(suppliersAtom)
@@ -65,7 +68,16 @@ function SuppliersRoute() {
 }
 
 function Loaded({ list }: { list: SupplierList }) {
-  const source = useConsoleSuppliersSource(list)
+  const { supplier } = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const base = useConsoleSuppliersSource(list)
+  const source = useMemo(() => ({
+    ...base,
+    opened: supplier,
+    onClosed: () => {
+      if (supplier !== undefined) void navigate({ search: {}, replace: true })
+    }
+  }), [base, supplier, navigate])
   return (
     <SuppliersSourceProvider value={source}>
       <SuppliersPage />

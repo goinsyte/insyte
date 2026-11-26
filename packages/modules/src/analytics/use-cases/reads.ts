@@ -380,6 +380,37 @@ export const countedOrderIds = (
         and (o.placed_at at time zone z.tz)::date between ${from}::date and ${to}::date
         and ${sql.literal(COUNTED)} and ${scope} and ${extra}`
 
+/**
+ * What was refunded since on the orders counted revenue counts, placed in the span (store days), converted at the
+ * placed day's rate: the part of the revenue given back. A full refund leaves its order out of revenue (§0.1), so only
+ * partial refunds on orders still counted are in here; `terugbetaald` (every refund on any order) is the facts' own.
+ */
+export const countedRefunded = Effect.fn("Analytics.countedRefunded")(function*(sql: SqlClient.SqlClient, span: Span) {
+  const scope = yield* inScope(sql, "o.store_id")
+  const [row] = yield* sql<{ refunded: string; orders: number; unconverted: number }>`
+    with d as (
+      select (o.placed_at at time zone z.tz)::date as day, o.currency, count(*) as orders,
+             sum(r.refunded) as refunded
+      from orders o ${sql.literal(TZ)}
+      cross join lateral (
+        select sum(amount_minor) as refunded from refunds where order_id = o.id and status = 'succeeded'
+      ) r
+      where o.placed_at >= (${span.from}::date - 1)::timestamptz and o.placed_at < (${span.to}::date + 2)::timestamptz
+        and (o.placed_at at time zone z.tz)::date between ${span.from}::date and ${span.to}::date
+        and ${sql.literal(COUNTED)} and r.refunded is not null and ${scope}
+      group by 1, 2
+    )
+    select coalesce(sum(round(d.refunded * fx.rate)) filter (where fx.rate is not null), 0)::text as refunded,
+           coalesce(sum(d.orders), 0)::int as orders,
+           count(*) filter (where fx.rate is null and d.refunded <> 0)::int as unconverted
+    from d ${sql.literal(FX("d.day", "d.currency"))}`
+  return {
+    refunded: Number(row?.refunded ?? 0),
+    orders: Number(row?.orders ?? 0),
+    unconverted: Number(row?.unconverted ?? 0)
+  }
+})
+
 /** Orders placed in `[from, to]` with money refunded on them since: the rows of Terugbetaald, as the facts count it. */
 export const placedRefundedOrderIds = (
   sql: SqlClient.SqlClient,

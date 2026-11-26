@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
+import { useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/select"
 import { Switch } from "../../components/switch"
 import { AlertTriangle, Trash2, X } from "../../icons"
@@ -8,7 +9,7 @@ import { kindLabel, VARIANTS_BY_ID, type WorkflowNode, type WorkflowSettings } f
 import { missingScope, SCOPE_LABEL } from "./scopes"
 import { type StepIssue, useAutomationsSource } from "./source"
 import { StepTile } from "./step-tile"
-import { VarChip, VarText } from "./summary"
+import { VarChip, varLabel, VarText } from "./summary"
 
 const WELL =
   "field h-8 w-full rounded-md px-2.5 text-ink text-sm outline-none placeholder:text-ink-3 hover:field-hover focus:bg-paper"
@@ -37,6 +38,8 @@ export function WorkflowInspector({
   const navigate = useNavigate()
   const { editor, people, useFields } = useAutomationsSource()
   const fields = useFields?.(automationId) ?? FIELDS
+  // The text setting a field chip goes into: the one last in focus, else the step's first.
+  const [target, setTarget] = useState<string | null>(null)
   const v = VARIANTS_BY_ID[node.variantId]
   if (!v) return null
   const isTrigger = v.kind === "trigger"
@@ -44,6 +47,13 @@ export function WorkflowInspector({
   const fieldIssue = (key: string) => issues?.find((i) => i.field === key && i.code !== "missing_field")
   const stepIssues = issues?.filter((i) => i.field === undefined && i.code !== "scope_off") ?? []
   const missing = missingScope(node, settings)
+  const texts = v.fields.filter((f) => f.type === "text" || f.type === "textarea")
+  const into = texts.find((f) => f.key === target) ?? texts[0]
+  const insert = (path: string) => {
+    if (into === undefined) return
+    const was = String(node.config[into.key] ?? "")
+    set({ [into.key]: `${was}${was === "" || was.endsWith(" ") ? "" : " "}{{${path}}}` })
+  }
 
   return (
     <aside
@@ -167,6 +177,7 @@ export function WorkflowInspector({
                   <textarea
                     value={text}
                     rows={3}
+                    onFocus={() => setTarget(f.key)}
                     aria-invalid={empty || undefined}
                     onChange={(e) => set({ [f.key]: e.target.value })}
                     className={cn(WELL, "h-auto resize-none py-1.5 leading-[1.5]")}
@@ -178,6 +189,7 @@ export function WorkflowInspector({
                     value={text}
                     aria-invalid={empty || undefined}
                     placeholder={"placeholder" in f ? f.placeholder : undefined}
+                    onFocus={() => setTarget(f.key)}
                     onChange={(e) => set({ [f.key]: f.type === "number" ? Number(e.target.value) : e.target.value })}
                     className={cn(WELL, "tabular-nums")}
                   />
@@ -189,16 +201,25 @@ export function WorkflowInspector({
           )
         })}
 
-        {v.fields.some((f) => f.type === "text" || f.type === "textarea") ?
-          (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-ink-3 text-xs">Velden van het record, te schrijven als {"{{veld}}"}</span>
-              <div className="flex flex-wrap gap-1">
-                {fields.map((k) => <VarChip key={k} name={k} />)}
-              </div>
+        {into === undefined ? null : (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-ink-3 text-xs">Velden van het record. Klik op een veld om het in te voegen.</span>
+            <div className="flex flex-wrap gap-1">
+              {fields.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  title={`{{${k}}}`}
+                  aria-label={`${varLabel(k)} invoegen in ${into.label}`}
+                  onClick={() => insert(k)}
+                  className="rounded-sm transition-opacity hover:opacity-80"
+                >
+                  <VarChip name={k} />
+                </button>
+              ))}
             </div>
-          ) :
-          null}
+          </div>
+        )}
 
         {v.scope ?
           (

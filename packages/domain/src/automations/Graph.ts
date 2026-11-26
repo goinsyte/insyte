@@ -43,6 +43,22 @@ export const triggerOf = (nodes: Flow): FlowNode | undefined => {
   return head !== undefined && STEPS_BY_ID[head.variantId]?.kind === "trigger" ? head : undefined
 }
 
+/**
+ * A name read off the steps, as the canvas names a flow: "Bestelling vertraagd → E-mail versturen + Ticket aanmaken".
+ * Undefined without a trigger.
+ */
+export const nameOfFlow = (nodes: Flow): string | undefined => {
+  const trigger = triggerOf(nodes)
+  if (trigger === undefined) return undefined
+  const actions = flat(nodes.slice(1))
+    .map((n) => STEPS_BY_ID[n.variantId])
+    .filter((s) => s?.kind === "action")
+    .slice(0, 2)
+    .map((s) => s!.label)
+  const head = STEPS_BY_ID[trigger.variantId]!.label
+  return actions.length > 0 ? `${head} → ${actions.join(" + ")}` : head
+}
+
 /** The rights the flow's steps need, once each, in catalogue order. */
 export const scopesRequired = (nodes: Flow): ReadonlyArray<string> => {
   const needed = new Set(flat(nodes).flatMap((n) => scopesOfStep(STEPS_BY_ID[n.variantId])))

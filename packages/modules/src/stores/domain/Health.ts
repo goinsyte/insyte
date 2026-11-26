@@ -53,7 +53,13 @@ export const IncidentFacts = Schema.Struct({
   since: Schema.optional(Schema.Finite),
   headroom: Schema.optional(Schema.Finite),
   /** Sweeps in a row that failed, as of the last check. */
-  failures: Schema.optional(Schema.Int)
+  failures: Schema.optional(Schema.Int),
+  /**
+   * Why the first import stopped at once, where Shopify refused it (no retry changes a refusal): `token`, the store's
+   * token is no longer accepted; `scope`, a grant is missing (`missing` names it); `data`, Shopify withholds data the
+   * app is not approved for (protected customer data).
+   */
+  refused: Schema.optional(Schema.Literals(["token", "scope", "data"]))
 })
 export type IncidentFacts = typeof IncidentFacts.Type
 
@@ -65,7 +71,9 @@ export class Incident extends Schema.Class<Incident>("stores/Incident")({
   facts: IncidentFacts,
   tried: Schema.Array(Tried),
   /** The person on call who was told, by name. */
-  notified: Schema.NullOr(Schema.String)
+  notified: Schema.NullOr(Schema.String),
+  /** Whether the one told is the member reading it, who reads "jou" rather than their own name. */
+  notifiedYou: Schema.Boolean
 }) {}
 
 /** A connection as a whole: fine, Insyte is handling something, it needs the operator, importing, or let go. */
@@ -322,6 +330,16 @@ const RESOURCE: Record<string, string> = {
 const listed = (words: ReadonlyArray<string>) =>
   words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} en ${words.at(-1)}`
 
+/** Why Shopify refused the first import, after "De eerste import is gestopt: ". */
+const REFUSED: Record<NonNullable<IncidentFacts["refused"]>, (facts: IncidentFacts) => string> = {
+  token: () => "Shopify accepteert de toegang van Insyte niet meer",
+  scope: (facts) => {
+    const what = (facts.missing ?? []).map((s) => RESOURCE[s] ?? s)
+    return what.length === 0 ? "Insyte mist rechten in Shopify" : `Insyte mag de ${listed(what)} niet lezen`
+  },
+  data: () => "Shopify geeft Insyte geen toegang tot een deel van de winkelgegevens"
+}
+
 /** What is wrong, in one sentence: "Er komen sinds 03:12 geen webhooks van Shopify binnen." */
 export const findingSentence = (kind: IncidentKind, facts: IncidentFacts, now = Date.now()): string => {
   switch (kind) {
@@ -346,9 +364,39 @@ export const findingSentence = (kind: IncidentKind, facts: IncidentFacts, now = 
     case "rate_limited":
       return "De limiet van Shopify voor verzoeken is bijna bereikt."
     case "sync_failed":
+      if (facts.refused !== undefined) return `De eerste import is gestopt: ${REFUSED[facts.refused](facts)}.`
       return facts.since === undefined
         ? "Synchroniseren met Shopify lukt niet."
         : `Insyte heeft sinds ${when(facts.since, now)} niet met Shopify gesynchroniseerd.`
+  }
+}
+
+/**
+ * What was wrong, once it is over: the finding in the past tense, so a resolved incident does not read as one that is
+ * still going on ("Er kwamen sinds 03:12 geen webhooks van Shopify binnen.").
+ */
+export const resolvedFindingSentence = (kind: IncidentKind, facts: IncidentFacts, now = Date.now()): string => {
+  switch (kind) {
+    case "webhook_gap":
+      return facts.since === undefined
+        ? "Er kwamen geen webhooks van Shopify binnen."
+        : `Er kwamen sinds ${when(facts.since, now)} geen webhooks van Shopify binnen.`
+    case "token_expiring":
+      return "De toegang tot Shopify zou bijna verlopen."
+    case "token_expired":
+      return "Shopify gaf Insyte geen toegang meer."
+    case "scope_missing": {
+      const what = (facts.missing ?? []).map((s) => RESOURCE[s] ?? s)
+      return what.length === 0
+        ? "Insyte miste rechten in Shopify."
+        : `Insyte mocht de ${listed(what)} niet lezen.`
+    }
+    case "rate_limited":
+      return "De limiet van Shopify voor verzoeken was bijna bereikt."
+    case "sync_failed":
+      return facts.since === undefined
+        ? "Synchroniseren met Shopify lukte niet."
+        : `Insyte had sinds ${when(facts.since, now)} niet met Shopify gesynchroniseerd.`
   }
 }
 
@@ -356,7 +404,9 @@ export const findingSentence = (kind: IncidentKind, facts: IncidentFacts, now = 
 export const triedSentence = (t: Tried, now = Date.now()): string => {
   switch (t.step) {
     case "backfill":
-      return "Probeerde de eerste import opnieuw, tot het niet meer lukte"
+      return t.outcome === "refused"
+        ? "Stopte de eerste import meteen: Shopify weigerde"
+        : "Probeerde de eerste import opnieuw, tot het niet meer lukte"
     case "refresh":
       return t.outcome === "refused" ? "Vroeg Shopify om een nieuw token; Shopify weigerde" : "Vernieuwde het token"
     case "reconcile":
@@ -377,8 +427,13 @@ export const triedSummary = (lines: ReadonlyArray<string>) =>
     : `Insyte deed al dit: ${lines.map((l) => l.charAt(0).toLowerCase() + l.slice(1)).join("; ")}.`
 
 /** What Insyte is doing about it while it lasts, where it can: `null` where only the operator can. */
-export const handlingSentence = (kind: IncidentKind): string | null =>
-  kind === "webhook_gap"
+export const handlingSentence = (kind: IncidentKind, facts: IncidentFacts = {}): string | null =>
+  // Data Shopify withholds until it approves Insyte: Insyte's to settle, not the operator's.
+  facts.refused === "data"
+    ? "Insyte zoekt dit uit; je hoeft niets te doen"
+    : facts.refused !== undefined
+    ? null
+    : kind === "webhook_gap"
     ? "Insyte leest de bestellingen zelf bij Shopify"
     : kind === "rate_limited"
     ? "Insyte leest rustiger tot er weer ruimte is"
@@ -387,7 +442,9 @@ export const handlingSentence = (kind: IncidentKind): string | null =>
     : null
 
 /** What the operator can do, where Insyte cannot: `null` while Insyte is handling it. */
-export const remedySentence = (kind: IncidentKind): string | null =>
-  kind === "token_expired" || kind === "token_expiring" || kind === "scope_missing"
+export const remedySentence = (kind: IncidentKind, facts: IncidentFacts = {}): string | null =>
+  facts.refused === "data"
+    ? null
+    : kind === "token_expired" || kind === "token_expiring" || kind === "scope_missing" || facts.refused !== undefined
     ? "Koppel de winkel opnieuw, dan vraagt Shopify je toestemming."
     : null

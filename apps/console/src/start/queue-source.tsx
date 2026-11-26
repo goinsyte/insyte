@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import type { ProposalView } from "@insyte/modules/proposals/domain/Proposals"
+import type { ProposalRefusal, ProposalView } from "@insyte/modules/proposals/domain/Proposals"
 import type { QueueRow } from "@insyte/modules/queue/domain/Queue"
+import type { PlateOpen } from "@insyte/ui/app/dashboard/plate"
 import { type QueueEntry, type QueueSource, SETTLE_MS } from "@insyte/ui/app/dashboard/queue-panel"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import type { Plate } from "@insyte/ui/data-source"
@@ -11,6 +12,7 @@ import { toast } from "sonner"
 import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { QUEUE, queueAtom, queueWrites } from "../data/queue.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
+import { balanceText, NO_FX_RATE, sayOverLimit } from "../orders/order-writes.ts"
 import { useBeginConnect } from "../stores/begin-connect.ts"
 
 /*
@@ -60,6 +62,33 @@ const plateOf = (p: ProposalView): Plate => ({
     : undefined
 })
 
+/** Where a row is handled when no plate is drawn for it (a sync that fails, a leg not sent): its record, the next step. */
+const openOf = (r: QueueRow): PlateOpen | undefined => {
+  const store = { to: "/settings/stores", search: { store: r.subjectId } }
+  switch (r.kind) {
+    case "connection_incident":
+      return { ...store, next: "Bekijk in Winkels wat Insyte al deed en wat jij nog moet doen." }
+    case "store_disconnected":
+      return { ...store, next: "Koppel de winkel opnieuw in Winkels." }
+    case "forwarding_failed":
+      return {
+        to: `/orders/${r.subjectId}`,
+        next: "Los op wat het doorsturen tegenhoudt en stuur de bestelling opnieuw door."
+      }
+    case "order_delayed":
+      return { to: `/orders/${r.subjectId}`, next: "Laat de klant weten wanneer de bestelling komt." }
+    case "return_review":
+      return { to: `/returns/${r.subjectId}`, next: "Keur de retour goed of wijs hem af." }
+    case "stock_out":
+      return { to: `/products/${r.subjectId}`, next: "Vraag de leverancier om nieuwe voorraad." }
+    case "chargeback_deadline":
+    case "chargeback_opened":
+      return { to: `/chargebacks/${r.subjectId}`, next: "Dien je bewijs in voor de deadline." }
+    case "quality_review":
+      return undefined
+  }
+}
+
 const entryOf = (r: QueueRow, now: number): QueueEntry => ({
   id: r.id,
   signal: r.signal,
@@ -69,6 +98,7 @@ const entryOf = (r: QueueRow, now: number): QueueEntry => ({
   due: left(r.dueAt, now),
   state: r.state === "seen" ? "discarded" : "open",
   plate: r.proposal === null ? undefined : plateOf(r.proposal),
+  open: openOf(r),
   redraws: r.proposal === null ? 0 : r.proposal.revisions - 1
 })
 
@@ -79,7 +109,19 @@ const PLATE: RefusalCopy = {
   gone: "Dat voorstel is er niet meer",
   other: (e) => {
     if (e._tag === "ProposalStale") {
-      toast.error("Het record is veranderd", { description: "Dit voorstel klopt niet meer. Bekijk de zaak opnieuw." })
+      // A refund refused for its amount says why, as the order's own refund does; the rest moved on.
+      const refusal = e["refusal"] as ProposalRefusal | undefined
+      if (refusal?.reason === "over_limit") sayOverLimit(refusal)
+      else if (refusal?.reason === "over_balance") {
+        toast.error("Meer dan er openstaat", {
+          description: `Er staat nog ${balanceText(refusal)} open op deze bestelling.`
+        })
+      } else if (refusal?.reason === "no_fx_rate") toast.error(NO_FX_RATE[0], { description: NO_FX_RATE[1] })
+      else {
+        toast.error("Het record is veranderd", {
+          description: "Dit voorstel klopt niet meer. Bekijk de zaak opnieuw."
+        })
+      }
       return true
     }
     if (e._tag === "ProposalClosed") {

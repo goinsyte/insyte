@@ -819,7 +819,7 @@ export const STORE_ROWS: ReadonlyArray<StoreRow> = STORES.map((s) => ({
       },
       {
         id: "inc_rate",
-        finding: "De limiet van Shopify voor verzoeken is bijna bereikt.",
+        finding: "De limiet van Shopify voor verzoeken was bijna bereikt.",
         next: null,
         since: "Sinds vr 11:30",
         told: null,
@@ -898,11 +898,8 @@ export const REGIONAL = {
 }
 export const REGIONAL_OPTIONS = {
   language: [
-    { value: "nl-NL", label: "Nederlands" },
-    { value: "en-US", label: "English (United States)" },
-    { value: "en-GB", label: "English (United Kingdom)" },
-    { value: "de-DE", label: "Deutsch" },
-    { value: "fr-FR", label: "Français" }
+    // Insyte speaks Dutch only.
+    { value: "nl-NL", label: "Nederlands" }
   ],
   currency: [
     { value: "EUR", label: "EUR · euro" },

@@ -81,7 +81,7 @@ export class AnalyticsGroup extends HttpApiGroup.make("analytics")
       query: Schema.Struct({
         metrics: Schema.String.annotate({
           description:
-            "Comma-separated figures, as INSYTE() names them: omzet, bestellingen, gemiddelde_bestelling, terugbetaald, chargebacks, advertentiekosten, overige_kosten, kosten, nettowinst, marge, roas, advertenties_meta, advertenties_google (omzet_meta, omzet_google, omzet_klaviyo and omzet_organisch are not kept yet)."
+            "Comma-separated figures, as INSYTE() names them: omzet, bestellingen, gemiddelde_bestelling, terugbetaald, terugbetaald_omzet, chargebacks, advertentiekosten, overige_kosten, kosten, nettowinst, marge, roas, advertenties_meta, advertenties_google (omzet_meta, omzet_google, omzet_klaviyo and omzet_organisch are not kept yet)."
         }),
         months: Schema.optional(Schema.String).annotate({
           description: "Comma-separated months, YYYY-MM, up to 24; the month under way when left out."

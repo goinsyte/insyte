@@ -5,6 +5,7 @@ import { Context, Effect, Layer, type Redacted } from "effect"
 import { SqlError } from "effect/sql"
 import type { SupplierApi } from "../forwarding/domain/Forwarding.ts"
 import type { Sealer } from "../shared/domain/Sealer.ts"
+import type { SearchHit } from "../shared/domain/Search.ts"
 import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { AssignInput, CreateInput, SetPausedInput, SupplierChange, UpdateInput } from "./domain/Commands.ts"
 import type {
@@ -39,6 +40,8 @@ export interface PingOutcome {
 export class SuppliersService extends Context.Service<SuppliersService, {
   readonly list: (input: typeof ListInput.Type) => Effect.Effect<SupplierList, Forbidden, R>
   readonly get: (id: string) => Effect.Effect<SupplierDetail, Forbidden | NotFound, R>
+  /** `Search.records`' suppliers: nothing for a role without the area. */
+  readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
   readonly create: (input: typeof CreateInput.Type) => Effect.Effect<SupplierChange, Forbidden | Invalid, R>
   readonly update: (input: typeof UpdateInput.Type) => Effect.Effect<SupplierChange, Forbidden | NotFound | Invalid, R>
   readonly setPaused: (input: typeof SetPausedInput.Type) => Effect.Effect<SupplierChange, Forbidden | NotFound, R>
@@ -60,6 +63,7 @@ export class SuppliersService extends Context.Service<SuppliersService, {
     list: (input) =>
       Suppliers.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
     get: (id) => Suppliers.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    search: (q, limit) => Suppliers.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     update: (input) => Commands.update(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     setPaused: (input) => Commands.setPaused(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router"
 import { useRef } from "react"
 import { toast } from "sonner"
 import { MessageCircle, Palette, Upload, X } from "../../../icons"
@@ -27,7 +28,9 @@ const FONT_STACK = {
  * website chat and on the returns portal. The colour is checked against white as it is set,
  * because a brand colour on a button is text on a colour, and it has to read. A colour under 4.5:1
  * is saved (widgets/05 §7.3: contrast only warns) but never drawn under white text: mails and the
- * portal keep Insyte's own button colour for it (`buttonColorOf`), and the page says so and shows it.
+ * portal keep Insyte's own button colour for it (`buttonColorOf`), and the page says so and shows it. The name, website
+ * and support address are what the returns portal shows, beside where the website's chat sits; a mail's sender and
+ * where an answer goes are E-mail en domein's, and the card says so.
  */
 export function BrandPage() {
   const s = useSection("brand", "Huisstijl", (a, b) => {
@@ -161,7 +164,10 @@ export function BrandPage() {
               </FieldRow>
             </div>
           </SettingCard>
-          <SettingCard title="Afzender" subtitle="Wie de mail stuurt en waar een antwoord heen gaat.">
+          <SettingCard
+            title="Retourportaal en chat"
+            subtitle="Hoe de klant je winkel op het retourportaal herkent en bereikt, en waar de chat op je website staat."
+          >
             <div className="flex flex-col">
               <FieldRow label="Afzendernaam" hint="Boven het retourportaal, als er geen logo is.">
                 <span className="flex flex-col gap-1.5">
@@ -213,6 +219,16 @@ export function BrandPage() {
                 />
               </FieldRow>
             </div>
+            <p className="mt-2 text-ink-3 text-xs">
+              Van welk adres mails gaan en waar een antwoord landt, stel je in bij{" "}
+              <Link
+                to="/settings/email-domain"
+                className="text-arc-ink underline decoration-arc-ink/35 underline-offset-2 hover:decoration-arc-ink"
+              >
+                E-mail en domein
+              </Link>
+              .
+            </p>
           </SettingCard>
         </div>
 
@@ -242,7 +258,8 @@ export function BrandPage() {
                 Label downloaden
               </span>
               <p className="text-ink-3 text-xs">
-                {d.sender} · {d.website.replace(/^https?:\/\//, "")} · {d.support}
+                {[d.sender, d.website.replace(/^https?:\/\//, ""), d.support].map((x) => x.trim()).filter(Boolean)
+                  .join(" · ")}
               </p>
             </div>
           </div>

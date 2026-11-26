@@ -127,10 +127,13 @@ export const waitedHours = (since: string, now: number) => Math.max(0, Math.floo
 /** A supplier that has not confirmed within 24 hours is late, and the queue and Start say so. */
 export const overdue = (state: LegState, since: string, now: number) => (state === "awaiting" || state === "sending") && now - Date.parse(since) > 24 * HOUR;
 
-/** "3 u", "1 d 7 u", "zojuist". */
+/** "zojuist", "26 min", "3 u", "1 d 7 u". */
 export function waitedLabel(since: string, now: number): string {
 	const h = waitedHours(since, now);
-	if (h === 0) return "zojuist";
+	if (h === 0) {
+		const m = Math.max(0, Math.floor((now - Date.parse(since)) / 60_000));
+		return m === 0 ? "zojuist" : `${m} min`;
+	}
 	if (h < 24) return `${h} u`;
 	const d = Math.floor(h / 24);
 	const r = h % 24;

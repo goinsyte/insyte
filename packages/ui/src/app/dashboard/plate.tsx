@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import type { Plate } from "../../data-source"
 import { cn } from "../lib/utils"
@@ -231,8 +232,23 @@ function Block({
   )
 }
 
-/** No plate drawn for the selected row. The drafting grid, ruled and not yet drawn on. */
-export function PlateEmpty({ onDismiss, settling }: { onDismiss: () => void; settling: boolean }) {
+/** Where a row without a plate is handled: its record's page, and what to do there. */
+export type PlateOpen = {
+  to: string
+  search?: Record<string, string> | undefined
+  /** The next step, in a sentence. */
+  next: string
+}
+
+/**
+ * No plate drawn for the selected row. The drafting grid, ruled and not yet drawn on. Where the host knows the row's
+ * record (`open`), it says the next step and opens the record, so the row is not a dead end.
+ */
+export function PlateEmpty({ onDismiss, settling, open }: {
+  onDismiss: () => void
+  settling: boolean
+  open?: PlateOpen | undefined
+}) {
   return (
     <aside
       className="plate flex w-full shrink-0 flex-col justify-end lg:w-[436px]"
@@ -240,15 +256,29 @@ export function PlateEmpty({ onDismiss, settling }: { onDismiss: () => void; set
     >
       <div className="px-6 pb-6">
         <p className="text-md text-mesh-ink">{settling ? "Opzijgezet." : "Hiervoor is niets getekend."}</p>
-        <button
-          type="button"
-          onClick={onDismiss}
-          disabled={settling}
-          aria-keyshortcuts="D"
-          className="mt-4 flex h-[34px] items-center rounded-lg bg-mesh-ink/15 px-3.5 font-medium text-base text-mesh-ink transition-colors hover:bg-mesh-ink/25 disabled:opacity-40"
-        >
-          Markeren als gezien
-        </button>
+        {open === undefined || settling ?
+          null :
+          <p className="mt-2 text-base text-mesh-ink-2 leading-[19px]">{open.next}</p>}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {open === undefined || settling ? null : (
+            <Link
+              to={open.to as never}
+              search={open.search as never}
+              className="flex h-[34px] items-center rounded-lg bg-mesh-ink px-3.5 font-medium text-abyss text-base transition-colors hover:bg-mesh-ink/90"
+            >
+              Openen
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={settling}
+            aria-keyshortcuts="D"
+            className="flex h-[34px] items-center rounded-lg bg-mesh-ink/15 px-3.5 font-medium text-base text-mesh-ink transition-colors hover:bg-mesh-ink/25 disabled:opacity-40"
+          >
+            Markeren als gezien
+          </button>
+        </div>
       </div>
       <div className="shrink-0 bg-mesh-ink/8 px-6 py-3 text-base text-mesh-ink-3">
         Geen voorstel · niets uit te voeren

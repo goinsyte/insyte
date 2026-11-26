@@ -22,6 +22,9 @@ import { retireCompletedDrafts } from "./webhooks.ts"
  * on its own and never waits for a sweep. While a webhook gap is open on the store the orders are read with more pages,
  * out of an allowance the whole run shares (`gapPages`), since the sweep is then the store's only feed of orders.
  *
+ * Once per store, before the rest, its gift cards are read on their own (`gift_card:true`, then `gift_cards_read_at`):
+ * products mirrored before gift cards were known (0111) say what they are without the watermark going back.
+ *
  * Last, the drafts Insyte made (M7.1) that Shopify completed but whose webhook never got through are retired into the
  * orders they became (`retireCompletedDrafts`); that look failing is logged and leaves the sweep's outcome alone.
  *
@@ -46,6 +49,8 @@ const OBJECTS_PER_SWEEP = 100
 /** While order webhooks are not coming, the orders are read up to this many, the extra pages out of the run's. */
 const OBJECTS_IN_GAP = 300
 const OVERLAP_MS = 60_000
+/** The gift cards' one read reads this many pages at most (ten products a page): a shop sells a handful. */
+const GIFT_CARD_PAGES = 20
 /** What the gate holds back for a read: about what one costs Shopify once read (its requested cost is higher). */
 const PAGE_COST = 50
 
@@ -71,8 +76,9 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
       lastSyncedAt: Date | null
       status: string
       gap: boolean
+      giftCardsReadAt: Date | null
     }>`
-      select s.connection_id, s.shop_domain as shop, s.currency, s.last_synced_at, s.status,
+      select s.connection_id, s.shop_domain as shop, s.currency, s.last_synced_at, s.status, s.gift_cards_read_at,
              exists (select 1 from connection_incidents i where i.connection_id = s.connection_id
                      and i.kind = 'webhook_gap' and i.resolved_at is null) as gap
       from stores s where s.id = ${storeId}`
@@ -92,6 +98,25 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
         })
       )
     )
+  // Once per store: its gift cards on their own, for a mirror made before `isGiftCard` was read (0111). The sweep's
+  // own read takes only what changed, and a gift card seldom does. Read again it is untracked, and its period closes.
+  if (store.giftCardsReadAt === null) {
+    let after: string | null = null
+    for (let page = 0; page < GIFT_CARD_PAGES; page++) {
+      const { data } = yield* ask(changedQuery("Product"), { q: "gift_card:true", after })
+      const answer = connectionAt(data, ["products"])
+      if (answer === undefined) break
+      const batch = emptyBatch()
+      for (const { node } of answer.edges) {
+        for (const line of yield* wholeNode(node, ask)) addLine(batch, line, store.currency ?? "EUR")
+      }
+      yield* applyBatch(storeId, batch)
+      read += answer.edges.length
+      if (answer.pageInfo?.hasNextPage !== true || answer.pageInfo.endCursor === null) break
+      after = answer.pageInfo.endCursor
+    }
+    yield* db.scopedFor((sql) => sql`update stores set gift_cards_read_at = now() where id = ${storeId}`)
+  }
   for (const { kind, resource, field } of RESOURCES) {
     const usual = Math.ceil(OBJECTS_PER_SWEEP / changedPage(kind))
     const pages = resource === "orders" && store.gap

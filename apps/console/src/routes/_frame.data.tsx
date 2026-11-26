@@ -31,8 +31,10 @@ const isView = (v: unknown): v is View => typeof v === "string" && (VIEWS as Rea
 
 export const Route = createFileRoute("/_frame/data")({
   head: () => ({ meta: [{ title: "Data · Insyte" }] }),
-  validateSearch: (s: Record<string, unknown>): { view?: View | undefined } => ({
-    view: isView(s["view"]) ? s["view"] : undefined
+  validateSearch: (s: Record<string, unknown>): { view?: View | undefined; source?: string | undefined } => ({
+    view: isView(s["view"]) ? s["view"] : undefined,
+    // Tabel's table: an imported file's id; absent, the orders.
+    source: typeof s["source"] === "string" && s["source"] !== "" ? s["source"] : undefined
   }),
   loader: async ({ context }) => {
     // Mounted so the values survive until the registry is dehydrated into the document.

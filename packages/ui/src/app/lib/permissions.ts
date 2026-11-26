@@ -226,11 +226,23 @@ export function diff(base: Permissions, next: Permissions, stores: ReadonlyArray
 	return out;
 }
 
-/** A short line for a list row: "Beheert 3 · bewerkt 4 · ziet 5". */
+/**
+ * A short line for a list row: "Beheert 3 onderdelen · bewerkt 4 · ziet 5". The first count names its
+ * unit, so the line does not read as bare numbers; one level on every area is "Beheert alle onderdelen".
+ */
 export function summaryLine(role: Permissions & { id?: string }): string {
 	if (role.id === "owner") return "Alles";
 	const n = (l: Level) => AREAS.filter((a) => role.levels[a.id] === l).length;
-	const parts = [n(3) ? `beheert ${n(3)}` : "", n(2) ? `bewerkt ${n(2)}` : "", n(1) ? `ziet ${n(1)}` : ""].filter(Boolean);
+	const verbs: ReadonlyArray<readonly [Level, string]> = [[3, "beheert"], [2, "bewerkt"], [1, "ziet"]];
+	const parts = verbs
+		.filter(([level]) => n(level) > 0)
+		.map(([level, verb], i) =>
+			n(level) === AREAS.length
+				? `${verb} alle onderdelen`
+				: i === 0
+					? `${verb} ${n(level)} ${n(level) === 1 ? "onderdeel" : "onderdelen"}`
+					: `${verb} ${n(level)}`,
+		);
 	const s = parts.join(" · ") || "nog niets";
 	return s.charAt(0).toUpperCase() + s.slice(1);
 }

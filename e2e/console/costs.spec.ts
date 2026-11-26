@@ -87,7 +87,7 @@ test("@costs a new admin adds costs, types a month, removes a line and takes it 
   await dialog.getByPlaceholder("0").fill("39")
   await dialog.getByRole("button", { name: "Toevoegen" }).click()
   await expect(page.getByText("Shopify-abonnement toegevoegd")).toBeVisible()
-  await expect(page.getByText("1 posten ·", { exact: false })).toBeVisible()
+  await expect(page.getByText("1 post ·", { exact: false })).toBeVisible()
 
   // Every month has the amount; one typed over says so and keeps it.
   const cells = page.getByRole("textbox", { name: /^Shopify-abonnement, / })

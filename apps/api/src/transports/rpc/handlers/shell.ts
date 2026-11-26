@@ -16,6 +16,7 @@ import { ReturnsService } from "@insyte/modules/returns/Returns"
 import type { SearchKind } from "@insyte/modules/shared/domain/Search"
 import { inStore } from "@insyte/modules/shared/use-cases/StoreScope"
 import { StoresService } from "@insyte/modules/stores/Stores"
+import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
@@ -122,6 +123,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const stores = yield* StoresService
   const returns = yield* ReturnsService
   const queue = yield* QueueService
+  const suppliers = yield* SuppliersService
   // Each kind through its own slice, which answers nothing where the role may not look (support level, stores, a DM).
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
@@ -130,9 +132,19 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
     ticket: (q: string, limit: number) => tickets.search(q, limit),
     thread: (q: string, limit: number) => inbox.search(q, limit),
     message: (q: string, limit: number) => chats.search(q, limit),
-    chargeback: (q: string, limit: number) => chargebacks.search(q, limit)
+    chargeback: (q: string, limit: number) => chargebacks.search(q, limit),
+    supplier: (q: string, limit: number) => suppliers.search(q, limit)
   } as const
-  const EVERY: ReadonlyArray<SearchKind> = ["order", "customer", "product", "ticket", "thread", "message", "chargeback"]
+  const EVERY: ReadonlyArray<SearchKind> = [
+    "order",
+    "customer",
+    "product",
+    "ticket",
+    "thread",
+    "message",
+    "chargeback",
+    "supplier"
+  ]
 
   // One read per area, on that area's pages only, each fenced to the principal's stores by its slice.
   const areaCounts = (area: string) => {

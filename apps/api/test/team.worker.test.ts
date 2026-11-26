@@ -38,6 +38,16 @@ describe("the team on the server", () => {
     expect(team.link).toMatchObject({ enabled: false, token: null, roleId: "view", days: 7 })
   })
 
+  it("marks a member active when they call, writing it at most once in five minutes", async () => {
+    const before = Date.now()
+    const first = ok(await rpc("Team.get", undefined, owner.cookie)).members[0]!.lastActiveAt
+    expect(first).not.toBeNull()
+    expect(first!).toBeGreaterThan(before - 6 * 60_000)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Called again right away: not written again.
+    expect(ok(await rpc("Team.get", undefined, owner.cookie)).members[0]!.lastActiveAt).toBe(first)
+  })
+
   it("refuses a person without a workspace", async () => {
     const loner = await person("loner")
     expect(failure(await rpc("Team.get", undefined, loner.cookie))).toMatchObject({ _tag: "NoWorkspace" })
@@ -239,5 +249,23 @@ describe("the team on the server", () => {
     // Setting what is already there changes nothing.
     expect(ok(await rpc("Members.setStores", { id, stores: "all" }, owner.cookie)).members.find((m) => m.id === id))
       .toMatchObject({ stores: "all" })
+  })
+
+  it("marks a read-only member active through their own calls, at most once in five minutes", async () => {
+    const lena = `lena-${run}@example.com`
+    ok(await rpc("Invitations.send", { rows: [{ email: lena, roleId: "view", stores: "all" }] }, owner.cookie))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const cookie = await join(lena)
+    const seen = async () =>
+      ok(await rpc("Team.get", undefined, owner.cookie)).members.find((m) => m.email === lena)!.lastActiveAt
+
+    // Any call of theirs inside the workspace, whatever their role lets them see.
+    await rpc("Team.get", undefined, cookie)
+    const first = await seen()
+    expect(first).not.toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await rpc("Team.get", undefined, cookie)
+    expect(await seen()).toBe(first)
   })
 })

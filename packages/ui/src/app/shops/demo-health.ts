@@ -26,7 +26,7 @@ const GAP: StoreHealth = {
 		{
 			id: "inc_demo_rate",
 			tone: "warning",
-			finding: "De limiet van Shopify voor verzoeken is bijna bereikt.",
+			finding: "De limiet van Shopify voor verzoeken was bijna bereikt.",
 			next: null,
 			since: "Sinds ma 11:30",
 			told: null,
@@ -36,7 +36,7 @@ const GAP: StoreHealth = {
 	],
 };
 
-const FINE: StoreHealth = { tone: "success", label: "Gesynchroniseerd", synced: "Gesynchroniseerd om 09:15", reconnect: false, incidents: [] };
+const FINE: StoreHealth = { tone: "success", label: "Gekoppeld", synced: "Gesynchroniseerd om 09:15", reconnect: false, incidents: [] };
 
 /** Each demo store's health: the second connected store has the gap. */
 export function demoHealth(stores: ReadonlyArray<{ id: string; status: string }>): Record<string, StoreHealth> {
