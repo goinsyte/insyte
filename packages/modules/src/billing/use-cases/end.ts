@@ -1,7 +1,6 @@
 import { Db } from "@insyte/database/Db"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
-import * as Audit from "../../shared/use-cases/Audit.ts"
 import { BillingUnavailable } from "../domain/Billing.ts"
 import { BillingProvider, type SubscriptionSnapshot } from "../domain/Ports.ts"
 import { isLive, subscriptionRow } from "./state.ts"
@@ -16,8 +15,9 @@ import { isLive, subscriptionRow } from "./state.ts"
  *
  * Only Stripe not answering holds the purge back (the step is retried, and the daily sweep starts it again). A customer
  * Stripe no longer has bills nothing: deleting a customer cancels its subscriptions at once. Stripe refusing to end one
- * would refuse every retry too, and the erasure has a deadline: it is logged as an error and written to the audit log
- * (as a second subscription is), for a person to end in Stripe, and the purge goes on.
+ * would refuse every retry too, and the erasure has a deadline: it is logged as an error with the workspace and the
+ * subscription, for a person to end in Stripe, and the purge goes on. Not in the workspace's audit log: the purge
+ * deletes that a moment later.
  */
 
 /** How many subscriptions at the customer one deletion ends at most: Stripe answers the newest live one each time. */
@@ -56,14 +56,6 @@ export const endForDeletion = Effect.fn("Billing.endForDeletion")(function*() {
             subscription: current.subscriptionId,
             status: current.status
           })
-          yield* db.scopedFor((sql) =>
-            Audit.write(sql, ws.id, { kind: "system", id: "stripe" }, {
-              action: "billing.end_refused",
-              subjectType: "billing",
-              subjectId: ws.id,
-              diff: { subscription: current.subscriptionId, status: current.status }
-            })
-          )
           return false
         }))
     )

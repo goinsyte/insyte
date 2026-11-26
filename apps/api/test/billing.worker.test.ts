@@ -615,7 +615,7 @@ describe("billing", () => {
       await relay(owner.workspace)
       const [run] = await lifecycle.get()
       await run!.waitForStatus("complete")
-      // A refusal would be the same on every try, and the erasure has a deadline: logged and audited, not retried.
+      // A refusal would be the same on every try, and the erasure has a deadline: logged as an error, not retried.
       expect(await run!.waitForStepResult({ name: "billing" })).toEqual({ ended: 0 })
     } finally {
       await call(`http://api.test/api/__dev/billing/end-fails?workspace=${owner.workspace}&reason=none`, {
