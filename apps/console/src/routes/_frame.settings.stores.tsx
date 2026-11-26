@@ -13,7 +13,7 @@ import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useEffect } from "react"
 import { toast } from "sonner"
-import { storesAtom } from "../data/stores.ts"
+import { healthAtom, storesAtom } from "../data/stores.ts"
 import { notConnected, useConsoleStoresSource } from "../stores/stores-source.tsx"
 
 /**
@@ -29,9 +29,16 @@ export const Route = createFileRoute("/_frame/settings/stores")({
   }),
   head: () => ({ meta: [{ title: "Winkels · Insyte" }] }),
   loader: async ({ context }) => {
-    // Mounted so the value survives until the registry is dehydrated into the document.
+    // Mounted so the values survive until the registry is dehydrated into the document. The sync health comes with
+    // the stores, so a row does not open on "Gekoppeld" and then change its word and height; a role that may not
+    // read it gets its refusal here, and the rows show without.
     context.registry.mount(storesAtom)
-    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, storesAtom)))
+    context.registry.mount(healthAtom)
+    // Each ignored on its own: a refused health read must not cut the stores' read short.
+    await Effect.runPromise(Effect.all([
+      Effect.ignore(AtomRegistry.getResult(context.registry, storesAtom)),
+      Effect.ignore(AtomRegistry.getResult(context.registry, healthAtom))
+    ], { concurrency: 2 }))
   },
   pendingComponent: Pending,
   component: StoresRoute

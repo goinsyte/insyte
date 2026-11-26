@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { initials } from "../lib/format";
 import { cn } from "../lib/utils";
 
 /**
@@ -12,7 +14,8 @@ import { cn } from "../lib/utils";
  * Klarna, a favicon) and a bare mark (Shopify, Zapier) line up in one row. The tile is `mesh-ink` and
  * not `paper`, because it is a pinned field: a vendor draws its mark for a white ground, and on the
  * night theme's dark paper Anthropic's black mark disappeared and PayPal's navy went to mud. A
- * service without a file falls back to its initials on the same tile.
+ * service without a file falls back to its initials on the same tile, and so does a file that fails
+ * to load: a broken-image icon is never the better answer.
  */
 
 type Logo = {
@@ -91,14 +94,6 @@ export function brandFor(brand: string, _name?: string): { color: string } {
 	return { color: LOGOS[keyOf(brand)]?.color ?? "var(--abyss)" };
 }
 
-const initials = (name: string): string =>
-	name
-		.split(/\s+/)
-		.map((word) => word.charAt(0))
-		.join("")
-		.slice(0, 2)
-		.toUpperCase();
-
 export function BrandLogo({
 	brand,
 	extId,
@@ -115,6 +110,10 @@ export function BrandLogo({
 	className?: string;
 }) {
 	const logo = LOGOS[keyOf(brand ?? extId ?? name)];
+	// The file that failed to load, so a missing or blocked file shows the initials instead of a
+	// broken-image icon; kept by name, so a tile that moves to another brand tries its file again.
+	const [failed, setFailed] = useState<string | null>(null);
+	const file = logo !== undefined && logo.file !== failed ? logo.file : undefined;
 	// A tile's corner follows its size — the chip radius below 24px, the control radius up to 40px,
 	// the tile radius above it — so a 16px logo in a table cell does not look like a pill.
 	const radius = size < 24 ? "rounded-sm" : size <= 40 ? "rounded-md" : "rounded-lg";
@@ -131,18 +130,19 @@ export function BrandLogo({
 			)}
 			style={{ width: size, height: size }}
 		>
-			{logo ? (
+			{file !== undefined ? (
 				<img
-					src={`/logos/${logo.file}`}
+					src={`/logos/${file}`}
 					alt=""
 					width={size}
 					height={size}
 					loading="lazy"
 					decoding="async"
 					draggable={false}
+					onError={() => setFailed(file)}
 					className={cn(
 						"object-contain",
-						logo.full === true ? "size-full" : "size-[64%]",
+						logo?.full === true ? "size-full" : "size-[64%]",
 					)}
 				/>
 			) : (
