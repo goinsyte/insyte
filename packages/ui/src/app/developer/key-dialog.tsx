@@ -18,7 +18,7 @@ const DAY = 86_400_000;
  * where requests may come from. Then the secret, once: it is shown in full, copied, and the dialog
  * only closes after "Ik heb hem opgeslagen", because there is no second look.
  */
-export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function CreateKeyDialog({ open, onOpenChange, forAgent = false }: { open: boolean; onOpenChange: (v: boolean) => void; forAgent?: boolean }) {
 	const source = useDeveloperSource();
 	const roles = source.roles.filter((r) => r.id !== "owner");
 	const [step, setStep] = useState<"form" | "secret">("form");
@@ -29,7 +29,7 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 	const [stores, setStores] = useState<StoreScope>("all");
 	const [expiry, setExpiry] = useState<(typeof EXPIRY)[number]["id"]>("90");
 	const [ips, setIps] = useState<string[]>([]);
-	const [agent, setAgent] = useState(false);
+	const [agent, setAgent] = useState(forAgent);
 	const [fresh, setFresh] = useState<{ key: ApiKey; secret: string } | null>(null);
 	const [saved, setSaved] = useState(false);
 	const [nudge, setNudge] = useState(false);
@@ -44,6 +44,7 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 		setStores("all");
 		setExpiry("90");
 		setIps([]);
+		setAgent(forAgent);
 		setFresh(null);
 		setSaved(false);
 		setNudge(false);
@@ -116,7 +117,7 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 									<div className="flex flex-col gap-1.5">
 										<SelectField value={roleId} onChange={setRoleId} options={roles.map((r) => r.id)} renderLabel={(id) => roles.find((r) => r.id === id)?.label ?? id} />
 										<p className="text-ink-2 text-sm leading-normal">
-											{scopeSummary(access, 4)}. Verandert de rol onder Rollen, dan verandert deze sleutel mee. Team en facturatie zijn nooit bereikbaar met een sleutel.
+											{scopeSummary(access, 4)}. Verandert de rol onder Rollen, dan verandert deze sleutel mee. Het team kan een sleutel alleen bekijken; facturatie, instellingen en de sleutels zelf nooit.
 										</p>
 									</div>
 								) : (
@@ -149,7 +150,7 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 							</label>
 
 							<DialogFooter className="sm:justify-between">
-								<span className="text-ink-3 text-sm tabular-nums">{count === 0 ? "Kies minstens één recht" : `${count} ${count === 1 ? "scope" : "scopes"}`}</span>
+								<span className="text-ink-3 text-sm tabular-nums">{count === 0 ? "Kies minstens één recht" : `${count} ${count === 1 ? "recht" : "rechten"}`}</span>
 								<div className="flex gap-2">
 									<button type="button" onClick={() => onOpenChange(false)} className={GHOST_BTN}>
 										Annuleren

@@ -206,7 +206,7 @@ describe("the Data hub", () => {
     )
     expect(unknown).toMatchObject({ _tag: "UnknownColumn", column: "secret" })
 
-    const orders = await exported(store, { source: "orders", columns: ["number", "customer", "total"] })
+    const orders = await exported(store, { source: "orders", columns: ["number", "customer", "total", "placed"] })
     expect(orders).toMatchObject({ state: "ready", source: "orders" })
     expect(orders.fileName).toMatch(/^bestellingen-\d{4}-\d{2}-\d{2}\.csv$/)
     expect(orders.rowsWritten).toBe(ok(await rpc("Data.overview", undefined, store.cookie)).orders)
@@ -223,8 +223,11 @@ describe("the Data hub", () => {
     expect(file.headers.get("content-length")).toBe(String(folder[0]!.size))
     const text = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(await file.arrayBuffer())
     const lines = text.split("\r\n")
-    expect(lines[0]).toBe("﻿Bestelling;Klant;Totaal")
-    expect(lines.slice(1).filter((l) => l !== "")).toHaveLength(orders.rowsWritten)
+    expect(lines[0]).toBe("﻿Bestelling;Klant;Totaal;Geplaatst")
+    const rows = lines.slice(1).filter((l) => l !== "")
+    expect(rows).toHaveLength(orders.rowsWritten)
+    // Amounts with a decimal comma; "Geplaatst" on the workspace's clock with its offset, never UTC's "Z".
+    for (const row of rows) expect(row).toMatch(/;\d+,\d{2};\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
     expect(text).toContain("#1001;")
     expect((await call(`http://api.test${orders.fileUrl}`)).status).toBe(401)
 

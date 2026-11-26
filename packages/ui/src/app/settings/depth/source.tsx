@@ -30,8 +30,11 @@ export interface PrivacyHere {
   countOf: (c: Retention, months: number | null) => number | null
   /** A count is out: the button waits for it. */
   counting: boolean
-  /** "Nu tellen", over the page's periods as they stand. */
-  count: (classes: ReadonlyArray<Retention>) => void
+  /**
+   * "Nu tellen", over the page's periods as they stand: how many items would go, once counted (its figures are then
+   * `countOf`'s at once); nothing when the count was refused (the host said why).
+   */
+  count: (classes: ReadonlyArray<Retention>) => Promise<number | undefined>
   /** The switch, after the page's own confirm when it goes on; the host says what it did (with its Undo). */
   setErasing: (on: boolean, said: Said) => void
 }

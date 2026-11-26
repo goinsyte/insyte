@@ -15,9 +15,9 @@ import { scopeSummary } from "../lib/developer-core";
  */
 const GUIDE = [
 	{ title: "Klaar voor je eigen agents", body: "Je eigen AI-tools lezen en werken in Insyte met de rechten van een rol: via de API, MCP en webhooks.", art: "keys" },
-	{ title: "Rechten", body: "Per rol of per onderdeel, lezen of schrijven. Team, facturatie en de API zelf zijn nooit bereikbaar met een sleutel.", art: "roles" },
+	{ title: "Rechten", body: "Per rol of per onderdeel, lezen of schrijven. Het team kan een sleutel alleen bekijken; facturatie, instellingen en de sleutels zelf nooit.", art: "roles" },
 	{ title: "Dezelfde regels", body: "Elke schrijfactie volgt Zelfstandigheid. Wat op Eerst vragen staat, komt als voorstel bij jou, net als bij Insyte.", art: "rules" },
-	{ title: "MCP", body: "Een MCP-client logt in met een API-sleutel, met dezelfde rechten. Elke aanroep staat in het verzoeklog van die sleutel.", art: "webhook" },
+	{ title: "MCP", body: "Met MCP werkt een AI-tool direct in Insyte. Hij stuurt een API-sleutel mee en heeft de rechten van die sleutel. Elke aanroep staat in het verzoeklog van die sleutel.", art: "webhook" },
 ] as const;
 
 export function AgentsPage() {
@@ -32,8 +32,8 @@ export function AgentsPage() {
 					{keys.length === 0 ? (
 						<li className="flex items-center justify-between gap-3 px-3.5 py-3 text-ink-3 text-sm">
 							Nog geen sleutel voor een agent
-							<Link to={"/settings/api-keys" as never} className="font-medium text-arc-ink hover:underline">
-								Sleutel maken
+							<Link to={"/settings/api-keys" as never} search={{ nieuw: "agent" } as never} className="font-medium text-arc-ink hover:underline">
+								Sleutel aanmaken
 							</Link>
 						</li>
 					) : (
@@ -62,7 +62,7 @@ export function AgentsPage() {
 						<CopyButton value={source.mcpUrl} className="ml-auto sm:ml-0" />
 					</div>
 					<p className="text-ink-3 text-sm leading-normal">
-						Log in met een API-sleutel als <Token>Authorization: Bearer</Token>, met de rechten van die sleutel.
+						Met MCP werkt een AI-tool, zoals Claude of Cursor, direct in Insyte. Zet dit adres in de tool en stuur een API-sleutel mee in de header <Token>Authorization: Bearer &lt;sleutel&gt;</Token>. De tool heeft dan de rechten van die sleutel.
 					</p>
 				</div>
 			</SettingCard>

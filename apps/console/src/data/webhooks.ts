@@ -1,7 +1,7 @@
 import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { WebhookEndpointView } from "@insyte/modules/developer/domain/Webhook"
 import { Schema } from "effect"
-import { AsyncResult, Atom } from "effect/reactivity"
+import { AsyncResult, Atom, Reactivity } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
 
@@ -46,3 +46,6 @@ export const webhookWrites = {
   delivery: ConsoleClient.mutation("Webhooks.delivery"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const
+
+/** Reads the endpoints and their deliveries again: once a test's or a redelivery's attempt is in. */
+export const reReadWebhooks = ConsoleClient.runtime.fn(() => Reactivity.invalidate(WEBHOOKS))

@@ -1,5 +1,5 @@
 import { ChevronRight, Key, Plus, Webhook } from "../../icons";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactElement, useMemo, useState } from "react";
 import { Blocked } from "../access/blocked";
 import { EmptyState } from "../common/empty-state";
@@ -28,12 +28,16 @@ const GUIDE = [
  * read or read and write, in the same ids an automation's rights use. A key that is not a whole
  * role in every store, from anywhere, is marked Beperkt. Active keys come first; a key about to
  * lapse says so in amber, a lapsed one in red. Revoked keys stay listed below, greyed, for the record.
+ * `?nieuw=agent` (Agents en MCP's "Sleutel aanmaken") opens the new-key dialog at once, with "Gebruiken met een
+ * agent" on; closing it drops the parameter again.
  */
-export function ApiKeysPage() {
+export function ApiKeysPage({ start }: { start?: "agent" | undefined } = {}) {
 	const source = useDeveloperSource();
+	const navigate = useNavigate();
 	const { keys, roles } = source;
 	const manage = source.can.manage;
-	const [creating, setCreating] = useState(false);
+	const [creating, setCreating] = useState(start === "agent" && manage.ok);
+	const [forAgent, setForAgent] = useState(start === "agent");
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [showRevoked, setShowRevoked] = useState(false);
 
@@ -166,7 +170,16 @@ export function ApiKeysPage() {
 				</Link>
 			</SettingCard> : null}
 
-			<CreateKeyDialog open={creating} onOpenChange={setCreating} />
+			<CreateKeyDialog
+				open={creating}
+				forAgent={forAgent}
+				onOpenChange={(v) => {
+					setCreating(v);
+					if (v || !forAgent) return;
+					setForAgent(false);
+					void navigate({ to: "/settings/api-keys" as never, search: {} as never, replace: true });
+				}}
+			/>
 			<KeyDetailDialog keyId={openId} onClose={() => setOpenId(null)} />
 			<PageGuide id="settings.api-keys" title="API-sleutels" steps={GUIDE} />
 		</>

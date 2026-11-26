@@ -94,6 +94,7 @@ export function DemoSettingsDepthSource({ children }: { children: ReactNode }) {
         useSettingsDepth.setState({
           privacy: { ...useSettingsDepth.getState().privacy, countedAt: at, countedPeriods }
         })
+        return Promise.resolve(classes.reduce((n, c) => n + would(c, c.months), 0))
       },
       setErasing: (on, said) => {
         const live = useSettingsDepth.getState().privacy
