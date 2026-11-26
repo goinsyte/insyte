@@ -231,13 +231,16 @@ export function formatRelative(value: string | Date) {
 	return past ? `${phrase} geleden` : `over ${phrase}`;
 }
 
+/**
+ * "Sanne de Vries" → "SD", "Zapier" → "Z". A word that opens with a number keeps the number, so
+ * "17TRACK" reads "17" and not a lone "1".
+ */
 export function initials(name: string) {
 	return name
 		.split(/\s+/)
-		.map((part) => part[0])
-		.filter(Boolean)
-		.slice(0, 2)
+		.map((part) => /^\d+/.exec(part)?.[0] ?? part.charAt(0))
 		.join("")
+		.slice(0, 2)
 		.toUpperCase();
 }
 

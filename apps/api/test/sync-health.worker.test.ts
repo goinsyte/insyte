@@ -180,7 +180,13 @@ describe("sync health", () => {
     const health = ok(await rpc("Connections.health", undefined, store.cookie))
     expect(health.connections[0]).toMatchObject({ state: "ok", lastDeliveryAt: expect.any(Number) })
     expect(health.connections[0]!.incidents).toEqual([
-      expect.objectContaining({ kind: "webhook_gap", resolvedAt: expect.any(Number), notified: expect.any(String) })
+      // The one told is the one reading: Winkels says "jou" rather than their own name.
+      expect.objectContaining({
+        kind: "webhook_gap",
+        resolvedAt: expect.any(Number),
+        notified: expect.any(String),
+        notifiedYou: true
+      })
     ])
   })
 

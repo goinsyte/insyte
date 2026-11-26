@@ -16,7 +16,8 @@ import { storeHealthOf } from "./health-of.ts"
  * goes to Shopify's approval page and comes back through the API's callback, `routes/_frame.settings.stores.tsx`), and
  * disconnecting as `Stores.disconnect`. A disconnect drops the token, so it has no undo: the row connects again. A
  * refusal is said once, in Dutch. A connected store's Live pixel (M14 step 3) is installed or repaired from its menu as
- * `Live.installPixel`, where this environment can (`Live.pixels`). Which store is in view is the top bar's switch.
+ * `Live.installPixel`, where this environment can (`Live.pixels`); when Shopify has not granted Live's rights yet, the
+ * refusal offers to connect the store again. Which store is in view is the top bar's switch.
  * Each row's sync health is `Connections.health` (M17 step 6), with the incidents open on it and what Insyte already
  * tried; a role that may not read it sees the rows without.
  */
@@ -69,6 +70,8 @@ export function useConsoleStoresSource(stores: ReadonlyArray<StoreView>, focusId
   const { active, setActive } = useActiveStore()
   const disconnect = useAtomSet(storeWrites.disconnect, { mode: "promiseExit" })
   const install = useAtomSet(liveWrites.installPixel, { mode: "promiseExit" })
+  // Live needs rights the store was not connected with: the refusal offers to connect it again, straight to Shopify.
+  const reconnect = useBeginConnect(RETURN)
   // Read in the browser; a role that may not see them, or an environment without the pixel, offers no Live item.
   const pixels = Option.getOrUndefined(AsyncResult.value(useAtomValue(pixelsAtom)))
   const pixelOf = (id: string) => pixels?.pixels.find((p) => p.storeId === id)?.state
@@ -81,8 +84,12 @@ export function useConsoleStoresSource(stores: ReadonlyArray<StoreView>, focusId
     stores: stores.map((s) => ({ ...rowOf(s), livePixel: pixelOf(s.id), health: healthOf(s.id) })),
     focusId,
     installPixel: pixels?.available === true
-      ? async (storeId) =>
-        (await run(install({ payload: { storeId }, reactivityKeys: [...LIVE, ...STORES] }))) !== undefined
+      ? async (storeId) => {
+        const domain = stores.find((s) => s.id === storeId)?.shopDomain
+        const offers = domain === undefined ? {} : { reconnect: () => void reconnect(domain) }
+        return (await run(install({ payload: { storeId }, reactivityKeys: [...LIVE, ...STORES] }), offers)) !==
+          undefined
+      }
       : undefined,
     // Every store at once marks none.
     activeId: active?.id ?? null,
