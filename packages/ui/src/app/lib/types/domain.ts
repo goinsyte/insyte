@@ -49,7 +49,10 @@ export type Product = {
 	title: string;
 	images: string[];
 	description: string;
+	/** The lowest variant's price: what the list shows, with "vanaf" before it when `price_max` is higher. */
 	price: number;
+	/** The highest variant's price, when the host knows it. */
+	price_max?: number;
 	cost?: number;
 	margin?: number;
 	currency: Currency;

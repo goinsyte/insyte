@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { paidOrder, setRates, USD_EUR } from "./currencies.ts"
 import { failure, join, ok, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
@@ -301,6 +302,35 @@ describe("chargebacks", () => {
     await relay(store.workspace)
     const after = ok(await rpc("Queue.list", { tab: "all" }, store.cookie)).rows.find((r) => r.subjectId === created.id)
     expect(after?.state ?? "resolved").toBe("resolved")
+  })
+
+  it("holds a case in another currency to the workspace's threshold at the latest ECB rate", async () => {
+    await setRates([{ base: "USD", quote: "EUR", rate: USD_EUR, ageDays: 0 }])
+    const store = await importedStore("cb-threshold")
+    await paidOrder(store, "#USD7", "USD", 20_000)
+    // The owner hears a case a colleague opens; the threshold is the default, € 100 in the workspace's euro.
+    const email = `cb-threshold-${run}@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "service", stores: "all" }] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const service = await join(email)
+    const order = ok(await rpc("Orders.list", { limit: 50 }, service)).rows.find((o) => o.number === "#USD7")!
+
+    // $ 105: over 100 read as dollars, under € 100 at the rate. $ 120 is over it.
+    const under = ok(
+      await rpc("Chargebacks.createManual", { ...manual, orderId: order.id, amountMinor: 10_500 }, service)
+    )
+      .chargebacks[0]!
+    const over = ok(
+      await rpc("Chargebacks.createManual", { ...manual, orderId: order.id, amountMinor: 12_000 }, service)
+    )
+      .chargebacks[0]!
+    expect([under.currency, over.currency]).toEqual(["USD", "USD"])
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+
+    const notes = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
+    expect(notes.filter((n) => n.kind === "chargeback.new").map((n) => n.subjectId)).toEqual([over.id])
   })
 
   it("reads the cases through /v1 and MCP, as a key that may look", async () => {

@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { NotePrefs, NotifyPrefsInput } from "@insyte/modules/notifications/domain/Notifications"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { formatCurrency, WHOLE } from "@insyte/ui/app/lib/format"
 import { EVENTS, type NotifyPrefs } from "@insyte/ui/app/lib/notifications"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
@@ -163,7 +163,7 @@ export function useConsoleNotificationSettingsSource(prefs: NotePrefs): Notifica
     timezone: prefs.timezone,
     thresholds: {
       delayHours: `Na ${prefs.alerts.delayHours} uur`,
-      disputeAmount: `Vanaf ${formatCurrency(prefs.alerts.disputeAmountMinor / 100, currency)}`
+      disputeAmount: `Vanaf ${formatCurrency(prefs.alerts.disputeAmountMinor / 100, currency, WHOLE)}`
     },
     connected: { push: prefs.channels.push === "connected", slack: prefs.channels.slack === "connected" },
     slackChannels: channels,

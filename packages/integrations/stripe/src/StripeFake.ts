@@ -246,6 +246,11 @@ export const makeFake = (config: FakeConfig): Provider => ({
       const was = subscriptions.get(current.subscriptionId)?.s ?? current
       return keep({ ...was, cancelAt: cancel ? was.currentPeriodEnd : null })
     }),
+  cancelNow: ({ current }) =>
+    Effect.sync(() => {
+      const was = subscriptions.get(current.subscriptionId)?.s ?? current
+      return was.status === "canceled" ? was : keep({ ...was, status: "canceled", cancelAt: null })
+    }),
   // Back to the page: the fake has no portal of its own.
   portal: ({ returnUrl }) => Effect.succeed({ url: returnUrl }),
   subscription: (id) => Effect.sync(() => subscriptions.get(id)?.s),

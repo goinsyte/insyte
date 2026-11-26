@@ -61,7 +61,9 @@ const rowOf = (l: ServerLine): CostRow => ({
   reads: l.readsFromSource,
   hasTyped: l.hasTyped,
   cells: Object.fromEntries(
-    Object.entries(l.cells).map(([m, c]) => [m, { amount: major(c.amountMinor), typed: c.typed }])
+    Object.entries(l.cells).map((
+      [m, c]
+    ) => [m, { amount: major(c.amountMinor), typed: c.typed, ...(c.noRate === true ? { noRate: true } : {}) }])
   )
 })
 

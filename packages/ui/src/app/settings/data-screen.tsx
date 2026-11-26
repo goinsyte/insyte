@@ -21,7 +21,7 @@ import {
   useDataSource
 } from "./data-source"
 import { erasureStuck } from "./erasure-stuck"
-import { FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form"
+import { FieldError, FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form"
 import { BandedList, BandedRow, SectionAction, SettingCard, StatusPill } from "./setting-card"
 
 /** What each category holds, in the words the operator reads it in. */
@@ -416,14 +416,18 @@ function ShopperDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
   const source = useDataSource()
   const [kind, setKind] = useState<"access" | "erasure">(source.mayRequestAccess ? "access" : "erasure")
   const [email, setEmail] = useState("")
+  // Said once the field is left with something that is not an address, not while it is still being typed.
+  const [left, setLeft] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     if (open) {
       setEmail("")
+      setLeft(false)
       setKind(source.mayRequestAccess ? "access" : "erasure")
     }
   }, [open, source.mayRequestAccess])
   const valid = /^\S+@\S+\.\S+$/.test(email.trim())
+  const wrong = left && email.trim() !== "" && !valid
   const may = kind === "access" ? source.mayRequestAccess : source.mayErase
   const go = async () => {
     setBusy(true)
@@ -488,9 +492,13 @@ function ShopperDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => setLeft(true)}
             placeholder="naam@voorbeeld.nl"
+            aria-invalid={wrong || undefined}
+            aria-describedby={wrong ? "shopper-email-problem" : undefined}
             className={INPUT_CLASS}
           />
+          {wrong ? <FieldError id="shopper-email-problem">Vul een geldig e-mailadres in.</FieldError> : null}
         </label>
         {kind === "erasure"
           ? (
@@ -622,8 +630,9 @@ function DeletionDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
           <DialogTitle>{source.workspaceName} verwijderen?</DialogTitle>
           <DialogDescription>
             Over 7 dagen verwijdert Insyte de koppelingen met je winkels en diensten, elke bestelling, klant, ticket en
-            collega, en alle bestanden. Tot die tijd kun je het stoppen; daarna is er geen weg terug. Maak eerst een
-            export als je een kopie wilt.
+            collega, en alle bestanden. Tot die tijd kun je het stoppen; daarna is er geen weg terug. Een lopend
+            abonnement stopt op die dag ook; daarna krijg je geen rekening meer. Maak eerst een export als je een kopie
+            wilt.
           </DialogDescription>
         </DialogHeader>
         <label className="flex flex-col gap-1.5">

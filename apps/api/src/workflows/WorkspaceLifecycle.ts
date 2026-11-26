@@ -1,5 +1,6 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import type * as BillingModule from "@insyte/modules/billing/Billing"
 import { deletionDue, purgeWorkspace, revokeConnections } from "@insyte/modules/privacy/Privacy"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { Cause, Effect, Exit } from "effect"
@@ -11,8 +12,9 @@ import { withRequestDb } from "../platform/RequestDb.ts"
  * A workspace's deletion (M17 step 5; security.md §6): one run per request and attempt. It sleeps until the waiting
  * period is over, reads the request again (the owner may have stopped it), and only if it still waits takes it for
  * the purge and gives the providers' grants back (a step of its own: a provider that refuses does not hold the
- * purge up), then purges the workspace: tokens dropped, files removed, every row deleted. A purge step that fails is
- * tried again; it finds less each time. A run that gives up is started again by the daily sweep.
+ * purge up), ends its subscription at Stripe (a step of its own that does hold it up: a workspace that is gone is never
+ * billed again), then purges the workspace: tokens dropped, files removed, every row deleted. A purge step that fails
+ * is tried again; it finds less each time. A run that gives up is started again by the daily sweep.
  */
 
 export interface WorkspaceLifecycleParams {
@@ -26,6 +28,18 @@ const RETRY: WorkflowStepConfig = {
   timeout: "10 minutes"
 }
 
+/** Billing loads with the first deletion that reaches it, not with the Worker (ADR-0041 §3). */
+let billing: Promise<typeof BillingModule> | undefined
+const endBilling = Effect.flatMap(
+  Effect.promise(() =>
+    billing ??= import("@insyte/modules/billing/Billing").catch((error: unknown) => {
+      billing = undefined
+      throw error
+    })
+  ),
+  (m) => m.endForDeletion
+)
+
 export class WorkspaceLifecycleWorkflow extends WorkflowEntrypoint<Cloudflare.Env, WorkspaceLifecycleParams> {
   override async run(event: Readonly<WorkflowEvent<WorkspaceLifecycleParams>>, step: WorkflowStep) {
     const { workspaceId, requestId, attempt } = event.payload
@@ -35,6 +49,8 @@ export class WorkspaceLifecycleWorkflow extends WorkflowEntrypoint<Cloudflare.En
     if (due > Date.now()) await step.sleepUntil("waiting period", new Date(due))
     const released = await step.do("revoke", RETRY, () => run(workspaceId, revokeConnections(requestId, attempt)))
     if (released === null) return { outcome: "stopped" as const }
+    // Taken for the purge, so no longer stoppable: what it pays Stripe for ends before its rows (and the ids) go.
+    await step.do("billing", RETRY, () => run(workspaceId, endBilling))
     const purged = await step.do("purge", RETRY, () => run(workspaceId, purgeWorkspace(requestId, attempt)))
     return { outcome: purged ? "purged" as const : "stopped" as const }
   }

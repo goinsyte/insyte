@@ -254,7 +254,9 @@ function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () =>
   const rule = l.kind === "percent"
     ? `${l.rate.toLocaleString("nl-NL")}% van de omzet`
     : l.kind === "per_order"
-    ? `${money(l.rate, true)} per bestelling`
+    ? (Object.values(l.cells).some((c) => c.noRate === true)
+      ? "Per bestelling, geen koers"
+      : `${money(l.rate, true)} per bestelling`)
     : l.kind === "ads"
     ? (reads
       ? `Uit ${SOURCE_NAME[l.source]}`
@@ -290,6 +292,8 @@ function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () =>
         <td key={m.id} className={cn("px-1.5 py-1.5 text-right", ground)}>
           {editable
             ? <AmountCell l={l} m={m} />
+            : l.cells[m.id]?.noRate === true
+            ? <span className="px-1.5 text-ink-3" title={NO_RATE}>geen koers</span>
             : <span className="px-1.5 text-ink-2 tabular-nums">{money(l.cells[m.id]?.amount ?? 0)}</span>}
         </td>
       ))}
@@ -342,6 +346,9 @@ function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () =>
     </tr>
   )
 }
+
+/** Said of an amount the figures leave out because no exchange rate reads it in the workspace's currency. */
+const NO_RATE = "Dit bedrag staat in een andere munt en er is nog geen koers om het om te rekenen. Het telt niet mee."
 
 /** One month's amount, typed in place. A read amount shows its source until someone types over it. */
 function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
@@ -400,8 +407,12 @@ function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
       }}
       inputMode="decimal"
       aria-label={`${l.name}, ${m.name}`}
-      placeholder="0"
-      title={l.kind === "ads" && !own && value ? `Uit ${SOURCE_NAME[l.source] ?? "het account"}` : undefined}
+      placeholder={cell?.noRate === true ? "geen koers" : "0"}
+      title={cell?.noRate === true
+        ? NO_RATE
+        : l.kind === "ads" && !own && value
+        ? `Uit ${SOURCE_NAME[l.source] ?? "het account"}`
+        : undefined}
       className={cn(
         "h-8 w-full rounded-md bg-transparent px-1.5 text-right tabular-nums outline-none transition-colors hover:bg-ink/5 focus:bg-paper focus:shadow-[inset_0_0_0_1px_var(--arc)]",
         l.kind === "ads" && !own && value ? "text-ink-2" : "text-ink"

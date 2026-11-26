@@ -5,7 +5,7 @@ import type { CostCell, CostKind, Month, MonthFigures } from "./Costs.ts"
  * held to this by the golden test). Pure, in minor units, so the server, `/v1`, MCP and later Analyse and INSYTE()
  * read one calculation:
  *
- *   fixed      the typed amount, else 0
+ *   fixed      the typed amount, else 0 (an amount in another currency with no rate to read it in: 0, `noRate`)
  *   per_order  rate_minor × counted orders
  *   percent    round(rate / 100 × revenue)
  *   ads        the typed amount (a typed amount wins), else what the connected account reports, else 0
@@ -18,8 +18,10 @@ export interface LineRule {
   readonly kind: CostKind
   readonly rate: number | null
   readonly rateMinor: number | null
-  /** Typed months. */
-  readonly typed: ReadonlyMap<string, number>
+  /** `per_order` in another currency than the workspace's with no rate to read it in: it costs nothing until one is. */
+  readonly rateUnconverted?: boolean
+  /** Typed months; `null`, a month typed in another currency with no rate to read it in. */
+  readonly typed: ReadonlyMap<string, number | null>
   /** What the account reports per month; `null` when the line reads from no connected account. */
   readonly account: ReadonlyMap<string, number> | null
 }
@@ -32,11 +34,13 @@ export interface MonthBasis {
 export const costOf = (line: LineRule, month: Month, basis: MonthBasis): CostCell => {
   const own = line.typed.get(month)
   if (line.kind === "per_order") {
+    if (line.rateUnconverted === true) return { amountMinor: 0, typed: false, source: "rule", noRate: true }
     return { amountMinor: (line.rateMinor ?? 0) * basis.orders, typed: false, source: "rule" }
   }
   if (line.kind === "percent") {
     return { amountMinor: Math.round(((line.rate ?? 0) / 100) * basis.revenueMinor), typed: false, source: "rule" }
   }
+  if (own === null) return { amountMinor: 0, typed: true, source: "typed", noRate: true }
   if (own !== undefined) return { amountMinor: own, typed: true, source: "typed" }
   if (line.kind === "ads" && line.account !== null) {
     return { amountMinor: line.account.get(month) ?? 0, typed: false, source: "account" }
@@ -66,6 +70,10 @@ export const figuresOf = (lines: ReadonlyArray<LineRule>, month: Month, basis: M
     roas: ads === 0 ? 0 : basis.revenueMinor / ads
   }
 }
+
+/** How many of the lines' amounts in a month were left out for want of a rate (`noRate`). */
+export const unconvertedOf = (lines: ReadonlyArray<LineRule>, month: Month, basis: MonthBasis): number =>
+  lines.reduce((n, line) => (costOf(line, month, basis).noRate === true ? n + 1 : n), 0)
 
 /** What the ad lines read from one source cost in a month (INSYTE()'s `advertenties_meta`, `advertenties_google`). */
 export const adsFrom = (

@@ -14,6 +14,8 @@ export type CostSource = "manual" | "meta" | "google-ads"
 export interface CostCell {
   amount: number
   typed: boolean
+  /** In another currency than the workspace's, with no rate to read it in: left out of the figures ("geen koers"). */
+  noRate?: boolean
 }
 
 export interface CostRow {

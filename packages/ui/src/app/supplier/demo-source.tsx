@@ -6,7 +6,7 @@ import { useProducts as useDemoProducts } from "../hooks/use-operator-data"
 import { type DemoSupplierOrder, useDemoSupplierOrders } from "../hooks/use-supplier-orders"
 import { HISTORY } from "../lib/analytics/history"
 import { stockOf, unitsOf } from "../lib/catalog"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import { DEFAULT_LEAD_DAYS } from "../lib/supplier-products"
 import { ME_SUPPLIER } from "../lib/supplier-work"
 import type { Product } from "../lib/types/domain"
@@ -270,7 +270,7 @@ export function DemoSupplierPortal({ children }: { children: ReactNode }) {
     brand: BRAND,
     brandLegal: BRAND_LEGAL,
     firstName: "Marco",
-    money: (amount) => formatCurrency(amount),
+    money: (amount) => formatCurrency(amount, undefined, WHOLE),
     useOrders: () => useDemoSupplierOrders().map((d) => d.row),
     useOrder: (id) => {
       const d = useDemoSupplierOrders().find((x) => x.row.id === id)

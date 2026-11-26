@@ -297,6 +297,16 @@ export const makeStripe = (config: StripeConfig): Provider => {
           // Per request: the SDK's retry of it is one change, while cancelling again after resuming is another.
           idempotencyKey: `insyte-${cancel ? "cancel" : "resume"}-${current.subscriptionId}-${crypto.randomUUID()}`
         })).pipe(Effect.flatMap(read)),
+    cancelNow: ({ current }) =>
+      call("subscriptions.cancel", (s) =>
+        s.subscriptions.cancel(current.subscriptionId, {
+          invoice_now: false,
+          prorate: false,
+          expand: ["default_payment_method"]
+        }, {
+          // One end per subscription: a retried step is the same request.
+          idempotencyKey: `insyte-end-${current.subscriptionId}`
+        })).pipe(Effect.flatMap(read)),
     portal: ({ customerId, returnUrl }) =>
       call(
         "billingPortal.sessions.create",

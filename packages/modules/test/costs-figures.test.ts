@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { addMonths, costOf, figuresOf, type LineRule, monthsBetween } from "../src/costs/domain/Figures.ts"
+import {
+  addMonths,
+  costOf,
+  figuresOf,
+  type LineRule,
+  monthsBetween,
+  unconvertedOf
+} from "../src/costs/domain/Figures.ts"
 
 /*
  * Kosten's calculation against the design's (`packages/ui/src/app/lib/costs.ts`, the oracle): the same rules, here in
@@ -8,7 +15,7 @@ import { addMonths, costOf, figuresOf, type LineRule, monthsBetween } from "../s
  * month without revenue or ad spend has a margin and a ROAS of 0, never a division by zero.
  */
 
-const NONE = new Map<string, number>()
+const NONE = new Map<string, number | null>()
 const line = (kind: LineRule["kind"], patch: Partial<LineRule> = {}): LineRule => ({
   kind,
   rate: null,
@@ -91,6 +98,22 @@ describe("a month's figures", () => {
       orders: 0
     })
     expect(f).toMatchObject({ netMinor: -4_900, margin: 0, roas: 0 })
+  })
+})
+
+describe("an amount in another currency with no rate", () => {
+  const month = "2026-05"
+  const basis = { revenueMinor: 100_000, orders: 10 }
+
+  it("costs nothing, says so, and is counted as unconverted, never read as if it were the workspace's", () => {
+    const typed = line("fixed", { typed: new Map([[month, null]]) })
+    const perOrder = line("per_order", { rateMinor: null, rateUnconverted: true })
+    const own = line("fixed", { typed: new Map([[month, 5_000]]) })
+    expect(costOf(typed, month, basis)).toEqual({ amountMinor: 0, typed: true, source: "typed", noRate: true })
+    expect(costOf(perOrder, month, basis)).toEqual({ amountMinor: 0, typed: false, source: "rule", noRate: true })
+    expect(costOf(own, month, basis)).toEqual({ amountMinor: 5_000, typed: true, source: "typed" })
+    expect(figuresOf([typed, perOrder, own], month, basis)).toMatchObject({ otherMinor: 5_000, netMinor: 95_000 })
+    expect(unconvertedOf([typed, perOrder, own], month, basis)).toBe(2)
   })
 })
 

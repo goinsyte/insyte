@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   currencySymbol,
   DEFAULT_NOTATION,
+  formatCurrency,
   formatDate,
   formatDateTime,
+  formatPriceFrom,
+  minorDigitsOf,
   type Notation,
-  readNotationFrom
+  readNotationFrom,
+  WHOLE
 } from "../src/app/lib/format.ts"
 
 /* The console's shared date formatters follow the workspace's notation (Instellingen → Regio). */
@@ -67,5 +71,35 @@ describe("currencySymbol", () => {
     expect(currencySymbol("USD")).toBe("US$")
     expect(currencySymbol("GBP")).toBe("£")
     expect(currencySymbol("nope")).toBe("nope")
+  })
+})
+
+/* Amounts: a record's keeps the currency's minor digits; a figure that sums many asks for whole units. */
+// Intl writes a non-breaking space between the sign and the amount.
+const plain = (s: string) => s.replace(/\u00a0/g, " ")
+
+describe("formatCurrency", () => {
+  it("writes an order's or a product's amount with its cents, never rounded to whole units", () => {
+    expect(plain(formatCurrency(24.95, "USD"))).toBe("US$ 24,95")
+    expect(plain(formatCurrency(25, "EUR"))).toBe("€ 25,00")
+    expect(plain(formatCurrency(1234.5, "GBP"))).toBe("£ 1.234,50")
+  })
+
+  it("keeps a currency without minor units whole, and a three-decimal one at Insyte's two", () => {
+    expect(minorDigitsOf("JPY")).toBe(0)
+    expect(plain(formatCurrency(2495, "JPY" as never))).toBe("JP¥ 2.495")
+    expect(minorDigitsOf("KWD")).toBe(2)
+    expect(minorDigitsOf("EUR")).toBe(2)
+  })
+
+  it("writes whole units where the caller opts in, as a KPI tile does", () => {
+    expect(plain(formatCurrency(1234.56, "EUR", WHOLE))).toBe("€ 1.235")
+    expect(plain(formatCurrency(24.95, "USD", { ...WHOLE, currencyDisplay: "narrowSymbol" }))).toBe("$ 25")
+  })
+
+  it("writes vanaf before a product's lowest price only when a variant costs more", () => {
+    expect(plain(formatPriceFrom(9.95, 49.95, "USD"))).toBe("vanaf US$ 9,95")
+    expect(plain(formatPriceFrom(24.95, 24.95, "USD"))).toBe("US$ 24,95")
+    expect(plain(formatPriceFrom(24.95, undefined, "USD"))).toBe("US$ 24,95")
   })
 })

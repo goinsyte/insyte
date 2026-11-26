@@ -24,7 +24,12 @@ export type Month = typeof Month.Type
 export const CostCell = Schema.Struct({
   amountMinor: Schema.Int,
   typed: Schema.Boolean,
-  source: Schema.Literals(["typed", "account", "rule", "none"])
+  source: Schema.Literals(["typed", "account", "rule", "none"]),
+  /**
+   * The amount is in another currency than the workspace's and there is no ECB rate to read it in: `amountMinor` is 0
+   * and the month's figures leave it out, rather than read it as if it were in the workspace's.
+   */
+  noRate: Schema.optional(Schema.Boolean)
 })
 export type CostCell = typeof CostCell.Type
 
