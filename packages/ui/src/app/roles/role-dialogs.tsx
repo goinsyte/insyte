@@ -40,15 +40,16 @@ export function NewRoleDialog({
 		setBusy(false);
 	}, [open, initialFrom]);
 	const label = name.trim();
-	const taken = roles.some((r) => r.label.toLowerCase() === label.toLowerCase());
+	const taken = !busy && roles.some((r) => r.label.toLowerCase() === label.toLowerCase());
 	const options = [BLANK, ...roles.filter((r) => r.id !== "owner").map((r) => r.id)];
 
 	function submit() {
 		if (!label || taken || busy) return;
 		setBusy(true);
 		void onCreate(label, from === BLANK ? null : from).then((made) => {
-			setBusy(false);
+			// Made, it stays busy while it closes: the new role is in the list by now, and is not "taken".
 			if (made) onOpenChange(false);
+			else setBusy(false);
 		});
 	}
 

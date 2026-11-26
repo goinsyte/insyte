@@ -250,4 +250,22 @@ describe("the team on the server", () => {
     expect(ok(await rpc("Members.setStores", { id, stores: "all" }, owner.cookie)).members.find((m) => m.id === id))
       .toMatchObject({ stores: "all" })
   })
+
+  it("marks a read-only member active through their own calls, at most once in five minutes", async () => {
+    const lena = `lena-${run}@example.com`
+    ok(await rpc("Invitations.send", { rows: [{ email: lena, roleId: "view", stores: "all" }] }, owner.cookie))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const cookie = await join(lena)
+    const seen = async () =>
+      ok(await rpc("Team.get", undefined, owner.cookie)).members.find((m) => m.email === lena)!.lastActiveAt
+
+    // Any call of theirs inside the workspace, whatever their role lets them see.
+    await rpc("Team.get", undefined, cookie)
+    const first = await seen()
+    expect(first).not.toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await rpc("Team.get", undefined, cookie)
+    expect(await seen()).toBe(first)
+  })
 })

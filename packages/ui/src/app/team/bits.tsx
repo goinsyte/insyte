@@ -1,7 +1,7 @@
 import { Check } from "../../icons";
 import { initials } from "../lib/format";
 import { personStyle } from "../lib/person-color";
-import type { StoreAccess } from "../lib/team-core";
+import { type StoreAccess, toggleStore } from "../lib/team-core";
 import { cn } from "../lib/utils";
 
 /** The disc that stands in for a person: their colour, their initials. */
@@ -31,7 +31,8 @@ const CHIP = "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium
 
 /**
  * Which of the workspace's stores a person may open: all of them (and any connected later), or a
- * pick. The pick can never be empty — choosing none would invite someone into nothing.
+ * pick. The pick can never be empty — choosing none would invite someone into nothing — and never
+ * becomes "all" by itself (`toggleStore`).
  */
 export function StorePicker({ value, onChange, stores }: { value: StoreAccess; onChange: (v: StoreAccess) => void; stores: ReadonlyArray<{ id: string; name: string }> }) {
 	const all = value === "all";
@@ -49,11 +50,7 @@ export function StorePicker({ value, onChange, stores }: { value: StoreAccess; o
 						key={s.id}
 						type="button"
 						aria-pressed={on}
-						onClick={() => {
-							const base = all ? [] : picked;
-							const next = base.includes(s.id) ? base.filter((x) => x !== s.id) : [...base, s.id];
-							onChange(next.length === 0 || next.length === stores.length ? "all" : next);
-						}}
+						onClick={() => onChange(toggleStore(value, s.id))}
 						className={cn(CHIP, on ? "bg-arc-tint text-arc-ink" : "field text-ink-2 hover:field-hover hover:text-ink")}
 					>
 						{on ? <Check className="size-3.5" strokeWidth={2.25} /> : null}
