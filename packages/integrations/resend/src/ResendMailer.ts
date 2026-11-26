@@ -66,6 +66,12 @@ export const retriesLater = (reason: string) =>
  */
 export const sentAlready = (reason: string) => /^resend 409: invalid_idempotent_request\b/.test(reason)
 
+/**
+ * Resend refused this one mail for what it says (422 `validation_error`: an address it will not take, a field it
+ * rejects), not for Insyte's account or sending domain (401, 403): the same mail would be refused again.
+ */
+export const refusesMail = (reason: string) => /^resend 422\b/.test(reason)
+
 const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
 
 const link = (mail: Mail) => mail.url === undefined ? Effect.fail(missing(mail, "a link")) : Effect.succeed(mail.url)
@@ -202,7 +208,8 @@ export const ResendMailer = Layer.effect(
                   kind: mail.kind,
                   reason: error.reason,
                   ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {}),
-                  ...(retriesLater(error.reason) ? { retryable: true } : {})
+                  ...(retriesLater(error.reason) ? { retryable: true } : {}),
+                  ...(refusesMail(error.reason) ? { refusedForRecipient: true } : {})
                 })
               ))
         )

@@ -14,6 +14,7 @@ import type {
   PortalStore,
   PortalTokenExpired
 } from "./domain/Portal.ts"
+import { Labels } from "./domain/Ports.ts"
 import type { LineNotReturnable, ResolutionNotAllowed } from "./domain/Returns.ts"
 import * as Portal from "./use-cases/portal.ts"
 
@@ -48,10 +49,13 @@ export class PortalService extends Context.Service<PortalService, {
     Effect.gen(function*() {
       const sealer = yield* Sealer
       const files = yield* FileStore
+      // Whether "Label versturen" can make a label at all, for the page's promise of one.
+      const { configured } = yield* Labels
       const ports = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         effect.pipe(Effect.provideService(Sealer, sealer), Effect.provideService(FileStore, files))
       return {
-        store: (handle) => ports(Portal.store(handle)).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        store: (handle) =>
+          ports(Portal.store(handle, configured)).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         lookup: (input) => ports(Portal.lookup(input)).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         orderOf: (token) => ports(Portal.openToken(token)).pipe(Effect.map((claims) => claims.orderId)),
         upload: (input) => ports(Portal.upload(input)).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

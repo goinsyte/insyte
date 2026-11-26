@@ -106,7 +106,7 @@ const storeName = (sql: SqlClient.SqlClient) =>
     return ws?.name ?? ""
   })
 
-export const store = Effect.fn("Portal.store")(function*(handle: string) {
+export const store = Effect.fn("Portal.store")(function*(handle: string, labels: boolean) {
   const routed = yield* route(handle)
   if (routed === undefined) return yield* new PortalNotFound()
   return yield* inWorkspace(routed.workspaceId, (sql) =>
@@ -132,6 +132,7 @@ export const store = Effect.fn("Portal.store")(function*(handle: string) {
         offered: [...s.offered],
         giftCardBonusPct: s.giftCardBonusPct,
         claimSteps: [...s.claimSteps],
+        labels,
         look: { color: look.color, logoUrl: look.logoPath },
         contact: { website: contact.website, support: contact.support }
       })
@@ -400,6 +401,12 @@ export const start = Effect.fn("Portal.start")(function*(input: typeof PortalSta
         returnIds: [id]
       })
       ;(yield* PendingEvents)?.add(outboxId)
-      return new PortalStarted({ number, kind: input.kind, requested: input.resolution, exchangeTo })
+      return new PortalStarted({
+        number,
+        kind: input.kind,
+        requested: input.resolution,
+        exchangeTo,
+        email: order.customerEmail
+      })
     }))
 })

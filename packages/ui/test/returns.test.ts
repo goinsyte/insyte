@@ -4,6 +4,7 @@ import {
   DAY,
   DEFAULT_REASONS,
   IllegalReturnMove,
+  lineLabel,
   move,
   pastDeadline,
   type ProductRule,
@@ -13,6 +14,7 @@ import {
   reviewDeadline,
   ruleFor,
   shopperCurrency,
+  variantShown,
   windowCheck,
   windowDaysFor
 } from "../src/app/lib/returns.ts"
@@ -121,5 +123,17 @@ describe("money", () => {
   it("reads a rate over units sold, zero when nothing sold", () => {
     expect(returnRate(4, 64)).toBeCloseTo(0.0625)
     expect(returnRate(3, 0)).toBe(0)
+  })
+})
+
+describe("a line's variant", () => {
+  it("is left out where it says nothing beside the title", () => {
+    expect(lineLabel("Linnen overhemd", "M")).toBe("Linnen overhemd · M")
+    // Shopify's one variant, and a variant named as its product.
+    expect(lineLabel("Mok", "Default Title")).toBe("Mok")
+    expect(lineLabel("Mok", "mok ")).toBe("Mok")
+    expect(lineLabel("Mok", "")).toBe("Mok")
+    expect(variantShown("Mok", null)).toBe("")
+    expect(variantShown("Wollen trui", "L")).toBe("L")
   })
 })

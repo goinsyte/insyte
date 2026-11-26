@@ -3,7 +3,7 @@ import type { ReturnDetail, ReturnList, ReturnRow, ReturnSettingsDoc } from "@in
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { useGateRole } from "@insyte/ui/app/access/gate-role"
 import { OPEN_AS_MODAL } from "@insyte/ui/app/common/detail-shell"
-import { type ReasonDef, type ReturnSettings, shopperCurrency } from "@insyte/ui/app/lib/returns"
+import { lineLabel, type ReasonDef, type ReturnSettings, shopperCurrency } from "@insyte/ui/app/lib/returns"
 import type { Order } from "@insyte/ui/app/lib/types/domain"
 import {
   CustomerReturnsPanel,
@@ -30,7 +30,7 @@ import { ordersAtom } from "../data/orders.ts"
 import { productsAtom } from "../data/products.ts"
 import { customerReturnsAtom, orderReturnsAtom, returnableAtom, returnSettingsAtom } from "../data/returns.ts"
 import { useGate } from "../frame/refusals.ts"
-import { useRefundGate } from "../orders/order-writes.ts"
+import { refundLimitText, useRefundGate } from "../orders/order-writes.ts"
 import { orderOf } from "../orders/orders-source.ts"
 import { recordOf, settingsOf, viewOf } from "./return-of.ts"
 import { useReturnCommands } from "./return-writes.ts"
@@ -113,7 +113,7 @@ function StartOpen({ order, onClose }: { order: StartOrder; onClose: () => void 
       returnable?.lines.filter((l) => l.free > 0).map((l) => ({
         id: l.id,
         title: l.title,
-        label: l.variantTitle === "" ? l.title : `${l.title} · ${l.variantTitle}`,
+        label: lineLabel(l.title, l.variantTitle),
         image: l.image ?? undefined
       })) ?? [],
     [returnable]
@@ -224,7 +224,13 @@ function useDetailSource(
     commands: withLabels(commands, labels),
     gates,
     meId: team.meId,
-    role: { label: role?.label ?? "", refundLimit: role?.refundLimit ?? null },
+    role: {
+      label: role?.label ?? "",
+      refundLimit: role?.refundLimit ?? null,
+      // The server's limit on the order, in its currency, once the return is in.
+      ...(limit === undefined ? {} : { limitText: refundLimitText(limit) })
+    },
+    labels,
     useRefundGate: refundGateOf(limit),
     money: settings === undefined ?
       NO_SETTINGS :
@@ -261,11 +267,17 @@ export function useArrivingReturnSource(row: ReturnRow, settings: ReturnSettings
   return useDetailSource(view, settings, false)
 }
 
-/** The returns policy over `Returns.settings`; saving takes Retouren · Beheren. */
-export function useConsoleReturnSettingsSource(saved: ReturnSettingsDoc): ReturnSettingsSource {
+/**
+ * The returns policy over `Returns.settings`; saving takes Retouren · Beheren. Once a save lands, the page holds the
+ * document as the server wrote it until `Returns.settings` reads again, so it is not unsaved meanwhile (nor held on
+ * leaving).
+ */
+export function useConsoleReturnSettingsSource(read: ReturnSettingsDoc): ReturnSettingsSource {
   const commands = useReturnCommands()
   const gate = useGate("returns", 3)
   const products = value(useAtomValue(productsAtom))
+  const [written, setWritten] = useState<{ doc: ReturnSettingsDoc; over: ReturnSettingsDoc } | null>(null)
+  const saved = written !== null && written.over === read ? written.doc : read
   const draft: ReturnSettings = useMemo(() => settingsOf(saved), [saved])
   const options = useMemo(() => products?.rows.map((p) => ({ id: p.id, title: p.title })) ?? [], [products])
   const host = useHost()
@@ -274,7 +286,12 @@ export function useConsoleReturnSettingsSource(saved: ReturnSettingsDoc): Return
   const currency = useMemo(() => shopperCurrency(frame?.stores ?? []), [frame])
   return {
     saved: draft,
-    save: (next, s) => void commands.save(next, saved, s),
+    save: async (next, s) => {
+      const doc = await commands.save(next, saved, s)
+      if (doc === null) return false
+      setWritten({ doc, over: read })
+      return true
+    },
     gate,
     products: options,
     currency,

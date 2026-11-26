@@ -377,6 +377,15 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).toContain("MailNotSent")
     // A refusal is final; Resend busy (429) or out (5xx) is worth trying again later.
     expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).not.toContain("retryable")
+    // A 422 is this mail's own: its recipient or its words. A key or a sending domain refused is Insyte's setup.
+    expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).toContain("\"refusedForRecipient\":true")
+    for (const status of [401, 403]) {
+      const setup = await sendWith(
+        fakeResend(() => Promise.resolve(Response.json({ message: "no" }, { status }))),
+        { kind: "auth.reset", to: "eva@example.com", url }
+      )
+      expect(Exit.isFailure(setup) && JSON.stringify(setup.cause)).not.toContain("refusedForRecipient")
+    }
     for (const status of [429, 500, 503]) {
       const busy = await sendWith(
         fakeResend(() => Promise.resolve(Response.json({ message: "later" }, { status }))),

@@ -235,6 +235,21 @@ export const pct = (x: number) => `${(x * 100).toLocaleString("nl-NL", { maximum
 /** "R-1042". */
 export const returnNumber = (n: number) => `R-${n}`
 
+/**
+ * A line's variant as the shopper and the team read it beside its title: nothing for Shopify's "Default Title" (a
+ * product with one variant) or a variant named as its product, so a line never reads "Mok · Mok".
+ */
+export const variantShown = (title: string, variant: string | null | undefined): string => {
+  const v = variant?.trim() ?? ""
+  return v === "" || v === "Default Title" || v.toLowerCase() === title.trim().toLowerCase() ? "" : v
+}
+
+/** "Linnen overhemd · M", or the title alone where the variant says nothing more. */
+export const lineLabel = (title: string, variant: string | null | undefined): string => {
+  const v = variantShown(title, variant)
+  return v === "" ? title : `${title} · ${v}`
+}
+
 /* ── the record and the settings, as a host supplies them ──────────────────────────────────── */
 
 export type Carrier = "PostNL" | "DHL" | "DPD" | "UPS"
