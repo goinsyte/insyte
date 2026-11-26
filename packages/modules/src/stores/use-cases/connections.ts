@@ -11,6 +11,7 @@ import {
   ConnectionList,
   type ConnectionProvider,
   ConnectionRow,
+  slackOnStage,
   storeConnection
 } from "../domain/Connections.ts"
 import type { IncidentFacts, IncidentKind } from "../domain/Health.ts"
@@ -19,7 +20,8 @@ import type { IncidentFacts, IncidentKind } from "../domain/Health.ts"
  * `Connections.list` (M6, widgets/05 §5.1): Koppelingen's rows, at `integrations` Bekijken. Every read names its
  * columns, and none of them is a credential: `connection_credentials` is never joined, and neither the scopes nor the
  * provider's `health` beyond the account's name leave here. A store's row is the reader's only inside their stores
- * (`storeScope`); the rest belong to the workspace. Whether Insyte AI is on is the stage's, so the caller says.
+ * (`storeScope`); the rest belong to the workspace. Whether Insyte AI is on and whether there is a Slack app are the
+ * stage's, so the caller says.
  */
 
 const none = (provider: ConnectionProvider) =>
@@ -164,7 +166,13 @@ const insyteAi = (on: boolean) =>
     lastSyncedAt: null
   })
 
-export const list = Effect.fn("Connections.list")(function*(aiOn: boolean) {
+/** What the stage has: Insyte AI switched on, and the Slack app (`SLACK_CLIENT_ID` and its secret). */
+export interface ConnectionStage {
+  readonly aiOn: boolean
+  readonly slackOn: boolean
+}
+
+export const list = Effect.fn("Connections.list")(function*(stage: ConnectionStage) {
   yield* Policy.require("integrations", 1)
   const db = yield* Db
   return yield* db.scoped((sql) =>
@@ -173,8 +181,8 @@ export const list = Effect.fn("Connections.list")(function*(aiOn: boolean) {
       const mail = yield* mailboxes(sql)
       const domain = yield* sendingDomain(sql)
       const klaviyo = yield* account(sql, "klaviyo", "accountName")
-      const slack = yield* account(sql, "slack", "teamName")
-      return new ConnectionList({ connections: [...stores, ...mail, domain, klaviyo, slack, insyteAi(aiOn)] })
+      const slack = slackOnStage(yield* account(sql, "slack", "teamName"), stage.slackOn)
+      return new ConnectionList({ connections: [...stores, ...mail, domain, klaviyo, slack, insyteAi(stage.aiOn)] })
     })
   )
 })

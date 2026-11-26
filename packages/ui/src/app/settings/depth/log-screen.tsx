@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { ArrowRight, Download, FileText } from "../../../icons"
 import { EmptyState } from "../../common/empty-state"
 import { formatDateTime } from "../../lib/format"
+import { periodWords } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
 import { PersonDisc, Segmented } from "../../team/bits"
 import { useLogSource } from "../log-source"
@@ -20,7 +21,9 @@ export function LogPage() {
     <SettingCard
       title="Elke wijziging in de instellingen"
       icon={FileText}
-      subtitle="Logboeken bewaart Insyte zolang onder Gegevens en privacy staat."
+      subtitle={`Insyte bewaart het logboek zo lang als je instelt onder Gegevens en privacy${
+        source.kept === undefined ? "" : ` (nu ${periodWords(source.kept)})`
+      }.`}
       action={
         <button
           type="button"

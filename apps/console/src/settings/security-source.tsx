@@ -7,6 +7,7 @@ import { Exit } from "effect"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { revokeSession, SESSIONS } from "../data/security.ts"
+import { useLogsKept } from "../data/settings-depth.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
 
 /*
@@ -14,7 +15,7 @@ import { failureOf, sayRefusal } from "../frame/refusals.ts"
  * leaves the list at once and cannot come back, so there is no Ongedaan maken. The switches show where the workspace
  * and the reader stand, and are left out (the page says not yet): enrolling in two-factor needs a step the design does
  * not have, requiring it waits for that and for its check at sign-in, and Google SSO for its domains and that check.
- * The audit log's export comes with M17.
+ * The audit log's export comes with M17; how long it is kept is Gegevens en privacy's Logboeken period.
  */
 
 const countries = new Intl.DisplayNames(["nl"], { type: "region" })
@@ -48,6 +49,7 @@ export function useConsoleSecuritySource(
   sessions: ReadonlyArray<ActiveSession>
 ): SecuritySource {
   const revoke = useAtomSet(revokeSession, { mode: "promiseExit" })
+  const kept = useLogsKept()
   // Signed out here: gone from the list before the refetch arrives.
   const [gone, setGone] = useState<ReadonlyArray<string>>([])
   const rows = useMemo(() => {
@@ -59,6 +61,7 @@ export function useConsoleSecuritySource(
     requireMfa: policy.requireMfa,
     googleSso: policy.googleSso,
     sessions: rows,
+    ...(kept === undefined ? {} : { auditKept: kept }),
     revoke: async (session) => {
       const exit = await revoke({ payload: { id: session.id }, reactivityKeys: [...SESSIONS] })
       if (Exit.isFailure(exit)) {

@@ -107,6 +107,8 @@ export function useBrowserPush(prefs: NotePrefs): { push: PushHere; testPush: ((
   const mine = typeof here === "object" ? devices?.find((d) => d.endpointHash === here.hash) : undefined
   const state: PushHere["state"] = key === null
     ? "unavailable"
+    : here === "unknown"
+    ? "checking"
     : here === "unsupported" || here === "blocked"
     ? here
     : mine !== undefined
@@ -210,9 +212,9 @@ export function useBrowserPush(prefs: NotePrefs): { push: PushHere; testPush: ((
 
   return {
     push: {
-      state: here === "unknown" && key !== null ? "off" : state,
+      state,
       devices: devices?.length ?? 0,
-      busy: busy || (here === "unknown" && key !== null),
+      busy,
       enable: () => void enable(),
       disable: () => void disable()
     },

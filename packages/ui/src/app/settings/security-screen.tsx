@@ -1,8 +1,10 @@
-import { useState } from "react"
+import { Link } from "@tanstack/react-router"
+import { useId, useState } from "react"
 import { toast } from "sonner"
 import { MonitorSmartphone, ShieldCheck, Smartphone } from "../../icons"
 import { PageGuide } from "../common/page-guide"
 import { SoonChip } from "../common/soon-chip"
+import { periodWords } from "../lib/settings-depth"
 import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { type SessionRow, useSecuritySource } from "./security-source"
@@ -19,7 +21,7 @@ const GUIDE = [
   {
     title: "Auditlog",
     body:
-      "Een alleen-lezen spoor van elke gevoelige beheeractie. Na 90 dagen wordt het gearchiveerd en is het op verzoek beschikbaar.",
+      "Een alleen-lezen spoor van elke gevoelige beheeractie. Hoe lang het bewaard blijft, stel je in onder Gegevens en privacy.",
     art: "log"
   }
 ] as const
@@ -39,7 +41,7 @@ const switchOf = (set: ((on: boolean) => void) | undefined, what: string, said: 
 /**
  * Beveiliging: how members sign in, the reader's own signed-in sessions, and the audit log's export. What it reads and
  * does comes from its host (`security-source.tsx`). A session signed out where the host cannot bring it back gets no
- * Ongedaan maken.
+ * Ongedaan maken. How long the audit log is kept is set under Gegevens en privacy; the page says it and links there.
  */
 export function SecurityPage() {
   const source = useSecuritySource()
@@ -145,7 +147,13 @@ export function SecurityPage() {
             strokeWidth={1.75}
           />
           <p className="font-normal text-base text-ink-3 leading-[1.6]">
-            Bewaard: <span className="font-medium text-ink">90 dagen</span>
+            {source.auditKept === undefined ? "Hoe lang het bewaard blijft, stel je in onder " : (
+              <>
+                Bewaard:{" "}
+                <span className="font-medium text-ink">{periodWords(source.auditKept)}</span>. Dat stel je in onder{" "}
+              </>
+            )}
+            <Link to="/settings/privacy" className="text-arc-ink hover:underline">Gegevens en privacy</Link>.
           </p>
         </div>
       </SettingCard>
@@ -154,7 +162,10 @@ export function SecurityPage() {
   )
 }
 
-/** A switch; `unavailable` instead of `onChange` where the host cannot flip it yet: it shows its state and says so. */
+/**
+ * A switch named by its label; `unavailable` instead of `onChange` where the host cannot flip it yet: it shows its state
+ * and says so.
+ */
 function Toggle({
   label,
   checked,
@@ -166,15 +177,17 @@ function Toggle({
   onChange?: (v: boolean) => void
   unavailable?: () => void
 }) {
+  const id = useId()
   return (
     <div className="flex items-center justify-between gap-4 rounded-xl p-4">
       <p className="flex items-center gap-2 font-medium text-base text-ink leading-[1.4]">
-        {label}
+        <span id={id}>{label}</span>
         {unavailable ? <SoonChip /> : null}
       </p>
       <button
         type="button"
         role="switch"
+        aria-labelledby={id}
         aria-checked={checked}
         aria-disabled={unavailable ? true : undefined}
         onClick={() => (unavailable ? unavailable() : onChange?.(!checked))}

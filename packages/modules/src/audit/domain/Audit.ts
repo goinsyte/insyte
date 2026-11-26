@@ -761,8 +761,15 @@ export const changesOf = (
     if (changes.length > 0) return name === "" ? changes : changes.map((c) => ({ ...c, field: `${name}: ${c.field}` }))
     if (event !== undefined) return [{ field: event, before: null, after: name }]
   }
-  // What Insyte-support did while looking along, as one sentence (`support.session_started`, `.read`, `.session_ended`).
-  if (typeof diff["said"] === "string") return [{ field: "Insyte-support", before: null, after: diff["said"] }]
+  // What Insyte-support did while looking along, as one sentence (`support.session_started`, `.read`, `.session_ended`),
+  // or its read of the status. Who did it is the line's Wie, so Wat names what it was.
+  if (typeof diff["said"] === "string") {
+    return [{
+      field: row.action === "support.status_viewed" ? "Status" : "Meekijken",
+      before: null,
+      after: diff["said"]
+    }]
+  }
   const depthField = row.action.startsWith("settings.") ? row.action.split(".").slice(2).join(".") : ""
   if ("before" in diff || "after" in diff) {
     return [lineOf(labels, depthField || row.section, diff["before"], diff["after"], diff)]

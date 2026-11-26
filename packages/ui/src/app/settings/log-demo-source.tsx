@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo, useState } from "react"
 import { exportCsv } from "../lib/bulk"
+import { logsKept } from "../lib/settings-depth"
 import { useSettingsDepth } from "../stores/settings-depth-store"
 import { type LogFilter, type LogSource, LogSourceProvider } from "./log-source"
 
@@ -12,6 +13,7 @@ const DAY = 86_400_000
 
 export function DemoLogSource({ children }: { children: ReactNode }) {
   const audit = useSettingsDepth((s) => s.audit)
+  const kept = useSettingsDepth((s) => logsKept(s.privacy.classes))
   const [filter, setFilter] = useState<LogFilter>({ period: "30", who: "", page: "" })
   const people = useMemo(() => [...new Set(audit.map((a) => a.who))].map((p) => ({ id: p, name: p })), [audit])
   const pages = useMemo(() => [...new Set(audit.map((a) => a.page))].sort().map((p) => ({ id: p, label: p })), [audit])
@@ -26,6 +28,7 @@ export function DemoLogSource({ children }: { children: ReactNode }) {
     pages,
     filter,
     setFilter,
+    ...(kept === undefined ? {} : { kept }),
     exportCsv: () =>
       exportCsv(
         "logboek",

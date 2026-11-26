@@ -6,6 +6,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
+import { useLogsKept } from "../data/settings-depth.ts"
 import {
   FIRST_LOG,
   firstLogAtom,
@@ -21,7 +22,8 @@ import { failureOf, sayRefusal } from "../frame/refusals.ts"
 /*
  * The Logboek over `Audit.*` (M17 step 20.1a). The filter is asked of the server: the first view's lines came with the
  * page, another period, person or page is read when picked, and the lines shown stay until the new ones are in. "Meer
- * laden" reads the next page after the last line. Exporteren writes the server's CSV for the filter as it stands.
+ * laden" reads the next page after the last line. Exporteren writes the server's CSV for the filter as it stands. How
+ * long it is kept is Gegevens en privacy's Logboeken period (`WorkspaceSettings.get`, read with the page).
  */
 
 const queryOf = (filter: LogFilter): LogQuery => ({
@@ -56,6 +58,7 @@ const COPY = { gone: "Dat staat niet meer in het logboek" }
 
 export function useConsoleLogSource(facets: AuditFacets | undefined): LogSource {
   const [filter, setFilter] = useState<LogFilter>({ period: "30", who: "", page: "" })
+  const kept = useLogsKept()
   const query = queryOf(filter)
   const key = logKey(query)
   const atom = key === FIRST_KEY ? firstLogAtom : logAtom(key)
@@ -81,6 +84,7 @@ export function useConsoleLogSource(facets: AuditFacets | undefined): LogSource 
   const lines = [...(page?.lines ?? []), ...(more?.lines ?? [])]
 
   return {
+    ...(kept === undefined ? {} : { kept }),
     lines: lines.map(entryOf),
     any: (facets?.actors.length ?? 0) > 0 || lines.length > 0,
     people: (facets?.actors ?? []).map((a) => ({ id: a.key, name: a.name })),

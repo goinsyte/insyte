@@ -11,8 +11,8 @@ import type { IntegrationItem, IntegrationsSource } from "@insyte/ui/app/setting
  *
  * What the design shows and Insyte does not connect yet says Binnenkort: Stripe, Klarna and PayPal (M13.2), Gmail and
  * Outlook (M11 step 1b), Meta Ads and Google Ads (M13.5), and WhatsApp and Instagram (M15). So does Insyte AI on a
- * stage that has not switched it on, and the website chat on one without its key: nothing the operator can do turns
- * them on. The website chat (M15 step 8) connects here, in the console's own dialog (`./webchat.tsx`), each connected
+ * stage that has not switched it on, Slack on one without its app, and the website chat on one without its key:
+ * nothing the operator can do turns them on. The website chat (M15 step 8) connects here, in the console's own dialog (`./webchat.tsx`), each connected
  * store with its own row whose Beheren opens it (`?chat=`). So does a connected mailbox's (`?mailbox=`, `./mailbox.tsx`):
  * its forwarding address, signature and Ontkoppelen; one to connect opens the inbox's own dialog.
  */
@@ -137,6 +137,16 @@ const itemOf = (row: Row, readsSupport: boolean): IntegrationItem => {
         ...(row.status === "connected" ? { manage: { to: "/settings/apps" } } : { app: "ext_klaviyo" })
       }
     case "slack":
+      // A stage without the Slack app has nothing to connect: Binnenkort, as Meldingen says it is not there yet.
+      if (row.reason === "unavailable") {
+        return {
+          key: "slack",
+          name: "Slack",
+          description: "Meldingen in je Slack-kanalen",
+          category: "Team",
+          status: "soon"
+        }
+      }
       return {
         key: "slack",
         name: "Slack",
