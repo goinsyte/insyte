@@ -156,7 +156,12 @@ export const productDetail = (sql: SqlClient.SqlClient, productId: string) =>
     return new SupplierProductDetail({
       row,
       images: images?.images ?? [],
-      variants: variants.map((v) => ({ ...v, reportedAt: v.reportedAt?.getTime() ?? null })),
+      // Shopify's one variant of a product without options is "Default Title": it reads as the product.
+      variants: variants.map((v) => ({
+        ...v,
+        title: v.title === "Default Title" ? row.title : v.title,
+        reportedAt: v.reportedAt?.getTime() ?? null
+      })),
       waiting: waiting.map((o) => ({
         id: o.id,
         number: o.number,

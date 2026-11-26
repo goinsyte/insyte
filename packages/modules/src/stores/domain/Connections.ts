@@ -104,7 +104,12 @@ export const storeConnection = (
     lastSyncedAt: store.lastSyncedAt
   } as const
   if (store.storeStatus === "action_required") {
-    return new ConnectionRow({ ...row, reason: "action_required", note: remedySentence("token_expired") })
+    // A first import Shopify refused says why, and what helps.
+    const refused = open.find((i) => i.facts.refused !== undefined)
+    const note = refused === undefined
+      ? remedySentence("token_expired")
+      : `${findingSentence(refused.kind, refused.facts)} ${remedySentence(refused.kind, refused.facts)}`
+    return new ConnectionRow({ ...row, reason: "action_required", note })
   }
   const worst = open.find((i) => BROKEN.has(i.kind)) ?? open[0]
   return new ConnectionRow({

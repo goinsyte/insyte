@@ -2,6 +2,7 @@ import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { sweepParcels } from "@insyte/modules/returns/use-cases/parcels"
+import { ShopifyRefused } from "@insyte/modules/stores/domain/Ports"
 import { checkWorkspace, dueWorkspaces } from "@insyte/modules/stores/use-cases/health"
 import { storesToReconcile, sweepStores } from "@insyte/modules/stores/use-cases/reconcile"
 import { apply } from "@insyte/modules/stores/use-cases/webhooks"
@@ -14,7 +15,8 @@ import { withRequestDb } from "./RequestDb.ts"
 /*
  * The webhooks' consumer and the reconcile sweep (M6.3), on the sync runtime (Shopify's GraphQL, the gate). A delivery
  * that fails goes back to the queue: after `ShopifyThrottled` exactly when the bucket allows, else in thirty seconds;
- * its retries spent, it lands in the dead letters with its row still unprocessed. The sweep runs every fifteen
+ * its retries spent, it lands in the dead letters with its row still unprocessed. One Shopify refused for good (a 401,
+ * a 403, a token it will not renew) is not retried: its row keeps the error and stays unprocessed. The sweep runs every fifteen
  * minutes from the minute cron, over every connected store as `reconcile.ts` says (`sweepStores`).
  *
  * The health check (M17 step 6) runs beside it, from the same cron, never after it: it reads what the sweeps wrote on
@@ -26,6 +28,14 @@ export type { IngestMessage } from "./IngestQueue.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
 
 export const syncRuntime = ManagedRuntime.make(SyncLayer)
+
+/**
+ * A refusal no retry changes: the store's token is refused (Shopify answered 401, or will not renew it), or the call is
+ * denied (403: a grant not approved, data the app may not read). A 429 or a 5xx is worth another try.
+ */
+const refusedForGood = (error: unknown) =>
+  (error instanceof ShopifyRefused && (error.status === 401 || error.status === 403)) ||
+  (error as { _tag?: string } | null)?._tag === "TokenRefused"
 
 const inWorkspace = <A, E, R>(workspaceId: string, effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
@@ -57,6 +67,14 @@ export const ingest = async (batch: MessageBatch<IngestMessage>, spans: Spans) =
         )
       )).pipe(Effect.ignore) as Effect.Effect<void>
     ))
+    // Refused for good: no retry changes it, so it stops here, its row unprocessed with why.
+    if (failure._tag === "Some" && refusedForGood(failure.value)) {
+      await syncRuntime.runPromise(
+        Effect.logWarning("ingest: Shopify refused a delivery for good, not retried", { inboundEventId })
+      )
+      message.ack()
+      continue
+    }
     message.retry({ delaySeconds: throttled })
   }
 }

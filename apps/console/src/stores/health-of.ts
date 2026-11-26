@@ -42,7 +42,7 @@ const incidentOf = (i: ConnectionHealth["incidents"][number], now: number): Stor
   id: i.id,
   tone: BROKEN.has(i.kind) ? "danger" : "warning",
   finding: findingSentence(i.kind, i.facts, now),
-  next: handlingSentence(i.kind) ?? remedySentence(i.kind),
+  next: handlingSentence(i.kind, i.facts) ?? remedySentence(i.kind, i.facts),
   tried: i.tried.map((t) => ({ at: when(t.at, now), text: triedSentence(t, now) })),
   since: `Sinds ${when(i.openedAt, now)}`,
   told: i.notified === null ? null : `Gemeld aan ${i.notified}`,
@@ -59,7 +59,7 @@ export const storeHealthOf = (c: ConnectionHealth, now = Date.now()): StoreHealt
     `Gesynchroniseerd ${today.format(c.lastSyncedAt) === today.format(now) ? "om " : ""}${when(c.lastSyncedAt, now)}`,
   incidents: c.incidents.map((i) => incidentOf(i, now)),
   reconnect: c.state === "broken" &&
-    c.incidents.some((i) => i.resolvedAt === null && remedySentence(i.kind) !== null)
+    c.incidents.some((i) => i.resolvedAt === null && remedySentence(i.kind, i.facts) !== null)
 })
 
 /** What needs attention, in a few words after the store's name. */

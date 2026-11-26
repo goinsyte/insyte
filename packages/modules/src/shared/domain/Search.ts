@@ -13,7 +13,8 @@ export const SearchKind = Schema.Literals([
   "ticket",
   "thread",
   "message",
-  "chargeback"
+  "chargeback",
+  "supplier"
 ])
 export type SearchKind = typeof SearchKind.Type
 

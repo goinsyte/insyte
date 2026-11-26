@@ -1,5 +1,6 @@
 import { RECORDED_COUNTS } from "@insyte/integrations-shopify/RecordedStore"
 import { recordedPageReads } from "@insyte/integrations-shopify/ShopifyRecorded"
+import { findingSentence, handlingSentence } from "@insyte/modules/stores/domain/Health"
 import { introspectWorkflow, introspectWorkflowInstance } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
@@ -173,6 +174,37 @@ describe("a store's first import", () => {
     await env.SHOPIFY_BACKFILL.create({ id, params: { workspaceId: owner.workspace, storeId: owner.storeId } })
     await instance.waitForStatus("complete")
     expect(ok(await rpc("Stores.syncStatus", { id: owner.storeId }, owner.cookie)).counts).toEqual(EXPECTED)
+  })
+
+  it("gives up at once when Shopify refuses the data, and says why, without retrying the page", async () => {
+    // A `private-*` shop withholds its customers (protected customer data the app is not approved for): a 403.
+    await using workflows = await introspectWorkflow(env.SHOPIFY_BACKFILL)
+    await workflows.modifyAll(async (m) => {
+      await m.disableSleeps()
+      await m.disableRetryDelays()
+    })
+    const store = await connected("private", "abc", "private")
+    await relay(store.workspace)
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("errored")
+    // The customers' first page once: no retries, and nothing read after it.
+    expect(recordedPageReads(store.shop)).toEqual([...PAGES.products, ...PAGES.stock, "customers:start"])
+    expect(ok(await rpc("Stores.syncStatus", { id: store.storeId }, store.cookie)).status).toBe("action_required")
+    const [connection] = ok(await rpc("Connections.health", undefined, store.cookie)).connections
+    expect(connection!.state).toBe("broken")
+    expect(connection!.incidents).toEqual([
+      expect.objectContaining({
+        kind: "sync_failed",
+        resolvedAt: null,
+        facts: { refused: "data" },
+        tried: [expect.objectContaining({ step: "backfill", outcome: "refused" })]
+      })
+    ])
+    const [incident] = connection!.incidents
+    expect(findingSentence(incident!.kind, incident!.facts)).toBe(
+      "De eerste import is gestopt: Shopify geeft Insyte geen toegang tot een deel van de winkelgegevens."
+    )
+    expect(handlingSentence(incident!.kind, incident!.facts)).toBeNull()
   })
 
   it("takes onboarding from the store step through sync and the analysis to ready, each fact checked on the server", async () => {

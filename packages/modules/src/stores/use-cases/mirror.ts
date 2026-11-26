@@ -93,17 +93,19 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
     Effect.gen(function*() {
       const products = batch.products.length === 0 ? [] : yield* sql`
         insert into products (id, workspace_id, store_id, shopify_id, title, handle, description_html, status, vendor,
-                              product_type, tags, images, shopify_created_at, external_updated_at, raw)
+                              product_type, tags, images, is_gift_card, shopify_created_at, external_updated_at, raw)
         select r.id, app_workspace_id(), ${storeId}, r.shopify_id, r.title, r.handle, r.description_html, r.status,
-               r.vendor, r.product_type, r.tags, r.images, r.shopify_created_at, r.external_updated_at, r.raw
+               r.vendor, r.product_type, r.tags, r.images, coalesce(r.is_gift_card, false), r.shopify_created_at,
+               r.external_updated_at, r.raw
         from jsonb_to_recordset(${withIds("prd", batch.products)}::jsonb) as r(
           id text, shopify_id text, title text, handle text, description_html text, status text, vendor text,
-          product_type text, tags text[], images text[], shopify_created_at timestamptz,
+          product_type text, tags text[], images text[], is_gift_card boolean, shopify_created_at timestamptz,
           external_updated_at timestamptz, raw jsonb)
         on conflict (store_id, shopify_id) do update set
           title = excluded.title, handle = excluded.handle, description_html = excluded.description_html,
           status = excluded.status, vendor = excluded.vendor, product_type = excluded.product_type,
-          tags = excluded.tags, images = excluded.images, shopify_created_at = excluded.shopify_created_at,
+          tags = excluded.tags, images = excluded.images, is_gift_card = excluded.is_gift_card,
+          shopify_created_at = excluded.shopify_created_at,
           external_updated_at = excluded.external_updated_at, raw = excluded.raw
         where excluded.external_updated_at >= products.external_updated_at
         returning 1`
@@ -139,10 +141,13 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
           on conflict do nothing`
       }
 
+      // A gift card's variants hold no stock, whatever its inventory item says: untracked, so every stock rule (the
+      // stock-out periods, the units, the low-stock lists) leaves them out, and one already open closes (0111).
       const variants = batch.variants.length === 0 ? [] : yield* sql`
         insert into variants (id, workspace_id, store_id, product_id, shopify_id, inventory_item_id, tracked, sku, title,
                               price_minor, compare_at_minor, position)
-        select r.id, app_workspace_id(), ${storeId}, p.id, r.shopify_id, r.inventory_item_id, r.tracked, r.sku, r.title,
+        select r.id, app_workspace_id(), ${storeId}, p.id, r.shopify_id, r.inventory_item_id,
+               case when p.is_gift_card then false else r.tracked end, r.sku, r.title,
                r.price_minor, r.compare_at_minor, r.position
         from jsonb_to_recordset(${withIds("var", batch.variants)}::jsonb) as r(
           id text, shopify_id text, product_shopify_id text, inventory_item_id text, tracked boolean, sku text,

@@ -322,7 +322,7 @@ export const widgets = Effect.fn("Home.widgets")(function*(input: WidgetsInput) 
                  coalesce(sum(i.available), 0)::int as "left"
           from variants v join products p on p.id = v.product_id
           left join inventory_levels i on i.variant_id = v.id and i.source = 'shopify'
-          where p.status = 'active' and ${scope}
+          where p.status = 'active' and v.tracked is not false and ${scope}
           group by v.id, p.id, p.title, v.title, v.sku, v.position
           having coalesce(sum(i.available), 0) <= ${LOW_STOCK}
           order by "left", p.title, v.position limit 5`
