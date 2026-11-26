@@ -1,4 +1,4 @@
-import { formatCurrency } from "../format";
+import { formatCurrency, WHOLE } from "../format";
 import { supplierName } from "../order-supplier";
 import type { OrderStatus } from "../types/domain";
 import { useWorkspace } from "../../stores/workspace-store";
@@ -176,7 +176,7 @@ function chargebacks(): Script {
 		answer: say(
 			open.length === 0
 				? "Er wacht geen zaak op bewijs."
-				: `${plural(open.length, "zaak heeft", "zaken hebben")} bewijs nodig, ${formatCurrency(atStake)} in totaal. De eerste deadline is ${open
+				: `${plural(open.length, "zaak heeft", "zaken hebben")} bewijs nodig, ${formatCurrency(atStake, undefined, WHOLE)} in totaal. De eerste deadline is ${open
 						.slice(0, 2)
 						.map((c) => `[[${c.case_number}|/chargebacks|chargeback]] van ${c.customer_name}`)
 						.join(", daarna ")}.`,

@@ -1,5 +1,5 @@
 import type { ChatRecordKind, ChatRecordRef } from "../../data-source"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import type {
   Chargeback,
   ChargebackStatus,
@@ -109,7 +109,7 @@ export function customerRecord(
     code: c.email,
     title: c.name,
     detail: `${c.orders_count} ${c.orders_count === 1 ? "bestelling" : "bestellingen"}`,
-    amount: formatCurrency(c.lifetime_value, currency),
+    amount: formatCurrency(c.lifetime_value, currency, WHOLE),
     to: "/customers/$customerId",
     params: { customerId: c.id }
   }

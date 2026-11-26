@@ -7,7 +7,7 @@ import type {
   SupplierProductDetail,
   SupplierProductRow as ServerProduct
 } from "@insyte/modules/supplier-portal/domain/Portal"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { formatCurrency, WHOLE } from "@insyte/ui/app/lib/format"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import type { StockIndicator } from "@insyte/ui/app/stores/supplier-store"
@@ -297,7 +297,7 @@ export function ConsoleSupplierPortal({ me, children }: { me: SupplierMe; childr
     brand: me.workspace.name,
     brandLegal: me.workspace.name,
     firstName: me.contact.name.split(/\s+/)[0] ?? me.contact.name,
-    money: (amount) => formatCurrency(amount, currency),
+    money: (amount) => formatCurrency(amount, currency, WHOLE),
     useOrders,
     useOrder,
     useProducts,

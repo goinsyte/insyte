@@ -153,6 +153,13 @@ export class BillingProvider extends Context.Service<BillingProvider, {
     readonly current: SubscriptionSnapshot
     readonly cancel: boolean
   }) => Effect.Effect<SubscriptionSnapshot, BillingUnavailable>
+  /**
+   * Ends the subscription now, without a credit for the rest of the period and without a last invoice: the workspace
+   * it pays for is being deleted (security.md §6). Asked again, it answers the subscription as it ended.
+   */
+  readonly cancelNow: (input: {
+    readonly current: SubscriptionSnapshot
+  }) => Effect.Effect<SubscriptionSnapshot, BillingUnavailable>
   /** Stripe's Customer Portal for the card and the invoices, returning to `returnUrl`. */
   readonly portal: (input: { readonly customerId: string; readonly returnUrl: string }) => Effect.Effect<
     { readonly url: string },

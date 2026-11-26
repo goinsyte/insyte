@@ -1,5 +1,5 @@
 import { OrdersTools } from "@insyte/api/mcp/tools/OrdersTools"
-import { minorDigits } from "@insyte/modules/fx/domain/Units"
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import { Effect, Layer } from "effect"
 import { governed, notForAgents, type Plan, token } from "../mcp/Governance.ts"
 import { kicker } from "../mcp/Outbox.ts"

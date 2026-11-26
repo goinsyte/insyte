@@ -5,7 +5,7 @@ import { AgentRoutes } from "./agent.ts"
 import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf, AutomationScheduleTick, AutomationUncheckedVersion } from "./automations.ts"
-import { BillingCheckouts } from "./billing.ts"
+import { BillingCheckouts, BillingEndFails } from "./billing.ts"
 import { ChargebackRemind } from "./chargebacks.ts"
 import { CostsRoutes } from "./costs.ts"
 import { DataRoutes } from "./data.ts"
@@ -55,6 +55,7 @@ const Routes = Layer.mergeAll(
   MailRoutes,
   AuthEventsOf,
   BillingCheckouts,
+  BillingEndFails,
   OutboxRoutes,
   AutomationRunsOf,
   AutomationScheduleTick,

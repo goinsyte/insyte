@@ -18,11 +18,11 @@ import { requireOwner } from "./reads.ts"
  * name typed as confirmation. It does not happen at once: the request waits 7 days, during which the workspace works
  * as before and the owner can stop it ("Verwijderen stoppen"); the waiting request is the only mark. Then
  * `WorkspaceLifecycleWorkflow` purges it: the request is taken (`purging`, after which it can no longer be stopped),
- * the providers' grants given back (the Shopify app uninstalled, Klaviyo's and Slack's tokens revoked), the tokens
- * dropped and forgotten by the gate, the files removed from the bucket, and every row the workspace holds deleted
- * (`purge_workspace`, 0076). A purge that stalls is started again by the daily sweep. There is no undo after the
- * wait; asking is confirm-only (api.md §1.1). Billing has no Stripe subscription yet (M13), so there is nothing to
- * cancel there.
+ * the providers' grants given back (the Shopify app uninstalled, Klaviyo's and Slack's tokens revoked), the Stripe
+ * subscription ended (billing's `endForDeletion`; during the wait it bills as before, so stopping leaves it as it was),
+ * the tokens dropped and forgotten by the gate, the files removed from the bucket, and every row the workspace holds
+ * deleted (`purge_workspace`, 0076). A purge that stalls is started again by the daily sweep. There is no undo after
+ * the wait; asking is confirm-only (api.md §1.1).
  */
 
 export const requestDeletion = Effect.fn("Workspaces.requestDeletion")(function*(input: RequestDeletion) {

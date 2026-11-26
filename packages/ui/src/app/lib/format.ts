@@ -1,5 +1,19 @@
+import { minorDigits } from "@insyte/domain/MinorUnits";
 import type { Currency } from "./types/domain.ts";
 
+/**
+ * The decimals an amount in `currency` is written with: the ones Insyte stores it in ("€ 24,95", "¥ 2.495"), so a
+ * shown amount is the stored one. Not Intl's own: it writes ISK and three-decimal currencies otherwise.
+ */
+export const minorDigitsOf = (currency: string) => minorDigits(currency);
+
+/** Whole units, for a KPI tile, a sum or a threshold ("€ 1.235"): the options a caller passes to opt in. */
+export const WHOLE: Intl.NumberFormatOptions = { minimumFractionDigits: 0, maximumFractionDigits: 0 };
+
+/**
+ * An amount in `currency`, Dutch. A record's amount (an order, a product, a refund) keeps its minor digits
+ * ("US$ 24,95", never "US$ 25"); a figure that sums many asks for `WHOLE`.
+ */
 export function formatCurrency(
 	value: number,
 	currency: Currency = "USD",
@@ -8,9 +22,16 @@ export function formatCurrency(
 	return new Intl.NumberFormat("nl-NL", {
 		style: "currency",
 		currency,
-		maximumFractionDigits: 0,
+		minimumFractionDigits: minorDigitsOf(currency),
+		maximumFractionDigits: minorDigitsOf(currency),
 		...options,
 	}).format(value);
+}
+
+/** A product's price over its variants: "€ 24,95", or "vanaf € 9,95" when one variant costs more than the lowest. */
+export function formatPriceFrom(lowest: number, highest: number | undefined, currency?: Currency) {
+	const price = formatCurrency(lowest, currency);
+	return highest !== undefined && highest > lowest ? `vanaf ${price}` : price;
 }
 
 /** The sign an amount in `currency` is written with in Dutch: "€", "US$", "£"; the code itself for one Intl lacks. */

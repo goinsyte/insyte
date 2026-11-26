@@ -161,6 +161,34 @@ describe("a change at Stripe", () => {
     expect(params.get("proration_date")).toBe("1799000000")
   })
 
+  it("ends a subscription now, without a credit or a last invoice, and asks afresh when asked again", async () => {
+    const seen: Array<{ method: string; url: string; key: string | null; body: string }> = []
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      seen.push({
+        method: init.method ?? "GET",
+        url,
+        key: new Headers(init.headers).get("idempotency-key"),
+        body: typeof init.body === "string" ? init.body : ""
+      })
+      return Response.json({ ...SUBSCRIPTION, status: "canceled", cancel_at_period_end: false })
+    })
+    const stripe = makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null })
+    const ended = await Effect.runPromise(stripe.cancelNow({ current: subscriptionOf(SUBSCRIPTION)! }))
+
+    expect(ended).toMatchObject({ subscriptionId: "sub_1", status: "canceled" })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ method: "DELETE" })
+    expect(seen[0]!.key).toMatch(/^insyte-end-sub_1-/)
+    // A second call (a retried step) is a new request: a key Stripe answered with a 500 would replay that 500.
+    await Effect.runPromise(stripe.cancelNow({ current: subscriptionOf(SUBSCRIPTION)! }))
+    expect(seen[1]!.key).toMatch(/^insyte-end-sub_1-/)
+    expect(seen[1]!.key).not.toBe(seen[0]!.key)
+    expect(seen[0]!.url).toMatch(/^https:\/\/api\.stripe\.com\/v1\/subscriptions\/sub_1/)
+    const params = new URLSearchParams(seen[0]!.body === "" ? new URL(seen[0]!.url).search : seen[0]!.body)
+    expect(params.get("invoice_now")).toBe("false")
+    expect(params.get("prorate")).toBe("false")
+  })
+
   it("makes a customer and a checkout once per key, as the caller names it", async () => {
     const keys: Array<string | null> = []
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {

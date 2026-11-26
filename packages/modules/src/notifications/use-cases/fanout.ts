@@ -2,6 +2,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { CHANNELS, notificationKind } from "@insyte/domain/Notifications"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import * as Fx from "../../fx/Fx.ts"
 import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
 import { quietUntil } from "../domain/Quiet.ts"
 import { plan as planDelivery } from "./deliveries.ts"
@@ -86,6 +87,29 @@ const reaching = (sql: SqlClient.SqlClient, storeId: string | null) =>
   sql`(${storeId}::text is null
     or ((r.stores = '"all"'::jsonb or r.stores @> jsonb_build_array(${storeId}::text))
       and (m.stores = '"all"'::jsonb or m.stores @> jsonb_build_array(${storeId}::text))))`
+
+/**
+ * Whether a new chargeback is under the workspace's "Vanaf" threshold. The threshold is in the workspace's currency,
+ * the case in its store's: the threshold is held against it at the latest ECB rate, as a refund limit is. Without a
+ * rate the case is not held back: a large chargeback missed costs more than one alert too many.
+ */
+const belowThreshold = Effect.fn("Notifications.belowThreshold")(function*(
+  sql: SqlClient.SqlClient,
+  c: {
+    readonly amountMinor: string
+    readonly currency: string
+    readonly threshold: string | null
+    readonly workspaceCurrency: string
+  }
+) {
+  const threshold = Number(c.threshold ?? 0)
+  if (!(threshold > 0)) return false
+  const own = c.workspaceCurrency.trim().toUpperCase()
+  const to = c.currency.trim().toUpperCase()
+  const rate = yield* Fx.latestRate(sql, to, own)
+  if (rate === undefined) return false
+  return Number(c.amountMinor) < Fx.limitIn(threshold, own, to, rate)
+})
 
 const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Planned | undefined, unknown> =>
   Effect.gen(function*() {
@@ -361,15 +385,16 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           deadlineAt: Date
           storeId: string | null
           threshold: string | null
+          workspaceCurrency: string
         }>`
           select c.case_number, c.store_id, c.provider, c.customer_name, c.amount_minor, c.currency, c.reason_code, c.status,
-                 c.deadline_at, (w.alerts ->> 'dispute_amount_minor') as threshold
+                 c.deadline_at, (w.alerts ->> 'dispute_amount_minor') as threshold, w.currency as workspace_currency
           from chargebacks c join workspaces w on w.id = c.workspace_id where c.id = ${event.chargebackId}`
         if (c === undefined) return undefined
         if (event.type === "chargeback.deadline_near" && c.status !== "open" && c.status !== "awaiting_evidence") {
           return undefined
         }
-        if (event.type === "chargeback.opened" && Number(c.amountMinor) < Number(c.threshold ?? 0)) return undefined
+        if (event.type === "chargeback.opened" && (yield* belowThreshold(sql, c))) return undefined
         const by = event.type === "chargeback.opened" ? event.by : null
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id

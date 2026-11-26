@@ -7,7 +7,7 @@ import { OPEN_AS_MODAL } from "../common/detail-shell"
 import { useProducts } from "../hooks/use-operator-data"
 import { copyLines, counted, exportCsv } from "../lib/bulk"
 import { categoryOf, marginOf, stockOf, unitsOf } from "../lib/catalog"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import type { Product } from "../lib/types/domain"
 import { undoable } from "../lib/undo"
 import { ListClosing, useListStarts } from "../marketing-sections/closings"
@@ -217,7 +217,7 @@ const standing = (rows: ReadonlyArray<Row>) => {
     Math.round(
       avg * 100
     )
-  }% gemiddelde marge · ${formatCurrency(value)} op de plank`
+  }% gemiddelde marge · ${formatCurrency(value, undefined, WHOLE)} op de plank`
 }
 
 const DemoClosing = ({ empty }: { empty: boolean }) => <ListClosing area="products" empty={empty} />

@@ -1,7 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { mintId } from "@insyte/domain/Ids"
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import { canRole } from "@insyte/domain/Permissions"
-import { minorDigits } from "@insyte/modules/fx/domain/Units"
 import type { OrderChange } from "@insyte/modules/orders/domain/Commands"
 import type { TrackingSent, TrackingSkip } from "@insyte/modules/orders/domain/CustomerMail"
 import type { RefundLimit } from "@insyte/modules/orders/domain/Orders"

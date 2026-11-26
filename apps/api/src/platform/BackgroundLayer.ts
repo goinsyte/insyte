@@ -2,6 +2,7 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { AdSpendLive } from "./AdSpend.ts"
 import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
+import { BillingChoice } from "./Billing.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
 import { DocumentsChoice, FilePartsR2, FileStoreR2 } from "./Documents.ts"
 import { EvidencePacksLive } from "./EvidencePacks.ts"
@@ -120,7 +121,9 @@ export const SyncLayer = onInfra(Layer.mergeAll(
   SliceLinksOnFirstUse.pipe(Layer.provide(LabelsChoice)),
   // A webhook delivery's attempt (M19.4): the endpoint, over fetch.
   WebhookSenderChoice,
-  // A workspace's deletion (M17 step 5): each provider's grant given back before the tokens go.
+  // A workspace's deletion (M17 step 5): its subscription at Stripe ended (loaded on first use)…
+  BillingChoice,
+  // …and each provider's grant given back before the tokens go.
   ProviderGrantsLive.pipe(
     Layer.provide(Layer.mergeAll(KlaviyoChoice, SlackChoice, SealerLive, ShopifyAdminChoice, ConnectionGateLive))
   )

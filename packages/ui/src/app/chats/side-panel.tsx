@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import type { ChatCommandId, ChatRecordRef } from "../../data-source"
 import { ArrowLeft, ArrowUpRight, ExternalLink, FileText, Hash, Sparkles, X } from "../../icons"
-import { formatCurrency, formatRelative } from "../lib/format"
+import { formatCurrency, formatRelative, WHOLE } from "../lib/format"
 import { cn } from "../lib/utils"
 import { useChat } from "./chat-context"
 import { blocked, COMMAND } from "./commands"
@@ -377,7 +377,7 @@ function Body({ r }: { r: ChatRecord }) {
         <dl className="flex flex-col">
           <Row label="E-mail">{c.email}</Row>
           <Row label="Bestellingen">{c.orders_count}</Row>
-          <Row label="Totaal besteed">{formatCurrency(c.lifetime_value, related.currency)}</Row>
+          <Row label="Totaal besteed">{formatCurrency(c.lifetime_value, related.currency, WHOLE)}</Row>
           <Row label="Klant sinds">{formatRelative(c.created_at)}</Row>
         </dl>
         {c.tags.length ?

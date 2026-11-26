@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react"
 import type { ProductPage, ProductRow as ServerRow, ProductSummary } from "@insyte/modules/products/domain/Products"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import { marginOf } from "@insyte/ui/app/lib/catalog"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { formatCurrency, WHOLE } from "@insyte/ui/app/lib/format"
 import { firstQuery, type ServerList } from "@insyte/ui/app/lib/server-query"
 import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductRow, ProductsSource } from "@insyte/ui/app/products/source"
@@ -105,6 +105,7 @@ export const productOf = (p: ServerRow): Product => ({
   images: p.image === null ? [] : [p.image],
   description: "",
   price: (p.priceMinMinor ?? 0) / 100,
+  ...(p.priceMaxMinor === null ? {} : { price_max: p.priceMaxMinor / 100 }),
   ...(p.costMinor === null ? {} : { cost: p.costMinor / 100 }),
   currency: p.currency as Currency,
   ...(p.supplierId === null ? {} : { supplier_id: p.supplierId }),
@@ -208,7 +209,7 @@ const standingOf = (summary: ProductSummary) => () => {
   if (summary.stocked) parts.push(`${summary.restock} moeten worden bijbesteld`)
   if (summary.costed) parts.push(`${Math.round(summary.margin * 100)}% gemiddelde marge`)
   if (summary.stocked && summary.costed) {
-    parts.push(`${formatCurrency(summary.shelfMinor / 100, summary.currency as Currency)} op de plank`)
+    parts.push(`${formatCurrency(summary.shelfMinor / 100, summary.currency as Currency, WHOLE)} op de plank`)
   }
   return parts.join(" · ")
 }

@@ -22,7 +22,7 @@ import {
   TIER_LABEL,
   type TierView
 } from "@insyte/ui/app/affiliate/source"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { formatCurrency, WHOLE } from "@insyte/ui/app/lib/format"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit, Option } from "effect"
@@ -296,7 +296,7 @@ export function ConsoleAffiliatePortal({ me, children }: { me: AffiliateMe; chil
 
   const source: AffiliatePortalSource = {
     brand: me.workspace.name,
-    money: (amount) => formatCurrency(amount, currency),
+    money: (amount) => formatCurrency(amount, currency, WHOLE),
     tiers: dashboard?.tiers.map(tierOf) ?? [],
     returnDays: dashboard?.returnDays ?? 30,
     useProfile: () => {

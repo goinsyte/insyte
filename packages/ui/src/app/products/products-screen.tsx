@@ -8,7 +8,7 @@ import { EmptyState } from "../common/empty-state"
 import { PageHeader } from "../common/page-header"
 import { useSearchCut } from "../filters/use-search-cut"
 import type { Stock } from "../lib/catalog"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, formatPriceFrom } from "../lib/format"
 import type { Product } from "../lib/types/domain"
 import { ProductThumb } from "../product/product-thumb"
 import { useAskInsyte } from "../shell/ask-insyte-context"
@@ -124,7 +124,7 @@ export function ProductsPage() {
         size: 84,
         cell: (ctx) => (
           <span className="font-medium text-ink tabular-nums">
-            {formatCurrency(ctx.row.original.price, source.currencyOf?.(ctx.row.original))}
+            {formatPriceFrom(ctx.row.original.price, ctx.row.original.price_max, source.currencyOf?.(ctx.row.original))}
           </span>
         )
       },

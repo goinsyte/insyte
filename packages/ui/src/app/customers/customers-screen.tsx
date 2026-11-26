@@ -10,7 +10,7 @@ import { PageHeader } from "../common/page-header"
 import { TagDialog } from "../common/tag-dialog"
 import { useSearchCut } from "../filters/use-search-cut"
 import type { DuplicateGroup } from "../lib/duplicates"
-import { formatCurrency, initials } from "../lib/format"
+import { formatCurrency, initials, WHOLE } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
 import { personStyle } from "../lib/person-color"
 import type { Customer } from "../lib/types/domain"
@@ -214,7 +214,7 @@ export function CustomersPage() {
         size: 100,
         cell: (ctx) => (
           <span className="font-medium text-ink tabular-nums">
-            {formatCurrency(ctx.row.original.lifetime_value, source.currencyOf?.(ctx.row.original))}
+            {formatCurrency(ctx.row.original.lifetime_value, source.currencyOf?.(ctx.row.original), WHOLE)}
           </span>
         )
       },
@@ -225,7 +225,7 @@ export function CustomersPage() {
         size: 100,
         cell: (ctx) => (
           <span className="tabular-nums">
-            {formatCurrency(ctx.row.original.aov, source.currencyOf?.(ctx.row.original))}
+            {formatCurrency(ctx.row.original.aov, source.currencyOf?.(ctx.row.original), WHOLE)}
           </span>
         )
       },

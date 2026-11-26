@@ -1,4 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import type { NotePrefs, NotifyPrefsInput } from "@insyte/modules/notifications/domain/Notifications"
 import { formatCurrency } from "@insyte/ui/app/lib/format"
 import { EVENTS, type NotifyPrefs } from "@insyte/ui/app/lib/notifications"
@@ -134,6 +135,12 @@ function useSlack(prefs: NotePrefs): { slack: SlackHere; channels: NotificationS
   }
 }
 
+/** The alert threshold as it was set ("€ 100", "€ 150,50"), in the workspace's minor units: never rounded. */
+const thresholdOf = (minor: number, currency: Currency) => {
+  const scale = 10 ** minorDigits(currency)
+  return formatCurrency(minor / scale, currency, minor % scale === 0 ? { minimumFractionDigits: 0 } : undefined)
+}
+
 export function useConsoleNotificationSettingsSource(prefs: NotePrefs): NotificationSettingsSource {
   const setPrefs = useAtomSet(notifyWrites.setPrefs, { mode: "promiseExit" })
   const { push, testPush } = useBrowserPush(prefs)
@@ -163,7 +170,7 @@ export function useConsoleNotificationSettingsSource(prefs: NotePrefs): Notifica
     timezone: prefs.timezone,
     thresholds: {
       delayHours: `Na ${prefs.alerts.delayHours} uur`,
-      disputeAmount: `Vanaf ${formatCurrency(prefs.alerts.disputeAmountMinor / 100, currency)}`
+      disputeAmount: `Vanaf ${thresholdOf(prefs.alerts.disputeAmountMinor, currency)}`
     },
     connected: { push: prefs.channels.push === "connected", slack: prefs.channels.slack === "connected" },
     slackChannels: channels,
