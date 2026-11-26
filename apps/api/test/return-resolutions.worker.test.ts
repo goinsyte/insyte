@@ -430,6 +430,11 @@ describe("Shopify's returns", () => {
     expect(ok(await rpc("Returns.get", { id: setup.id }, store.cookie)).events.map((e) => e.text)).toContain(
       "Afwijzing niet gemaild: versturen lukte niet"
     )
+    // Audited as order mails are, each mail that did not go once: the refused, the unmade and the given up.
+    const audited = ((await (await call(`http://api.test/api/__dev/audit?workspace=${store.workspace}`)).json()) as {
+      rows: Array<{ action: string; subjectId: string }>
+    }).rows.filter((a) => a.action === "return.shopper_mail_failed").map((a) => a.subjectId)
+    expect(audited.toSorted()).toEqual([refused.id, unmade.id, setup.id].toSorted())
     await call(`http://api.test/api/__dev/mail/refuse?reference=${setup.id}&setup=1&off=1`, { method: "POST" })
   })
 })

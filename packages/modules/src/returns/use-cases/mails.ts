@@ -4,6 +4,7 @@ import type { SqlClient } from "effect/sql"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import type { Mail, ReturnMailFacts } from "../../shared/domain/Mailer.ts"
 import { FIRST_RETRY_SECONDS } from "../../shared/domain/MailRetry.ts"
+import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Senders from "../../shared/use-cases/Senders.ts"
 import type { Resolution } from "../domain/Rules.ts"
@@ -261,6 +262,14 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
   }
   // Settled: gone, or not to be tried again. `sent_at` is null only while a mail is in line.
   yield* sql`update return_mails set sent_at = now() where return_id = ${returnId} and kind = ${mail}`
+  if (error !== null) {
+    yield* Audit.write(sql, r.workspaceId, { kind: "system", id: "insyte" }, {
+      action: "return.shopper_mail_failed",
+      subjectType: "return",
+      subjectId: returnId,
+      diff: { mail, attempts: attempt, error: withoutAddresses(error.reason) }
+    })
+  }
   yield* sql`insert into return_events (id, workspace_id, return_id, actor, name, kind, text)
              values (${mintId("rev")}, app_workspace_id(), ${returnId}, 'insyte', null,
                      ${error === null ? "email_sent" : "note"},

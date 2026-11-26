@@ -500,9 +500,14 @@ const LOOKUP_EXPLAINS: Readonly<Record<string, ExplainRef["key"]["_tag"]>> = {
   roas: "roas"
 }
 
-/** What a figure's id means where its name does not say, as /v1 and MCP describe it (`AnalyticsTools.ts`). */
+/**
+ * What a figure's id means where its name does not say, in the tool's own English, as /v1 and MCP describe their
+ * figures (`AnalyticsTools.ts`).
+ */
 const ABOUT: Readonly<Record<string, string>> = {
-  terugbetaald_omzet: "refunded on the orders omzet counts"
+  terugbetaald_omzet: "refunded on the orders omzet counts",
+  advertenties_meta: "ad spend on Meta that month",
+  advertenties_google: "ad spend on Google that month"
 }
 
 /**
