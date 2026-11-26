@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * Analyse's journey (step 16.2): a new admin's workspace has no orders, so the page says there is nothing to read yet;
@@ -69,7 +69,7 @@ test("@analytics a new admin's Analyse is empty, then reads the store's figures 
   await expect(page.getByText("Nog niets om te lezen.")).toBeVisible()
 
   // The recorded store, imported: its five orders are what the footnote counts.
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
   await page.reload()
   await hydrated(page)
   await expect(page.getByRole("heading", { name: "Analyse", level: 1 })).toBeVisible()

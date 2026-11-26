@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test"
-import { onPreview } from "./access.ts"
+import { onPreview, pageRequest } from "./access.ts"
 import { founded, hydrated, test } from "./founder.ts"
 
 /*
@@ -15,7 +15,7 @@ test("@notation Bestellingen writes dates in Regio's notation, on the server as 
     if (m.type() === "error" && /hydrat/i.test(m.text())) hydration.push(m.text())
   })
   await founded(page, request, { name: "Noor Notatie", tag: "notation" })
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   await page.goto("/settings/regional")
   await hydrated(page)
