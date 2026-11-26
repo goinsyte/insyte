@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router"
-import { Fragment, type ReactNode, useCallback, useMemo, useState } from "react"
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
+import { useToastClearance } from "../../components/sonner"
 import {
   Archive,
   BookOpen,
@@ -160,9 +161,14 @@ export function InboxPage() {
   const navigate = useNavigate()
   const { search, go, me, people, writes, gate, time, threads, mailboxes } = source
   const folder = search.folder ?? "all"
+  /** Set once a new mail opened its thread: the dialog's close then leaves the address as that made it. */
+  const composed = useRef(false)
   /** The new mail's thread, opened once it is made; whether it was. */
   const openComposed = (id: string | undefined) => {
-    if (id !== undefined) go({ ...search, folder: undefined, mailbox: undefined, thread: id })
+    if (id !== undefined) {
+      composed.current = true
+      go({ ...search, folder: undefined, mailbox: undefined, thread: id, compose: undefined })
+    }
     return id !== undefined
   }
   const mailbox = mailboxes.find((m) => m.id === search.mailbox)
@@ -185,6 +191,9 @@ export function InboxPage() {
   const [forwarding, setForwarding] = useState(false)
   const [composing, setComposing] = useState(false)
   const reply = useSettle()
+  // Toasts go above the reply bar and the draft, not over them.
+  const clearBar = useToastClearance<HTMLDivElement>()
+  const clearDraft = useToastClearance<HTMLTextAreaElement>()
   useOnCreate("thread", useCallback(() => setComposing(true), []))
 
   const inFolderThreads = useMemo(
@@ -342,7 +351,11 @@ export function InboxPage() {
         )}
       >
         <div className="flex h-12 shrink-0 items-center justify-between pr-2 pl-5">
-          <h2 className="flex items-baseline gap-2 font-medium text-base text-ink leading-none">
+          {/* Named "Support, 0": the two spans alone run together into one word. */}
+          <h2
+            aria-label={`${title}, ${inFolderThreads.length}`}
+            className="flex items-baseline gap-2 font-medium text-base text-ink leading-none"
+          >
             {title}
             <span className="font-normal text-sm text-ink-3 tabular-nums">
               {inFolderThreads.length}
@@ -781,6 +794,7 @@ export function InboxPage() {
                             Jouw concept
                           </span>
                           <textarea
+                            ref={clearDraft}
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
                             readOnly={reply.busy}
@@ -807,7 +821,7 @@ export function InboxPage() {
                       </div>
                     ) :
                     null}
-                  <div className="flex shrink-0 items-center justify-between bg-mist px-4 py-2.5">
+                  <div ref={clearBar} className="flex shrink-0 items-center justify-between bg-mist px-4 py-2.5">
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -855,8 +869,14 @@ export function InboxPage() {
         onSend={(to, note) => (active ? writes.forward(active, to, note, { label: `Doorgestuurd naar ${to}` }) : false)}
       />
       <ComposeDialog
-        open={composing}
-        onOpenChange={setComposing}
+        open={composing || search.compose !== undefined}
+        to={search.compose}
+        onOpenChange={(v) => {
+          setComposing(v)
+          // Opened by its address (a customer's "E-mailen"): closed without sending, the address lets go of it.
+          if (!v && !composed.current && search.compose !== undefined) go({ ...search, compose: undefined })
+          if (!v) composed.current = false
+        }}
         onSend={(m) => {
           const made = writes.compose({ ...m, mailbox: mailbox?.id }, { label: `E-mail verstuurd naar ${m.to}` })
           return made instanceof Promise ? made.then(openComposed) : openComposed(made)
@@ -1034,14 +1054,20 @@ function ForwardDialog({
 
 function ComposeDialog({
   open,
+  to: addressed,
   onOpenChange,
   onSend
 }: {
   open: boolean
+  /** Who it is to, filled in as it opens: the customer whose "E-mailen" opened it. */
+  to?: string | undefined
   onOpenChange: (v: boolean) => void
   onSend: (m: { to: string; subject: string; body: string }) => Sent
 }) {
   const [to, setTo] = useState("")
+  useEffect(() => {
+    if (open && addressed !== undefined) setTo(addressed)
+  }, [open, addressed])
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const { busy, settle } = useSettle()

@@ -93,11 +93,15 @@ export function DemoCoursesSource(
         if (!chapterId || !moduleId) return Promise.resolve(undefined)
         return Promise.resolve(store().create({ title: draft.title, chapterId, moduleId }, myName).id)
       },
-      save: (saved, next, s) => undoable(s.label, store().save(saved.id, next), s.detail),
+      save: (saved, next, s) => {
+        undoable(s.label, store().save(saved.id, next), s.detail)
+        return true
+      },
       publish: (saved, next, s) => {
         const before = store().courses
         store().save(saved.id, { ...next, status: "live", publishedAt: next.publishedAt ?? new Date().toISOString() })
         undoable(s.label, () => useCourses.setState({ courses: before }), s.detail)
+        return true
       },
       setStatus: (id, status, s) => undoable(s.label, store().setStatus([id], status), s.detail),
       duplicate: (id, said) => {

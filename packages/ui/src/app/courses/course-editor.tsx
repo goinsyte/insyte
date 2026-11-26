@@ -87,13 +87,20 @@ function Editor({ saved }: { saved: Course }) {
   const savedKey = JSON.stringify(saved)
   const [draft, setDraft] = useState<Course>(saved)
   const last = useRef(savedKey)
+  /*
+   * The draft as a save or publish kept it, until the course comes back from the host: the unsaved bar goes the
+   * moment the write lands, not after the refetch, and the save's toast is not left lying on a bar that is done.
+   */
+  const [kept, setKept] = useState<string | null>(null)
   useEffect(() => {
     if (last.current !== savedKey) {
       last.current = savedKey
+      setKept(null)
       setDraft(JSON.parse(savedKey) as Course)
     }
   }, [savedKey])
-  const dirty = JSON.stringify(draft) !== savedKey
+  const draftKey = JSON.stringify(draft)
+  const dirty = draftKey !== savedKey && draftKey !== kept
   const todo = blockers(draft)
   const chapter = chapters.find((c) => c.id === draft.chapterId)
   const [active, setActive] = useState<string>("over")
@@ -102,18 +109,28 @@ function Editor({ saved }: { saved: Course }) {
   const setBlock = (id: string, next: Block) =>
     setDraft((d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === id ? next : b)) }))
 
-  const save = () =>
-    commands.save(saved, draft, {
+  /** Whether the write kept this draft; a refusal (the host said why) leaves the bar and the work as they are. */
+  const keep = async (wrote: boolean | Promise<boolean>) => {
+    const key = draftKey
+    const ok = await wrote
+    if (ok) setKept(key)
+    return ok
+  }
+  const save = async () => {
+    const ok = await keep(commands.save(saved, draft, {
       label: `“${draft.title}” opgeslagen`,
       detail: saved.status === "live"
         ? "Het team ziet de nieuwe versie meteen."
         : "Nog een concept: het team ziet hem pas na publiceren."
-    })
+    }))
+    // The bar holds a navigation until its save lands; one that did not land must not let it go.
+    if (!ok) throw new Error("Niet opgeslagen")
+  }
   const publish = () =>
-    commands.publish(saved, draft, {
+    void keep(commands.publish(saved, draft, {
       label: `“${draft.title}” gepubliceerd`,
       detail: "Het team ziet hem nu onder Mijn cursussen."
-    })
+    }))
 
   /* The outline follows the section being read: the last one whose top has passed a third of the window. */
   useEffect(() => {
@@ -440,7 +457,11 @@ function Editor({ saved }: { saved: Course }) {
               <Settings draft={draft} set={set} />
             </section>
           </fieldset>
-          <UnsavedBar visible={dirty && gate.ok} onDiscard={() => setDraft(saved)} onSave={save} />
+          <UnsavedBar
+            visible={dirty && gate.ok}
+            onDiscard={() => setDraft(kept === null ? saved : JSON.parse(kept) as Course)}
+            onSave={save}
+          />
         </div>
       </div>
     </div>

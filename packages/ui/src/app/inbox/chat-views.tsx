@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
+import { useToastClearance } from "../../components/sonner"
 import { AlertTriangle, Check, Clock, Lock, MessageCircle, Send, Sparkle, Sparkles, UserPlus } from "../../icons"
 import { InsyteMark } from "../ask/parts"
 import {
@@ -232,6 +233,7 @@ export function ChatLetterView({
   const [text, setText] = useState("")
   const [tpl, setTpl] = useState<WhatsAppTemplate | null>(null)
   const end = useRef<HTMLDivElement>(null)
+  const clear = useToastClearance<HTMLDivElement>()
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
   }, [messages.length, draft?.text])
@@ -292,7 +294,7 @@ export function ChatLetterView({
           </div>
         ) :
         null}
-      <div className="flex shrink-0 flex-col gap-2 bg-mist px-4 py-3">
+      <div ref={clear} className="flex shrink-0 flex-col gap-2 bg-mist px-4 py-3">
         {can === "template" && !blocked ?
           (
             <div className="flex flex-wrap items-center gap-1.5">

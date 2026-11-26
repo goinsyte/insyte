@@ -1,6 +1,78 @@
 import { AlertTriangle, CheckCircle2, InfoIcon, Loader, OctagonXIcon } from "@insyte/ui/icons"
 import { useTheme } from "next-themes"
+import { useCallback, useRef } from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+
+/*
+ * What is pinned to the foot of the window: a reply composer, the unsaved bar, a selection's toolbar. A toast sits
+ * above all of them rather than over the field someone is typing in, and drops back to the foot once they are gone.
+ * `--toast-clearance` is how far the highest of them reaches up from the bottom edge; the Toaster adds it to its own
+ * offset. Capped at half the window, so a tall field never sends the toasts to the top.
+ */
+const bars = new Set<HTMLElement>()
+let frame = 0
+let resized: ResizeObserver | null = null
+
+/** How far above the window's bottom edge toasts must sit to clear these boxes, in whole pixels. */
+export function toastClearance(
+  boxes: Iterable<{ readonly top: number; readonly bottom: number; readonly height: number }>,
+  windowHeight: number
+): number {
+  let reach = 0
+  for (const r of boxes) {
+    // Hidden (no box) or scrolled out of the window: nothing to keep clear.
+    if (r.height === 0 || r.bottom <= 0 || r.top >= windowHeight) continue
+    reach = Math.max(reach, windowHeight - r.top)
+  }
+  return Math.round(Math.min(reach, windowHeight / 2))
+}
+
+function measure() {
+  frame = 0
+  const px = toastClearance([...bars].map((el) => el.getBoundingClientRect()), window.innerHeight)
+  document.documentElement.style.setProperty("--toast-clearance", `${px}px`)
+}
+
+const schedule = () => {
+  if (frame === 0) frame = requestAnimationFrame(measure)
+}
+
+/**
+ * A ref for a bar at the foot of the window that toasts must not cover. It is measured as it comes, as it changes
+ * size, as a scroll or the window moves it, and once more after its entrance has played (a transform moves no box).
+ */
+export function useToastClearance<T extends HTMLElement>(): (el: T | null) => void {
+  // The element it holds clear: a callback ref is called with `null` when it goes, also through motion's ref.
+  const held = useRef<(() => void) | null>(null)
+  return useCallback((el: T | null) => {
+    held.current?.()
+    held.current = el === null ? null : hold(el)
+  }, [])
+}
+
+function hold(el: HTMLElement): () => void {
+  if (bars.size === 0) {
+    resized = new ResizeObserver(schedule)
+    window.addEventListener("resize", schedule)
+    document.addEventListener("scroll", schedule, { capture: true, passive: true })
+  }
+  bars.add(el)
+  resized?.observe(el)
+  schedule()
+  const settled = window.setTimeout(schedule, 450)
+  return () => {
+    window.clearTimeout(settled)
+    bars.delete(el)
+    resized?.unobserve(el)
+    if (bars.size === 0) {
+      resized?.disconnect()
+      resized = null
+      window.removeEventListener("resize", schedule)
+      document.removeEventListener("scroll", schedule, { capture: true })
+    }
+    schedule()
+  }
+}
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
@@ -12,6 +84,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
          above had removed it. The non-nullable form says what the destructuring already did. */
       theme={theme as NonNullable<ToasterProps["theme"]>}
       className="toaster group"
+      /* Sonner's own 24px (16px on a phone), above whatever is pinned to the foot (`useToastClearance`). */
+      offset={{ bottom: "calc(24px + var(--toast-clearance, 0px))" }}
+      mobileOffset={{ bottom: "calc(16px + var(--toast-clearance, 0px))" }}
       /* Bottom centre, not the bottom-right corner: that corner is where the plate keeps its File
          button, and a toast saying "filed" sat on top of the button that filed it. The action is the
          brand's primary button, because Undo is the one thing in a toast worth pressing. */

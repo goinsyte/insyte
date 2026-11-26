@@ -7,6 +7,7 @@ import {
 	CommandList,
 	CommandShortcut,
 } from "../../components/command";
+import { useToastClearance } from "../../components/sonner";
 import { type IconComponent, X } from "../../icons";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
@@ -115,6 +116,8 @@ export function SelectionBar<T>({
 		}
 		return [...out];
 	}, [usable]);
+	// A toast (a bulk action's Undo) rises above the bar rather than over it.
+	const clear = useToastClearance<HTMLDivElement>();
 
 	return (
 		<>
@@ -122,6 +125,7 @@ export function SelectionBar<T>({
 				{count > 0 ? (
 					<motion.div
 						key="bar"
+						ref={clear}
 						role="toolbar"
 						aria-label={`${what} geselecteerd`}
 						initial={still ? { opacity: 0 } : { opacity: 0, y: 12 }}

@@ -43,6 +43,8 @@ export type InboxSearch = {
   mailbox?: string | undefined
   channel?: ChannelId | undefined
   view?: "handed_over" | "insyte" | undefined
+  /** "Nieuwe e-mail" open and addressed to this, as a customer's "E-mailen" opens it. */
+  compose?: string | undefined
 }
 
 /** A mailbox, as its band in the list and the offline banner say it. */

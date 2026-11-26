@@ -267,22 +267,22 @@ export function useConsoleCoursesSource(catalogue: CourseCatalogue): CoursesSour
         if (Exit.isFailure(exit)) return void refused(failureOf(exit))
         return exit.value.id ?? undefined
       },
-      save: async (saved, next, s) =>
-        void said(
-          await write.save({
-            payload: { id: saved.id, course: inputOf(next), expectedUpdatedAt: Date.parse(saved.updatedAt) },
-            ...keys
-          }),
-          s
-        ),
-      publish: async (saved, next, s) =>
-        void said(
-          await write.publish({
-            payload: { id: saved.id, course: inputOf(next), expectedUpdatedAt: Date.parse(saved.updatedAt) },
-            ...keys
-          }),
-          s
-        ),
+      save: async (saved, next, s) => {
+        const exit = await write.save({
+          payload: { id: saved.id, course: inputOf(next), expectedUpdatedAt: Date.parse(saved.updatedAt) },
+          ...keys
+        })
+        said(exit, s)
+        return Exit.isSuccess(exit)
+      },
+      publish: async (saved, next, s) => {
+        const exit = await write.publish({
+          payload: { id: saved.id, course: inputOf(next), expectedUpdatedAt: Date.parse(saved.updatedAt) },
+          ...keys
+        })
+        said(exit, s)
+        return Exit.isSuccess(exit)
+      },
       setStatus: async (id, status, s) =>
         void said(await write.setStatus({ payload: { ids: [id], status }, ...keys }), s),
       duplicate: async (id, s) => {

@@ -49,13 +49,15 @@ export function CustomerDetail() {
         <>
           {customer.email ?
             (
-              <a
-                href={`mailto:${customer.email}`}
+              // From the support inbox, not the computer's mail app: the mail then stays with the customer's threads.
+              <Link
+                to="/inbox"
+                search={{ compose: customer.email } as never}
                 className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6"
               >
                 <Mail className="size-3.5" strokeWidth={1.75} />
                 E-mailen
-              </a>
+              </Link>
             ) :
             null}
           {newTicket ?

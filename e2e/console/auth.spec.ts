@@ -376,8 +376,16 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("row", { name: /Anna de Vries/ }).click()
   const profile = page.getByRole("dialog")
   await expect(profile.getByRole("link", { name: "#1002" })).toBeVisible()
+  // "E-mailen" writes from the support inbox, not the computer's mail app.
+  await expect(profile.getByRole("link", { name: "E-mailen" })).toHaveAttribute("href", /\/inbox\?compose=/)
   await profile.getByRole("button", { name: "Nieuw ticket" }).click()
   await expect(page.getByText(/^#\d+ geopend voor Anna de Vries$/)).toBeVisible()
+  // The toast is the way to the new ticket.
+  await expect(
+    page.locator("[data-sonner-toast]", { hasText: /geopend voor Anna de Vries/ }).getByRole("button", {
+      name: "Openen"
+    })
+  ).toBeVisible()
   await profile.getByRole("link", { name: "#1002" }).click()
   await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
   await page.goto("/products")
