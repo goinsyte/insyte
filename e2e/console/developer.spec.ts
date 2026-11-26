@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect } from "@playwright/test"
+import { plainRequest } from "./access.ts"
 import { founded, hydrated, test } from "./founder.ts"
 
 /*
@@ -85,7 +86,7 @@ test("@developer a key made in Instellingen lists the team over /v1 and MCP, and
   await expect(making).toHaveCount(0)
 
   // A script and an MCP client with that key: the founder is the team.
-  const api = await playwright.request.newContext({ maxRedirects: 0 })
+  const api = await plainRequest(playwright, { maxRedirects: 0 })
   try {
     if (reachable) {
       const listed = await api.get(members, { headers: { authorization: `Bearer ${secret}` } })

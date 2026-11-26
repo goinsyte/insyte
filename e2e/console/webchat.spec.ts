@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
-import { admit, guarded, onPreview, previewRequest } from "./access.ts"
+import { admit, guarded, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * The website chat's journey (M15 step 8): an owner connects Websitechat on Koppelingen; a shopper writes from the
@@ -70,7 +70,7 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
 
-  const seeded = await page.request.post("/api/__dev/stores/seed", onPreview())
+  const seeded = await pageRequest(page).post("/api/__dev/stores/seed", onPreview())
   expect(seeded.ok()).toBe(true)
   const { shop, workspaceId } = await seeded.json() as { shop: string; workspaceId: string }
 
@@ -102,7 +102,11 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
     guarded(async (route: Route) => {
       const asked = route.request()
       const path = new URL(asked.url()).pathname + new URL(asked.url()).search
-      const headers = { ...await asked.allHeaders(), origin: storefront, ...onPreview().headers }
+      const headers: Record<string, string> = {
+        ...await asked.allHeaders(),
+        origin: storefront,
+        ...onPreview().headers
+      }
       delete headers["host"]
       const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
       await route.fulfill({ response: answer })
@@ -147,7 +151,7 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   await expect(shopper.getByText("Hij is onderweg, morgen in huis.")).toBeVisible({ timeout: 45_000 })
 
   // The agent hands it over (as the customer agent will); a person takes it over and hands it back.
-  const handed = await page.request.post(`/api/__dev/webchat/agent?workspace=${workspaceId}`, {
+  const handed = await pageRequest(page).post(`/api/__dev/webchat/agent?workspace=${workspaceId}`, {
     ...onPreview({ "content-type": "application/json" }),
     data: { op: "handOver", threadId, reason: "Vraagt naar een terugbetaling" }
   })
@@ -159,7 +163,7 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   await band.getByRole("button", { name: "Teruggeven aan Insyte" }).click()
   // Nobody holds it and no handover is open: the agent, which has not spoken here yet, has it back.
   await expect(band).toBeHidden()
-  const thread = await page.request.post(`/api/__dev/webchat/agent?workspace=${workspaceId}`, {
+  const thread = await pageRequest(page).post(`/api/__dev/webchat/agent?workspace=${workspaceId}`, {
     ...onPreview({ "content-type": "application/json" }),
     data: { op: "thread", threadId }
   })

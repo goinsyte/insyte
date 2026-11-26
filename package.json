@@ -76,7 +76,7 @@
   },
   "scripts": {
     "prepare": "effect-tsgo patch --oxlint && (git rev-parse --git-dir >/dev/null 2>&1 && lefthook install || true)",
-    "check": "tsc -b tsconfig.json && tsc -p packages/domain/tsconfig.test.json && tsc -p packages/modules/tsconfig.test.json && tsc -p packages/database/tsconfig.test.json && tsc -p packages/tokens/tsconfig.test.json && tsc -p packages/ui/tsconfig.test.json && tsc -p packages/integrations/better-auth/tsconfig.test.json && tsc -p packages/integrations/turnstile/tsconfig.test.json && tsc -p packages/integrations/resend/tsconfig.test.json && tsc -p packages/integrations/shopify/tsconfig.test.json && tsc -p packages/integrations/posthog/tsconfig.test.json && tsc -p packages/integrations/klaviyo/tsconfig.test.json && tsc -p packages/integrations/webpush/tsconfig.test.json && tsc -p packages/integrations/slack/tsconfig.test.json && tsc -p packages/integrations/supplier-api/tsconfig.test.json && tsc -p packages/integrations/aftership/tsconfig.test.json && tsc -p packages/integrations/ecb/tsconfig.test.json && tsc -p packages/integrations/sendcloud/tsconfig.test.json && tsc -p packages/integrations/stripe/tsconfig.test.json && tsc -p packages/integrations/anthropic/tsconfig.test.json && tsc -p apps/design/tsconfig.json && tsc -p apps/design/tsconfig.brand.json && tsc -p apps/marketing/tsconfig.json && tsc -p apps/api/tsconfig.json && tsc -p apps/console/tsconfig.json && tsc -p apps/console/tsconfig.strict.json && tsc -p tsconfig.tools.json && tsc -p infra/tsconfig.json",
+    "check": "tsc -b tsconfig.json && tsc -p packages/domain/tsconfig.test.json && tsc -p packages/modules/tsconfig.test.json && tsc -p packages/database/tsconfig.test.json && tsc -p packages/tokens/tsconfig.test.json && tsc -p packages/ui/tsconfig.test.json && tsc -p packages/integrations/better-auth/tsconfig.test.json && tsc -p packages/integrations/turnstile/tsconfig.test.json && tsc -p packages/integrations/resend/tsconfig.test.json && tsc -p packages/integrations/shopify/tsconfig.test.json && tsc -p packages/integrations/posthog/tsconfig.test.json && tsc -p packages/integrations/klaviyo/tsconfig.test.json && tsc -p packages/integrations/webpush/tsconfig.test.json && tsc -p packages/integrations/slack/tsconfig.test.json && tsc -p packages/integrations/supplier-api/tsconfig.test.json && tsc -p packages/integrations/aftership/tsconfig.test.json && tsc -p packages/integrations/ecb/tsconfig.test.json && tsc -p packages/integrations/sendcloud/tsconfig.test.json && tsc -p packages/integrations/stripe/tsconfig.test.json && tsc -p packages/integrations/anthropic/tsconfig.test.json && tsc -p apps/design/tsconfig.json && tsc -p apps/design/tsconfig.brand.json && tsc -p apps/marketing/tsconfig.json && tsc -p apps/api/tsconfig.json && tsc -p apps/console/tsconfig.json && tsc -p apps/console/tsconfig.strict.json && tsc -p tsconfig.tools.json && tsc -p e2e/console/tsconfig.json && tsc -p infra/tsconfig.json",
     "check:watch": "tsc -b tsconfig.json --watch",
     "format": "dprint fmt",
     "format:check": "dprint check",
@@ -93,7 +93,7 @@
     "deps:check": "syncpack lint",
     "deps:update": "syncpack update",
     "scope": "bun scripts/scope.ts --base main",
-    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check && bun run boundaries && bun run bindings:check && bun run licences && bun run auth:check",
+    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check && bun run boundaries && bun run bindings:check && bun run licences && bun run auth:check && bun run e2e:requests",
     "effect:verify": "bun scripts/effect-verify.ts",
     "preflight": "bun run format && bun run check && bun run lint && bun run hygiene && bun run test",
     "preflight:ci": "bun run format:check && bun run check && bun run lint && bun run hygiene && bun run test",
@@ -124,7 +124,8 @@
     "startup:check": "bun scripts/startup-check.ts",
     "licences": "bun scripts/licences.ts",
     "auth:schema": "bun scripts/auth-schema.ts",
-    "auth:check": "bun scripts/auth-schema.ts --check"
+    "auth:check": "bun scripts/auth-schema.ts --check",
+    "e2e:requests": "bun scripts/e2e-requests.ts"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.5",

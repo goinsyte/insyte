@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * The store switch's journey (M6 multi-store): an admin with two stores (the recorded store imported twice, previews
@@ -67,9 +67,9 @@ test("@stores an admin with two stores switches the console from both to one and
   await expect(page).toHaveURL(/\/dashboard$/)
 
   // Two stores: the recorded one, and the same import again under another name.
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
   const second = `/api/__dev/stores/seed?${new URLSearchParams({ tag: "tweede", name: SECOND })}`
-  expect((await page.request.post(second, onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post(second, onPreview())).ok()).toBe(true)
 
   // Every store at once: both stores' orders.
   await page.goto("/orders")
