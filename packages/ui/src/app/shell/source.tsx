@@ -116,7 +116,8 @@ export interface ShellSource {
 		setActive: (id: string) => void;
 		viewAll?: (() => void) | undefined;
 	};
-	seats: ReturnType<typeof SeatsHook>;
+	/** The seats on the plan; `null` when the host has none to show, and the workspace switch leaves them out. */
+	seats: ReturnType<typeof SeatsHook> | null;
 	currentRole: ReturnType<typeof CurrentRoleHook>;
 	workflows: Record<string, WorkflowState>;
 	supplierOrders: ReadonlyArray<SupplierOrderRow>;

@@ -12,6 +12,7 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useConsoleAutomationsSource } from "../automations/automations-source.tsx"
 import { automationAtom, runsAtom } from "../data/automations.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 
 /**
  * One automation (step 14.1, M12 step 1): the reference's builder over `Automations.get`. The canvas edits a working
@@ -48,6 +49,7 @@ export const Route = createFileRoute("/_frame/automations/$automationId")({
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Deze automatisering bestaat niet"),
   component: AutomationRoute
 })
 

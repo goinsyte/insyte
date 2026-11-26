@@ -55,6 +55,11 @@ test("@team the owner invites a colleague, changes their role up and down as the
     await member.getByRole("button", { name: "Verder" }).click()
     await member.getByRole("button", { name: `Naar ${workspace}` }).click()
     await expect(member).toHaveURL(/\/dashboard$/)
+    // Start for someone who joined rather than founded: no setup of theirs, and the workspace's missing store said.
+    await expect(member.getByRole("heading", { name: "Nog geen winkel gekoppeld" })).toBeVisible()
+    // The front door sends them where the gate does: their landing, Start.
+    await member.goto("/")
+    await expect(member).toHaveURL(/\/dashboard$/)
 
     // In the owner's team; as Klantenservice the colleague's Team page holds the link back.
     await expect(page.getByText(COLLEAGUE).first()).toBeVisible({ timeout: 15_000 })
@@ -64,6 +69,13 @@ test("@team the owner invites a colleague, changes their role up and down as the
     const linkSwitch = member.getByRole("switch", { name: "Uitnodigen via link" })
     await expect(denied).toBeVisible()
     await expect(linkSwitch).toHaveCount(0)
+    // Without the right to invite, only the top's greyed-out button says "Collega uitnodigen", not the empty list.
+    await expect(member.getByText("Geen uitnodigingen open.")).toBeVisible()
+    await expect(member.getByRole("button", { name: "Collega uitnodigen" })).toHaveCount(1)
+    // The workspace switch counts the seats as Team does: two people of the trial's six.
+    await member.getByRole("button", { name: new RegExp(workspace) }).first().click()
+    await expect(member.getByText("4 van 6 plekken vrij", { exact: false })).toBeVisible()
+    await member.keyboard.press("Escape")
 
     // Up to Beheerder: the colleague's open page gives them the link, without a reload.
     await (await memberMenu(page, COLLEAGUE)).getByRole("menuitem", { name: "Beheerder", exact: true }).click()

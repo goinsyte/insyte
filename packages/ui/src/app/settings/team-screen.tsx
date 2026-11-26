@@ -64,7 +64,7 @@ export function TeamPage() {
 			<fieldset disabled={!inviteGate.ok} className="contents">
 				<SettingCard id="uitnodigingen" title={`Openstaande uitnodigingen · ${invites.length}`} icon={Mail}>
 					<TeamRefusalNotice scope="invitations" className="mb-3" />
-					<PendingInvites onInvite={invite} />
+					<PendingInvites onInvite={inviteGate.ok ? invite : undefined} />
 				</SettingCard>
 			</fieldset>
 

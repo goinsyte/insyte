@@ -28,6 +28,7 @@ import {
   wakesAt
 } from "../lib/notifications"
 import type { Persona } from "../lib/types/persona"
+import { typing } from "../lib/typing"
 import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { type RowAction, SelectionBar } from "../table/selection-bar"
@@ -232,8 +233,7 @@ export function NotificationsPage({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
-      const t = e.target as HTMLElement | null
-      if (t?.closest("input, textarea, select, [contenteditable=true], [role=dialog], [role=menu]")) return
+      if (typing(e.target)) return
       const k = e.key
       const at = ordered.findIndex((n) => n.id === activeId)
       const move = (to: number) => {
@@ -243,10 +243,8 @@ export function NotificationsPage({
         preview(n)
         listRef.current?.querySelector(`[data-note="${n.id}"]`)?.scrollIntoView({ block: "nearest" })
       }
-      if (k === "?") {
-        e.preventDefault()
-        setHelp(true)
-      } else if (k === "j" || k === "ArrowDown") move(at + 1)
+      // `?` is the shell's: the list of every shortcut, these included.
+      if (k === "j" || k === "ArrowDown") move(at + 1)
       else if (k === "k" || k === "ArrowUp") move(at < 0 ? 0 : at - 1)
       else if (k === "Escape" && activeId) setActiveId(null)
       else if (!active || checked.size > 0) return
@@ -417,8 +415,8 @@ export function NotificationsPage({
               <button
                 type="button"
                 onClick={() => setHelp(true)}
-                aria-label="Sneltoetsen"
-                title="Sneltoetsen (?)"
+                aria-label="Sneltoetsen voor meldingen"
+                title="Sneltoetsen voor meldingen"
                 className="hidden size-8 sm:flex items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink"
               >
                 <Keyboard className="size-4" strokeWidth={1.75} />

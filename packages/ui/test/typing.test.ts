@@ -40,7 +40,8 @@ describe("the shortcuts on the window", () => {
       "shell/goto-keys.tsx",
       "shell/notifications-inbox.tsx",
       "affiliates/affiliates-screen.tsx",
-      "dashboard/queue-panel.tsx"
+      "dashboard/queue-panel.tsx",
+      "notifications/notifications-page.tsx"
     ]
     for (const file of files) {
       const source = readFileSync(new URL(`../src/app/${file}`, import.meta.url), "utf8")

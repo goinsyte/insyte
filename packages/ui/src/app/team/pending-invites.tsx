@@ -31,8 +31,9 @@ export async function copyInviteLink(url: string) {
  * Invitations that have not been answered. Each says what it grants, who sent it and when it lapses;
  * a lapsed one stays on the list, marked, until it is sent again or taken back, because "they never
  * got in" is worth knowing. Revoking has Undo; changing the role applies to the invitation as sent.
+ * Without `onInvite` (a role that may not invite), the empty list offers no button.
  */
-export function PendingInvites({ onInvite }: { onInvite: () => void }) {
+export function PendingInvites({ onInvite }: { onInvite?: (() => void) | undefined }) {
 	const invites = useTeamSource().invites;
 	const sorted = [...invites].sort((a, b) => Number(isExpired(a)) - Number(isExpired(b)) || b.sentAt - a.sentAt);
 
@@ -43,7 +44,7 @@ export function PendingInvites({ onInvite }: { onInvite: () => void }) {
 				kind="people"
 				title="Geen uitnodigingen open."
 				body="Wie je uitnodigt staat hier tot die accepteert, met wanneer de link verloopt. Je kunt hem opnieuw sturen, de rol aanpassen of intrekken."
-				action={{ label: "Collega uitnodigen", onClick: onInvite }}
+				{...(onInvite ? { action: { label: "Collega uitnodigen", onClick: onInvite } } : {})}
 			/>
 		);
 	}

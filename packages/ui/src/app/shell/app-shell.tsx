@@ -33,7 +33,8 @@ export function AppShell({
 	children?: ReactNode;
 }) {
 	useEffect(() => ensurePersona(persona), [persona]);
-	const palette = useCommandPalette();
+	const [askOpen, setAskOpen] = useState(false);
+	const palette = useCommandPalette(() => setAskOpen(true));
 	useRecentRecords();
 	useGoToKeys(persona === "admin");
 	// The density the panel's Customize dialog chose, as one attribute the stylesheet reads.
@@ -41,7 +42,6 @@ export function AppShell({
 	useEffect(() => {
 		document.documentElement.dataset.density = density;
 	}, [density]);
-	const [askOpen, setAskOpen] = useState(false);
 	const [manageOpen, setManageOpen] = useState(false);
 	const [manageInitialTab, setManageInitialTab] = useState<ManageTab>("apps");
 	const askCtx = useMemo(() => ({ open: () => setAskOpen(true) }), []);

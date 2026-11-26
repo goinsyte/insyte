@@ -1,4 +1,4 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Plus, Search } from "../../icons";
 import { motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
@@ -190,9 +190,6 @@ export function SubPanel() {
 										item={item}
 										currentPath={pathname}
 										currentSearch={search}
-										onNavigate={(to, params) =>
-											navigate({ to, search: params ?? {} } as never)
-										}
 									/>
 								))}
 								{!filtering && cfg.title === "Automatiseringen" && si === cfg.sections.length - 1 && automationsPanel.Extras ? <automationsPanel.Extras /> : null}
@@ -253,12 +250,10 @@ function SubPanelLink({
 	item,
 	currentPath,
 	currentSearch,
-	onNavigate,
 }: {
 	item: SubPanelItem;
 	currentPath: string;
 	currentSearch: Record<string, unknown>;
-	onNavigate: (to: string, search?: Record<string, string>) => void;
 }) {
 	const Icon = item.icon;
 	const onSamePath = item.exact
@@ -286,9 +281,13 @@ function SubPanelLink({
 	const locked = need !== null && !canOpen(item.to) ? `Je rol ${role.label} mist ${permissionName(need.area, need.level)}` : null;
 
 	return (
-		<button
-			type="button"
-			onClick={() => onNavigate(item.to, item.search)}
+		<Link
+			to={item.to as never}
+			search={(item.search ?? {}) as never}
+			// A real link (a new tab, a copied address), read only when followed: no preload on hover. Which row is
+			// current stays this row's own reading above.
+			preload={false}
+			activeOptions={{ exact: true, includeSearch: true }}
 			aria-current={active ? "page" : undefined}
 			title={locked ?? undefined}
 			className={cn(
@@ -336,7 +335,7 @@ function SubPanelLink({
 					{count}
 				</span>
 			) : null}
-		</button>
+		</Link>
 	);
 }
 
@@ -534,7 +533,7 @@ function withServerMailboxes(cfg: SubPanelConfig, mailboxes: ReadonlyArray<Panel
 						search: { channel: c.channel },
 						count: c.count === 0 ? undefined : c.count,
 					})),
-					{ to: "/inbox", label: "Kanaal koppelen", icon: Plus, search: { connect: "mailbox" } },
+					{ to: "/settings/integrations", label: "Kanaal koppelen", icon: Plus },
 				],
 			},
 			...sections.slice(1),

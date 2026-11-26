@@ -9,8 +9,14 @@ import { useMemo } from "react"
  * to its route's pattern (`/orders/ord_12` to `/orders/$orderId`).
  */
 
+/**
+ * The catch-alls that only say an address is not there (`routes/_frame.settings.$.tsx`, `routes/_frame.ask.$.tsx`): they
+ * answer every address under them, and are no page.
+ */
+const NOT_FOUND = new Set(["/settings/$", "/ask/$"])
+
 /** `hasPage("/settings/billing")`: whether a console route answers that address (a search or a hash aside). */
 export function useHasPage(): (to: string) => boolean {
   const router = useRouter()
-  return useMemo(() => pageMatcher(Object.keys(router.routesByPath)), [router])
+  return useMemo(() => pageMatcher(Object.keys(router.routesByPath).filter((path) => !NOT_FOUND.has(path))), [router])
 }

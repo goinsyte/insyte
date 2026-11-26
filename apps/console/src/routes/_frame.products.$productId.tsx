@@ -11,6 +11,7 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { productAtom, productsAtom } from "../data/products.ts"
 import { storesAtom } from "../data/stores.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 import { arrivingProductDetail, useConsoleProductDetail } from "../products/product-detail-source.ts"
 import { useConsoleProductReturns } from "../products/product-returns.tsx"
 import { useConsoleQuality } from "../quality/quality-source.tsx"
@@ -45,6 +46,7 @@ export const Route = createFileRoute("/_frame/products/$productId")({
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Dit product bestaat niet"),
   component: ProductRoute
 })
 

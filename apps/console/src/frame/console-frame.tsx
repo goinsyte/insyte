@@ -35,7 +35,10 @@ export function ConsoleFrame({ frame }: { frame: FrameData }) {
 
 function Inside() {
   const navigate = useNavigate()
-  const palette = useCommandPalette()
+  const [askOpen, setAskOpen] = useState(false)
+  const ask = () => setAskOpen(true)
+  // ⌘K the palette, ⌘J Vraag Insyte beside the page.
+  const palette = useCommandPalette(ask)
   const main = useRef<HTMLElement>(null)
   useRecentRecords()
   useGoToKeys(true)
@@ -44,8 +47,6 @@ function Inside() {
   useEffect(() => {
     document.documentElement.dataset["density"] = density
   }, [density])
-  const [askOpen, setAskOpen] = useState(false)
-  const ask = () => setAskOpen(true)
   const askContext = useMemo(() => ({ open: () => setAskOpen(true) }), [])
 
   return (

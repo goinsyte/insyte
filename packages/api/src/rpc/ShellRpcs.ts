@@ -1,5 +1,5 @@
 import { RoleSnapshot } from "@insyte/domain/Principal"
-import { Teammate } from "@insyte/modules/members/domain/Team"
+import { Seats, Teammate } from "@insyte/modules/members/domain/Team"
 import { NoteCounts } from "@insyte/modules/notifications/domain/Notifications"
 import { Prefs } from "@insyte/modules/prefs/domain/Prefs"
 import { QueueStoreCounts } from "@insyte/modules/queue/domain/Queue"
@@ -38,6 +38,8 @@ export class Frame extends Schema.Class<Frame>("shell/Frame")({
   prefs: Prefs,
   notes: NoteCounts,
   teammates: Schema.Array(Teammate),
+  /** The seats on the plan, for the workspace switch; `null` for a role that may not see the team. */
+  seats: Schema.NullOr(Seats),
   /** Proposals ready to review (M15); `null` until Insyte drafts them, so the top bar shows no button. */
   proposals: Schema.NullOr(Schema.Int),
   /**

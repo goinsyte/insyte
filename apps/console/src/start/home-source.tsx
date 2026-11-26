@@ -529,7 +529,8 @@ export function useHomeSlots(
     shown?: WidgetsShown<WidgetId>
     range: BoardRange
     queue: ReactNode
-    checklist: StartChecklist | undefined
+    /** Setup's checklist; `null` where there is none for this person (they joined the workspace), bones until read. */
+    checklist: StartChecklist | null | undefined
   }
 ): Partial<Record<WidgetId, ReactNode>> {
   const presence = useAtomValue(presenceAtom)
@@ -570,7 +571,9 @@ export function useHomeSlots(
     kind: r.kind as Shortcut["kind"],
     at: r.at
   }))
-  const tasks = checklist === undefined ? undefined : consoleSetupTasks((id) => checklist.done.includes(id))
+  const tasks = checklist === undefined || checklist === null ?
+    undefined :
+    consoleSetupTasks((id) => checklist.done.includes(id))
   const canOpenTask = useCanOpenTask()
 
   return {
@@ -653,15 +656,17 @@ export function useHomeSlots(
     chats: <ConsoleChats />,
     bookmarks: <ConsoleBookmarks />,
     todo: <TodoCard />,
-    setup: tasks === undefined ? <WidgetBones rows={4} /> : (
-      <SetupView
-        tasks={tasks}
-        canOpen={canOpenTask}
-        onToggle={(id) => {
-          if (!isManual(id) || checklist === undefined) return
-          complete({ payload: { task: id, done: !checklist.done.includes(id) }, reactivityKeys: START })
-        }}
-      />
-    )
+    setup: tasks === undefined ?
+      (checklist === null ? <Quiet>Hier zijn geen stappen voor jou.</Quiet> : <WidgetBones rows={4} />) :
+      (
+        <SetupView
+          tasks={tasks}
+          canOpen={canOpenTask}
+          onToggle={(id) => {
+            if (!isManual(id) || checklist === undefined || checklist === null) return
+            complete({ payload: { task: id, done: !checklist.done.includes(id) }, reactivityKeys: START })
+          }}
+        />
+      )
   }
 }

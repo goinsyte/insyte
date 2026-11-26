@@ -9,6 +9,7 @@ import { InvitationLinks } from "./domain/Ports.ts"
 import type {
   InviteRow,
   SeatLimitReached,
+  Seats,
   SetLink,
   SupplierAccess,
   SupplierAccessChanged,
@@ -24,7 +25,7 @@ import { send } from "./use-cases/invite.ts"
 import * as Link from "./use-cases/link.ts"
 import * as People from "./use-cases/members.ts"
 import { transferOwnership } from "./use-cases/ownership.ts"
-import { get } from "./use-cases/team.ts"
+import { get, shownSeats } from "./use-cases/team.ts"
 
 /**
  * The members slice (M3.3–M3.4): the team page and everything done on it, as the request's principal in its
@@ -37,6 +38,8 @@ export class Members extends Context.Service<Members, {
   readonly get: Effect.Effect<Team, Forbidden, Db | CurrentPrincipal>
   /** Every active member's name, face and role: what the top bar and mentions show, for any member. */
   readonly directory: Effect.Effect<ReadonlyArray<Teammate>, never, Db | CurrentPrincipal>
+  /** The seats, for the shell's workspace switch: `null` for a role that may not see the team. */
+  readonly seats: Effect.Effect<Seats | null, never, Db | CurrentPrincipal>
   readonly send: (
     rows: ReadonlyArray<InviteRow>
   ) => Effect.Effect<Team, Forbidden | Invalid | SeatLimitReached, Db | CurrentPrincipal>
@@ -105,6 +108,7 @@ export class Members extends Context.Service<Members, {
       return {
         get: run(get()),
         directory: run(directory()),
+        seats: run(shownSeats()),
         send: (rows) => run(send(rows)),
         sendSupplier: (rows) => run(SupplierInvites.sendSupplier(rows)),
         supplierAccess: (supplierId) => run(SupplierInvites.supplierAccess(supplierId)),

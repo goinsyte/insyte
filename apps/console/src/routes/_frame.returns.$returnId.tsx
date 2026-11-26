@@ -10,6 +10,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router"
 import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { returnAtom, returnsAtom, returnSettingsAtom } from "../data/returns.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 import { useArrivingReturnSource, useConsoleReturnDetailSource } from "../returns/returns-source.tsx"
 
 /**
@@ -35,6 +36,7 @@ export const Route = createFileRoute("/_frame/returns/$returnId")({
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Deze retour bestaat niet"),
   component: ReturnRoute
 })
 

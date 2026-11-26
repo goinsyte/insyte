@@ -11,6 +11,7 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { ConsoleOrderAgentRows } from "../agent/record-rows.tsx"
 import { orderAtom, ordersAtom } from "../data/orders.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 import { ConsoleTracker } from "../orders/forwarding-source.tsx"
 import { arrivingOrderDetail, useConsoleOrderDetail } from "../orders/order-detail-source.ts"
 import { ConsoleOrderReturns, ConsoleStartReturn } from "../returns/returns-source.tsx"
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/_frame/orders/$orderId")({
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Deze bestelling bestaat niet"),
   component: OrderRoute
 })
 

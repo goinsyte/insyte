@@ -58,6 +58,7 @@ export const SHORTCUTS: ReadonlyArray<{ group: string; keys: ReadonlyArray<{ key
 		keys: [
 			{ keys: ["⌘", "K"], what: "Opdrachtenpalet en zoeken" },
 			{ keys: ["⌘", "J"], what: "Vraag Insyte" },
+			{ keys: ["?"], what: "Alle sneltoetsen" },
 			{ keys: ["Esc"], what: "Sluit wat open staat" },
 		],
 	},
@@ -66,6 +67,8 @@ export const SHORTCUTS: ReadonlyArray<{ group: string; keys: ReadonlyArray<{ key
 		keys: [
 			{ keys: ["G", "N"], what: "Naar alle meldingen" },
 			{ keys: ["J", "K"], what: "Volgende of vorige melding" },
+			{ keys: ["Enter"], what: "Het record openen" },
+			{ keys: ["X"], what: "Selecteren" },
 			{ keys: ["E"], what: "Wissen" },
 			{ keys: ["S"], what: "Later" },
 			{ keys: ["U"], what: "Gelezen of ongelezen" },
