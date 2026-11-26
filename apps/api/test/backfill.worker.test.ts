@@ -1,6 +1,6 @@
 import { RECORDED_COUNTS } from "@insyte/integrations-shopify/RecordedStore"
 import { recordedPageReads } from "@insyte/integrations-shopify/ShopifyRecorded"
-import { findingSentence, handlingSentence } from "@insyte/modules/stores/domain/Health"
+import { findingSentence, handlingSentence, remedySentence } from "@insyte/modules/stores/domain/Health"
 import { introspectWorkflow, introspectWorkflowInstance } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
@@ -204,7 +204,45 @@ describe("a store's first import", () => {
     expect(findingSentence(incident!.kind, incident!.facts)).toBe(
       "De eerste import is gestopt: Shopify geeft Insyte geen toegang tot een deel van de winkelgegevens."
     )
-    expect(handlingSentence(incident!.kind, incident!.facts)).toBeNull()
+    // Reconnecting does not mend it: no "Opnieuw koppelen", and the line says Insyte settles it.
+    expect(handlingSentence(incident!.kind, incident!.facts)).toBe("Insyte zoekt dit uit; je hoeft niets te doen")
+    expect(remedySentence(incident!.kind, incident!.facts)).toBeNull()
+  })
+
+  it("reads a page again with the stored token after a 401, and imports the store", async () => {
+    // A `stale-*` shop refuses the import's first read once, as it does a token held from before a reconnect.
+    await using workflows = await introspectWorkflow(env.SHOPIFY_BACKFILL)
+    await workflows.modifyAll(async (m) => {
+      await m.disableSleeps()
+      await m.disableRetryDelays()
+    })
+    const store = await connected("stale", "abc", "stale")
+    await relay(store.workspace)
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("complete")
+    // The first products page twice (refused, then read), and the rest once.
+    expect(recordedPageReads(store.shop).slice(0, 2)).toEqual(["products:start", "products:start"])
+    expect(ok(await rpc("Stores.syncStatus", { id: store.storeId }, store.cookie)).status).toBe("connected")
+  })
+
+  it("gives up at once when Shopify refuses the stored token too, and asks to reconnect", async () => {
+    await using workflows = await introspectWorkflow(env.SHOPIFY_BACKFILL)
+    await workflows.modifyAll(async (m) => {
+      await m.disableSleeps()
+      await m.disableRetryDelays()
+    })
+    const store = await connected("locked", "abc", "locked")
+    await relay(store.workspace)
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("errored")
+    // Read with the held token, then with the stored one: two reads, no retries after.
+    expect(recordedPageReads(store.shop)).toEqual(["products:start", "products:start"])
+    const [connection] = ok(await rpc("Connections.health", undefined, store.cookie)).connections
+    const [incident] = connection!.incidents
+    expect(incident).toMatchObject({ kind: "sync_failed", facts: { refused: "token" } })
+    expect(remedySentence(incident!.kind, incident!.facts)).toBe(
+      "Koppel de winkel opnieuw, dan vraagt Shopify je toestemming."
+    )
   })
 
   it("takes onboarding from the store step through sync and the analysis to ready, each fact checked on the server", async () => {

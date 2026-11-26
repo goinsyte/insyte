@@ -214,6 +214,11 @@ export const readPages = Effect.fn("Stores.backfill.pages")(function*(ctx: Backf
       })
     )
     if (fetched.refused !== null) {
+      yield* Effect.logWarning("backfill: Shopify refused the import, not retried", {
+        storeId: ctx.storeId,
+        resource,
+        refused: fetched.refused.facts.refused
+      })
       yield* giveUp(ctx, fetched.refused.reason, fetched.refused.facts)
       const counts = yield* countsOf(ctx.storeId)
       return { done: false, waitMs: 0, pages: read, counts, refused: fetched.refused.reason as string | null }

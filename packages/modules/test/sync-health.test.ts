@@ -196,11 +196,11 @@ describe("the words", () => {
     expect(remedySentence("sync_failed", { refused: "token" })).toBe(
       "Koppel de winkel opnieuw, dan vraagt Shopify je toestemming."
     )
-    expect(remedySentence("sync_failed", { refused: "data" })).toBe(
-      "Insyte heeft hiervoor eerst toestemming van Shopify nodig. Koppel de winkel daarna opnieuw."
-    )
+    // Data Shopify withholds until it approves Insyte: reconnecting does not help, so no remedy; Insyte settles it.
+    expect(remedySentence("sync_failed", { refused: "data" })).toBeNull()
+    expect(handlingSentence("sync_failed", { refused: "data" })).toBe("Insyte zoekt dit uit; je hoeft niets te doen")
     expect(triedSentence({ at: NOW, step: "backfill", outcome: "refused", since: null, reason: null }, NOW)).toBe(
-      "Stopte de eerste import meteen, want opnieuw proberen helpt niet bij een weigering van Shopify"
+      "Stopte de eerste import meteen: Shopify weigerde"
     )
     // A sync that fails for another reason is still Insyte's to retry.
     expect(handlingSentence("sync_failed", {})).toBe("Insyte probeert het elk kwartier opnieuw")

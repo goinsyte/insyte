@@ -1,5 +1,13 @@
 import { Schema } from "effect"
-import { BROKEN, findingSentence, type IncidentFacts, type IncidentKind, remedySentence, stateOf } from "./Health.ts"
+import {
+  BROKEN,
+  findingSentence,
+  handlingSentence,
+  type IncidentFacts,
+  type IncidentKind,
+  remedySentence,
+  stateOf
+} from "./Health.ts"
 
 /*
  * Koppelingen (M6, widgets/05 §5.1): every external account the workspace has, read in one go and read only. The page
@@ -104,11 +112,14 @@ export const storeConnection = (
     lastSyncedAt: store.lastSyncedAt
   } as const
   if (store.storeStatus === "action_required") {
-    // A first import Shopify refused says why, and what helps.
+    // A first import Shopify refused says why, and what helps (or that Insyte handles it).
     const refused = open.find((i) => i.facts.refused !== undefined)
+    const handled = refused === undefined ? null : handlingSentence(refused.kind, refused.facts)
     const note = refused === undefined
       ? remedySentence("token_expired")
-      : `${findingSentence(refused.kind, refused.facts)} ${remedySentence(refused.kind, refused.facts)}`
+      : `${findingSentence(refused.kind, refused.facts)} ${
+        handled === null ? remedySentence(refused.kind, refused.facts) : `${handled}.`
+      }`
     return new ConnectionRow({ ...row, reason: "action_required", note })
   }
   const worst = open.find((i) => BROKEN.has(i.kind)) ?? open[0]

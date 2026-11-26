@@ -8,8 +8,31 @@ import { ConnectionGate, ShopifyGraphql, type ShopifyRefused } from "./Ports.ts"
  * the record, anything else is worth another try. Only the ports: no tables, no other slice.
  */
 
-/** One call through the gate: a token, the bucket's go-ahead, and what Shopify said the bucket holds now. */
+/**
+ * One call through the gate: a token, the bucket's go-ahead, and what Shopify said the bucket holds now. A 401 lets go
+ * of the token the gate held (a reconnect since may have replaced it) and tries once more with the one stored; a
+ * second 401 is Shopify's answer.
+ */
 export const throughGate = <A extends { readonly throttle: unknown }, E, R>(
+  ctx: { readonly connectionId: string },
+  cost: number,
+  call: (token: Parameters<ShopifyGraphql["Service"]["query"]>[1]) => Effect.Effect<A, E, R>
+) => {
+  const once = gated(ctx, cost, call)
+  return once.pipe(
+    Effect.catchIf(
+      (error) =>
+        (error as { _tag?: string; status?: number })._tag === "ShopifyRefused" &&
+        (error as { status?: number }).status === 401,
+      () =>
+        Effect.flatMap(Effect.service(ConnectionGate), (gate) => gate.forget(ctx.connectionId)).pipe(
+          Effect.andThen(once)
+        )
+    )
+  )
+}
+
+const gated = <A extends { readonly throttle: unknown }, E, R>(
   ctx: { readonly connectionId: string },
   cost: number,
   call: (token: Parameters<ShopifyGraphql["Service"]["query"]>[1]) => Effect.Effect<A, E, R>

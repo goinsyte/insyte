@@ -374,7 +374,7 @@ export const triedSentence = (t: Tried, now = Date.now()): string => {
   switch (t.step) {
     case "backfill":
       return t.outcome === "refused"
-        ? "Stopte de eerste import meteen, want opnieuw proberen helpt niet bij een weigering van Shopify"
+        ? "Stopte de eerste import meteen: Shopify weigerde"
         : "Probeerde de eerste import opnieuw, tot het niet meer lukte"
     case "refresh":
       return t.outcome === "refused" ? "Vroeg Shopify om een nieuw token; Shopify weigerde" : "Vernieuwde het token"
@@ -397,7 +397,10 @@ export const triedSummary = (lines: ReadonlyArray<string>) =>
 
 /** What Insyte is doing about it while it lasts, where it can: `null` where only the operator can. */
 export const handlingSentence = (kind: IncidentKind, facts: IncidentFacts = {}): string | null =>
-  facts.refused !== undefined
+  // Data Shopify withholds until it approves Insyte: Insyte's to settle, not the operator's.
+  facts.refused === "data"
+    ? "Insyte zoekt dit uit; je hoeft niets te doen"
+    : facts.refused !== undefined
     ? null
     : kind === "webhook_gap"
     ? "Insyte leest de bestellingen zelf bij Shopify"
@@ -410,7 +413,7 @@ export const handlingSentence = (kind: IncidentKind, facts: IncidentFacts = {}):
 /** What the operator can do, where Insyte cannot: `null` while Insyte is handling it. */
 export const remedySentence = (kind: IncidentKind, facts: IncidentFacts = {}): string | null =>
   facts.refused === "data"
-    ? "Insyte heeft hiervoor eerst toestemming van Shopify nodig. Koppel de winkel daarna opnieuw."
+    ? null
     : kind === "token_expired" || kind === "token_expiring" || kind === "scope_missing" || facts.refused !== undefined
     ? "Koppel de winkel opnieuw, dan vraagt Shopify je toestemming."
     : null

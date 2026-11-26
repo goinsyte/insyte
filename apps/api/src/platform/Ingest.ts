@@ -30,8 +30,9 @@ import type { IngestMessage } from "./IngestQueue.ts"
 export const syncRuntime = ManagedRuntime.make(SyncLayer)
 
 /**
- * A refusal no retry changes: the store's token is refused (Shopify answered 401, or will not renew it), or the call is
- * denied (403: a grant not approved, data the app may not read). A 429 or a 5xx is worth another try.
+ * A refusal no retry changes: the store's token is refused (a 401 to the stored token too, which `throughGate` tried,
+ * or a token Shopify will not renew), or the call is denied (403: a grant not approved, data the app may not read). A
+ * 429 or a 5xx is worth another try.
  */
 const refusedForGood = (error: unknown) =>
   (error instanceof ShopifyRefused && (error.status === 401 || error.status === 403)) ||

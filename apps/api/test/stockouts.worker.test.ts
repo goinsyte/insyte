@@ -95,7 +95,7 @@ describe("stock-outs", () => {
     }
     expect(await applied(0)).toEqual([{ product: "Canvas tas", variant: "Default Title", open: true }])
 
-    // Read again (a webhook here; the sweep after 0111 for a mirror made before it): a gift card, so its period ends.
+    // Read again, here by a webhook: a gift card, so its period ends.
     expect((await send("products/update", { id: 3 })).status).toBe(200)
     expect(await applied(1)).toEqual([{ product: "Canvas tas", variant: "Default Title", open: false }])
 
@@ -103,5 +103,29 @@ describe("stock-outs", () => {
     expect((await send("inventory_levels/update", { inventory_item_id: 31, location_id: 900, available: 0 })).status)
       .toBe(200)
     expect(await applied(2)).toEqual([{ product: "Canvas tas", variant: "Default Title", open: false }])
+  })
+
+  it("flags a gift card the import did not know, by the sweep's one read of the gift cards", async () => {
+    // A mirror made before gift cards were read: the sweep's usual read sees nothing changed in Shopify, so only its one
+    // read of the store's gift cards says what the canvas bag is.
+    const store = await importedStore("gift-sweep", "gift")
+    expect((await mirrorOf(store)).stockouts).toEqual([{ product: "Canvas tas", variant: "Default Title", open: true }])
+    const sweep = () =>
+      call(`http://api.test/api/__dev/stores/reconcile?workspace=${store.workspace}&store=${store.storeId}`, {
+        method: "POST"
+      })
+    expect(await (await sweep()).json()).toEqual({ listed: true, swept: 1 })
+    expect((await mirrorOf(store)).stockouts).toEqual([{
+      product: "Canvas tas",
+      variant: "Default Title",
+      open: false
+    }])
+    // The next sweep reads it no more, and nothing opens again.
+    expect(await (await sweep()).json()).toEqual({ listed: true, swept: 1 })
+    expect((await mirrorOf(store)).stockouts).toEqual([{
+      product: "Canvas tas",
+      variant: "Default Title",
+      open: false
+    }])
   })
 })

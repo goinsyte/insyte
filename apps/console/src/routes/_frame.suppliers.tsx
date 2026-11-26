@@ -9,6 +9,7 @@ import { SuppliersPage } from "@insyte/ui/app/suppliers/suppliers-screen"
 import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { useMemo } from "react"
 import { suppliersAtom } from "../data/suppliers.ts"
 import { useConsoleSuppliersSource } from "../suppliers/suppliers-source.tsx"
 
@@ -70,13 +71,13 @@ function Loaded({ list }: { list: SupplierList }) {
   const { supplier } = Route.useSearch()
   const navigate = Route.useNavigate()
   const base = useConsoleSuppliersSource(list)
-  const source = {
+  const source = useMemo(() => ({
     ...base,
     opened: supplier,
     onClosed: () => {
       if (supplier !== undefined) void navigate({ search: {}, replace: true })
     }
-  }
+  }), [base, supplier, navigate])
   return (
     <SuppliersSourceProvider value={source}>
       <SuppliersPage />
