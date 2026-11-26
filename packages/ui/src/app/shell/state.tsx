@@ -1,5 +1,6 @@
 import { canOpen, canRole, type Level, type Permission } from "@insyte/domain/Permissions";
 import { PERSONA_CHROME, type PersonaChrome } from "../lib/persona-chrome";
+import { isDrawn, isNeedsYou } from "../lib/queue-state";
 import type { Persona } from "../lib/types/persona";
 import { type ShellSource, useShellSource } from "./source";
 
@@ -60,6 +61,16 @@ export const usePersonaChrome = (persona: Persona): PersonaChrome => {
 	const chrome = PERSONA_CHROME[persona];
 	if (partner === undefined || chrome.partner === undefined) return chrome;
 	return { ...chrome, partner: { ...chrome.partner, name: partner.name }, menu: partner.menu };
+};
+/** What waits on the person and what has a proposal ready: the host's own figures, or counted from its queue. */
+export const useQueueCounts = (): { needsYou: number; drawn: number } => {
+	const source = useShellSource();
+	return (
+		source.queueCounts ?? {
+			needsYou: source.workspace.queue.filter(isNeedsYou).length,
+			drawn: source.workspace.queue.filter(isDrawn).length,
+		}
+	);
 };
 export const usePanelFor = () => useShellSource().panelFor;
 export const useServerCounts = () => useShellSource().serverCounts === true;

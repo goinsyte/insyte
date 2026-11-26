@@ -62,6 +62,64 @@ const pageOf = (context: AskContext | undefined) => {
 /** The words of an answer part as tokens: a word and the space after it each their own, as the thread streams them. */
 const words = (text: string): Array<Token> => text.split(/(\s+)/).filter((w) => w !== "").map((t) => ({ t }))
 
+/** Punctuation that sits against what comes before it, and brackets and quotes that sit against what follows. */
+const CLOSES = /^[.,;:!?)\]}»”’…%]/
+const OPENS = /[([{«“‘]$/
+
+/**
+ * An answer's parts as the thread's tokens. The model writes its words around the figures and records it places and
+ * does not always leave a space at the seams ("is" then "€ 568,65", "#1" then "Open het ticket"), so every seam gets
+ * one space, none before closing punctuation or after an opening bracket; a run of whitespace becomes one space, and
+ * the answer starts and ends on a word. A figure or record no tool gave is left out.
+ */
+export const tokensOf = (
+  parts: ReadonlyArray<AnswerPart>,
+  figures: ReadonlyMap<string, Pick<ToolFigure, "display" | "label" | "to" | "explain">>,
+  records: ReadonlyMap<string, Pick<ToolRecord, "label" | "to" | "kind">>
+): Array<Token> => {
+  const tokens: Array<Token> = []
+  // The last character written so far; a chip counts as a word's.
+  let last = ""
+  const seam = (first: string) => {
+    if (last !== "" && last !== " " && first !== " " && !CLOSES.test(first) && !OPENS.test(last)) {
+      tokens.push({ t: " " })
+    }
+  }
+  for (const part of parts) {
+    if (part.kind === "text") {
+      let text = part.value.replaceAll(/\s+/g, " ")
+      if (last === "" || last === " ") text = text.trimStart()
+      if (text === "") continue
+      seam(text[0]!)
+      tokens.push(...words(text))
+      last = text.at(-1)!
+      continue
+    }
+    const chip = chipOf(part, figures, records)
+    if (chip === null) continue
+    seam("x")
+    tokens.push(chip)
+    last = "x"
+  }
+  while (tokens.length > 0 && isBlank(tokens.at(-1)!)) tokens.pop()
+  return tokens
+}
+
+const chipOf = (
+  part: AnswerPart,
+  figures: Parameters<typeof tokensOf>[1],
+  records: Parameters<typeof tokensOf>[2]
+): Token | null => {
+  if (part.kind === "figure") {
+    const f = figures.get(part.value)
+    return f === undefined ? null : { figure: f.display, label: f.label, to: f.to, explain: f.explain }
+  }
+  const r = records.get(part.value)
+  return r === undefined ? null : { ref: r.label, to: r.to, kind: r.kind }
+}
+
+const isBlank = (token: Token) => "t" in token && token.t.trim() === ""
+
 const plainOf = (tokens: ReadonlyArray<Token>) =>
   tokens.map((t) => ("t" in t ? t.t : "ref" in t ? t.ref : t.figure)).join("")
 
@@ -336,17 +394,7 @@ const run = <R>(
         toolRuns += calls.length
       }
 
-      const tokens: Array<Token> = []
-      for (const part of parts ?? []) {
-        if (part.kind === "text") tokens.push(...words(part.value))
-        else if (part.kind === "figure") {
-          const f = found.figures.get(part.value)
-          if (f !== undefined) tokens.push({ figure: f.display, label: f.label, to: f.to, explain: f.explain })
-        } else {
-          const r = found.records.get(part.value)
-          if (r !== undefined) tokens.push({ ref: r.label, to: r.to, kind: r.kind })
-        }
-      }
+      const tokens = tokensOf(parts ?? [], found.figures, found.records)
       if (tokens.length === 0) {
         tokens.push(...words("Ik kon deze vraag niet beantwoorden met wat ik kon lezen."))
         limited = limited || parts === null

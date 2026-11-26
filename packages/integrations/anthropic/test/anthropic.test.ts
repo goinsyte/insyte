@@ -75,6 +75,20 @@ describe("the Anthropic adapter", () => {
     expect(seen.usage).toEqual({ input: 120, output: 30, cacheRead: 10, cacheWrite: 0 })
   })
 
+  it("says why the model declined, by its category and explanation, and never what was asked", async () => {
+    vi.stubGlobal("fetch", async () =>
+      answer({
+        stop_reason: "refusal",
+        stop_details: { type: "refusal", category: "cyber", explanation: "Could enable malware development." },
+        content: []
+      }))
+    const { exit } = await run(generate(topicPrompt, input), makeAnthropic(config))
+    expect(Exit.isFailure(exit)).toBe(true)
+    const said = JSON.stringify(exit)
+    expect(said).toContain("The model declined to answer (cyber): Could enable malware development.")
+    expect(said).not.toContain(input.title)
+  })
+
   it("keeps the usage of an answer that does not decode, or is cut off at the limit", async () => {
     vi.stubGlobal("fetch", async () =>
       answer({

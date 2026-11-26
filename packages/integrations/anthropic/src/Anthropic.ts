@@ -69,6 +69,12 @@ const FINISH: Record<string, typeof Response.FinishReason.Encoded> = {
   refusal: "content-filter"
 }
 
+/** A refusal's category and explanation, as the provider gives them; either may be missing. */
+const refusalOf = (details: { category: string | null; explanation: string | null } | null | undefined) => ({
+  category: details?.category ?? null,
+  explanation: details?.explanation?.slice(0, 300) ?? null
+})
+
 const unsupported = (method: string) =>
   Stream.fail(failed(method, new AiError.UnknownError({ description: "Insyte does not stream model calls yet" })))
 
@@ -134,9 +140,21 @@ export const makeAnthropic = (config: GatewayConfig) => {
             seen.usage = { input: u.input_tokens, output: u.output_tokens, cacheRead, cacheWrite }
           }
           if (response.stop_reason === "refusal") {
+            // Why it declined is the provider's own words about the policy, never what was asked.
+            const { category, explanation } = refusalOf(response.stop_details)
+            yield* Effect.logWarning("the model declined to answer", {
+              promptId: settings.promptId,
+              category,
+              explanation
+            })
             return yield* failed(
               "generateText",
-              new AiError.ContentPolicyError({ description: "The model declined to answer" })
+              new AiError.ContentPolicyError({
+                description: [
+                  `The model declined to answer (${category ?? "no category"})`,
+                  explanation
+                ].filter((s) => s !== null).join(": ")
+              })
             )
           }
           const parts: Array<Response.PartEncoded> = response.content.flatMap((b) =>

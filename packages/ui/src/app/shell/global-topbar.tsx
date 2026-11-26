@@ -9,13 +9,12 @@ import {
 	Sparkles,
 } from "../../icons";
 import type { Persona } from "../lib/types/persona";
-import { isDrawn } from "../lib/queue-state";
 import { NewMenu } from "./new-menu";
 import { NotificationsInbox } from "./notifications-inbox";
 import { StoreSelector } from "./store-selector";
 import { SyncStatus } from "./sync-status";
 import { TopbarFriends } from "./topbar-friends";
-import { useHasPage, useMarketplaceModalStore, usePersonaChrome, useWorkspace } from "./state";
+import { useHasPage, useMarketplaceModalStore, usePersonaChrome, useQueueCounts } from "./state";
 
 /**
  * The top bar: 48px of `mist`, inside the work column rather than across the window.
@@ -49,7 +48,7 @@ export function GlobalTopbar({
 	onOpenNav: () => void;
 }) {
 	const openMarketplace = useMarketplaceModalStore((s) => s.openModal);
-	const drawn = useWorkspace((s) => s.queue.filter(isDrawn).length);
+	const { drawn } = useQueueCounts();
 	const chrome = usePersonaChrome(persona);
 	const admin = persona === "admin";
 	// Vraag Insyte is drawn where the host has it.

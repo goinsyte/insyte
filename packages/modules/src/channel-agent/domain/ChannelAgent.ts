@@ -74,7 +74,7 @@ export class ChannelAgentView extends Schema.Class<ChannelAgentView>("channelAge
   sendReply: Schema.Literals(AUTONOMY_LEVELS),
   /** Each channel's mode as it works now: narrowed by `sendReply` (and off while the agent is). */
   effective: Channels,
-  /** The stores the reader reaches, by name: where the website chat answers. */
+  /** The stores the reader reaches whose website chat is connected, by name: where the chat answers. */
   stores: Schema.Array(Schema.String),
   timezone: Schema.String,
   /** The workspace's AI budget is spent this month: every new chat goes to the team until it turns or is raised. */
@@ -108,6 +108,8 @@ export class TestAnswer extends Schema.Class<TestAnswer>("channelAgent/TestAnswe
   source: Schema.NullOr(Schema.Struct({ articleId: Schema.String, title: Schema.String, version: Schema.Int })),
   /** Handed to a person: why, in Dutch ("de klant vraagt om een mens"), and its code. */
   handover: Schema.NullOr(Schema.Struct({ reason: Schema.String, label: Schema.String })),
+  /** A word for the person testing, never one the shopper reads: what the test chat does differently. */
+  note: Schema.NullOr(Schema.String),
   /** What would become of it: answered, a draft for the team, or nothing sent (the agent off on the website chat). */
   mode: ChannelMode
 }) {}

@@ -91,6 +91,11 @@ export interface ShellSource {
 		| "setCreatingWorkspace"
 	>;
 	workspace: Pick<WorkspaceState, "tickets" | "orders" | "chargebacks" | "queue" | "members" | "integrations" | "createdCustomers">;
+	/**
+	 * The queue's figures, from a host that counts them on the server (the console holds no queue in `workspace`):
+	 * what waits on the person, and what has a proposal ready. Absent, they are counted from `workspace.queue`.
+	 */
+	queueCounts?: { needsYou: number; drawn: number } | undefined;
 	returns: Pick<ReturnsState, "records">;
 	/** `counts`, where the host reads its sheets elsewhere (the console's `Sheets.list`), is what the panel shows. */
 	sheets: Pick<SheetsState, "sheets" | "folders"> & { counts?: SheetPanelCounts };

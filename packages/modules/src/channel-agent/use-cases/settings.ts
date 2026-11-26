@@ -127,8 +127,12 @@ const budgetSpent = (sql: SqlClient.SqlClient) =>
 const viewOf = Effect.fn("ChannelAgent.view")(function*(sql: SqlClient.SqlClient) {
   const settings = yield* read(sql)
   const level = yield* sendReplyLevel(sql)
+  // Where the chat is on: a store whose website chat is connected (Koppelingen), not every store.
   const stores = yield* sql<{ name: string }>`
-    select name from stores where ${yield* inScope(sql, "id")} and status <> 'disconnected' order by created_at, id`
+    select s.name from stores s
+    where ${yield* inScope(sql, "s.id")} and s.status <> 'disconnected'
+      and exists (select 1 from channels c where c.store_id = s.id and c.kind = 'webchat' and c.status = 'connected')
+    order by s.created_at, s.id`
   return new ChannelAgentView({
     settings,
     sendReply: level,

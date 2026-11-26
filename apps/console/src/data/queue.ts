@@ -28,6 +28,14 @@ export const queueAtom = inView((storeId) =>
   )
 )
 
+/**
+ * The queue's figures for the frame (the panel's "Wacht op jou" and "Voorstellen klaar", the top bar's proposals), on
+ * every page: the counts do not depend on the tab or the length, so one row is read with them.
+ */
+export const queueCountsAtom = inView((storeId) =>
+  ConsoleClient.query("Queue.list", withStore({ tab: "drawn" as const, limit: 1 }, storeId), { reactivityKeys: QUEUE })
+)
+
 /** Vraag Insyte's welcome: how many open rows are red or amber (the hero's "needs you"); null while unread or refused. */
 export const needsOf = (list: QueueList | undefined): number | null => list?.counts.needsYou ?? null
 

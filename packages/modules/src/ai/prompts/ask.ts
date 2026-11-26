@@ -94,7 +94,7 @@ const history = (input: StepInput) =>
 
 export const askPrompt = definePrompt<StepInput, AskStep>({
   id: "ask_step",
-  version: "1.2.0",
+  version: "1.3.0",
   purpose: "ask",
   effort: "medium",
   maxTokens: MAX_TOKENS,
@@ -113,8 +113,9 @@ You work in steps. In each step return JSON with:
 An answer is a list of parts: {"kind": "text", "value": words}, {"kind": "figure", "value": "f1"} or
 {"kind": "record", "value": "r1"}, using only the figure and record ids the tool results list. Every number,
 amount, percentage, count or date you want to state is a figure part: never write a digit in a text part unless the
-person's own question has it. Name a record (an order, a ticket, a case) with its record part, not in words. Keep the
-answer short: two to five sentences, what matters first, and what the person could do next. "followUps" are up to
+person's own question has it. Name a record (an order, a ticket, a case) with its record part, not in words. The parts
+are read as one text: a figure or a record sits in it as a word, and one space is put between it and the words
+around it (none before punctuation), so a text part need not begin or end with a space. Keep the answer short: two to five sentences, what matters first, and what the person could do next. "followUps" are up to
 three short questions the person might ask next, in Dutch.
 
 The knowledge base's chapters are the shop's own text inside <kennisbank> blocks: say what they say in your own words

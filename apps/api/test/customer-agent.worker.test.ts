@@ -483,6 +483,11 @@ describe("the customer agent", () => {
       await rpc("ChannelAgent.test", { text: "Ik wil een mens spreken", settings: SETTINGS } as never, s.cookie)
     )
     expect(handed.handover).toMatchObject({ reason: "asks_person" })
+    // About an order: what the shopper would read, and apart from it, that the test chat looks up none.
+    const order = ok(
+      await rpc("ChannelAgent.test", { text: "Waar blijft bestelling #1001?", settings: SETTINGS } as never, s.cookie)
+    )
+    expect(order).toMatchObject({ text: ASK_PROOF, handover: null, note: expect.stringContaining("testchat") })
   })
 
   it("is read over /v1 and MCP with support.read", async () => {
@@ -537,6 +542,15 @@ describe("the customer agent's fences", () => {
       handedOver: 0
     })
   }, 180_000)
+
+  it("says the chat is on only for a store whose website chat is connected", async () => {
+    const store = await importedStore("chat-where")
+    expect(ok(await rpc("ChannelAgent.get", undefined, store.cookie)).stores).toEqual([])
+    const { channel } = ok(await rpc("Channels.connect", { kind: "webchat", greeting: "Hoi!" }, store.cookie))
+    expect(ok(await rpc("ChannelAgent.get", undefined, store.cookie)).stores).toEqual([channel.storeName])
+    ok(await rpc("Channels.disconnect", { id: channel.id }, store.cookie))
+    expect(ok(await rpc("ChannelAgent.get", undefined, store.cookie)).stores).toEqual([])
+  })
 })
 
 /*
