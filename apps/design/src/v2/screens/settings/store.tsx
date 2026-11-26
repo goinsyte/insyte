@@ -582,6 +582,9 @@ function AddressDialog({ open, onClose, onAdd }: {
 }
 
 const say = (label: string) => label.replaceAll("{vervoerder}", "PostNL")
+/** The phrase inside the agent's sentence: only an ordinary first word loses its capital ("onderweg met PostNL"). */
+const midSentence = (phrase: string) =>
+  /^\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/u.test(phrase) ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase
 
 /* ── Verzending ────────────────────────────────────────────────────────────────────────────────── */
 
@@ -688,7 +691,7 @@ export function ShippingScreen() {
             <p className="text-xs text-ink-3">De klantagent op “waar is mijn pakket?”</p>
             <p className="text-sm text-ink">
               Je bestelling #12218 is nu:{" "}
-              {shown === undefined ? "" : say(shown.label).toLowerCase()}. De laatste scan was vanochtend om 06:14.
+              {shown === undefined ? "" : midSentence(say(shown.label))}. De laatste scan was vanochtend om 06:14.
             </p>
           </div>
         </div>

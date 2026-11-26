@@ -1,3 +1,4 @@
+import { midSentence } from "@insyte/domain/Sentence"
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { ArrowRight, Check, Truck } from "../../../icons"
@@ -59,12 +60,14 @@ export function ShippingPage() {
           subtitle="Per status van de vervoerder de zin die de klant ziet. {vervoerder} wordt de naam van de vervoerder."
         >
           <div className="table-scroll overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
-            <div className="grid min-w-[640px] grid-cols-[200px_16px_minmax(0,1fr)_170px_56px] items-center gap-3 bg-mist px-3.5 py-2 font-medium text-ink-3 text-xs">
+            <div className="grid min-w-[720px] grid-cols-[200px_16px_minmax(0,1fr)_200px_96px] items-center gap-3 bg-mist px-3.5 py-2 font-medium text-ink-3 text-xs">
               <span>Status van de vervoerder</span>
               <span />
               <span>Wat de klant leest</span>
               <span>Waar</span>
-              <span className="text-right">Nu</span>
+              <span className="text-right" title="Hoeveel bestellingen nu deze status hebben">
+                Bestellingen nu
+              </span>
             </div>
             {s.draft.map((x, i) => (
               <div
@@ -72,7 +75,7 @@ export function ShippingPage() {
                 onFocusCapture={() => setPick(x.id)}
                 onPointerDown={() => setPick(x.id)}
                 className={cn(
-                  "grid min-w-[640px] grid-cols-[200px_16px_minmax(0,1fr)_170px_56px] items-center gap-3 px-3.5 py-1.5 text-sm transition-colors",
+                  "grid min-w-[720px] grid-cols-[200px_16px_minmax(0,1fr)_200px_96px] items-center gap-3 px-3.5 py-1.5 text-sm transition-colors",
                   x.id === pick ? "bg-arc-tint/50" : i % 2 ? "bg-mist/40" : "bg-paper"
                 )}
               >
@@ -158,7 +161,7 @@ export function ShippingPage() {
               <span className="text-ink-3 text-xs">De klantagent op “waar is mijn pakket?”</span>
               <p>
                 Je bestelling #12218 is nu:{" "}
-                {active ? filled(active.label).toLowerCase() : ""}. De laatste scan was vanochtend om 06:14.
+                {active ? midSentence(filled(active.label)) : ""}. De laatste scan was vanochtend om 06:14.
               </p>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -66,7 +66,6 @@ export function PageGuide({ id, title, steps }: { id: string; title: string; ste
 	const [step, setStep] = useState(0);
 	const [mounted, setMounted] = useState(false);
 	const reduce = useReducedMotion() ?? false;
-	const headingId = useId();
 	const cardRef = useRef<HTMLDivElement>(null);
 	const launcherRef = useRef<HTMLButtonElement>(null);
 	const current = steps[step] ?? steps[0];
@@ -116,7 +115,7 @@ export function PageGuide({ id, title, steps }: { id: string; title: string; ste
 							ref={cardRef}
 							role="dialog"
 							aria-modal="false"
-							aria-labelledby={headingId}
+							aria-label={`Uitleg: ${title}`}
 							initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.94, filter: "blur(6px)" }}
 							animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
 							exit={reduce ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.94, filter: "blur(4px)" }}
@@ -140,8 +139,9 @@ export function PageGuide({ id, title, steps }: { id: string; title: string; ste
 								</button>
 							</div>
 
+							{/* The next step's words come in while the last one's leave, so the card never stands empty. */}
 							<div className="relative min-h-[112px] px-5 pt-4 pb-4">
-								<AnimatePresence mode="wait" initial={false}>
+								<AnimatePresence mode="popLayout" initial={false}>
 									<motion.div
 										key={step}
 										initial={reduce ? { opacity: 0 } : { opacity: 0, x: 10, filter: "blur(3px)" }}
@@ -150,7 +150,7 @@ export function PageGuide({ id, title, steps }: { id: string; title: string; ste
 										transition={{ duration: reduce ? 0.1 : 0.22, ease: EASE }}
 										className="flex flex-col gap-1.5"
 									>
-										<h2 id={headingId} className="text-balance font-medium text-ink text-lg leading-snug">
+										<h2 className="text-balance font-medium text-ink text-lg leading-snug">
 											{current.title}
 										</h2>
 										<p className="text-pretty text-ink-2 text-sm leading-normal">{current.body}</p>
