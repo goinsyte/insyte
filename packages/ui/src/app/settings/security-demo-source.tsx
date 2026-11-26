@@ -1,14 +1,11 @@
 import type { ReactNode } from "react"
 import { exportCsv } from "../lib/bulk"
-import { logsKept } from "../lib/settings-depth"
-import { useSettingsDepth } from "../stores/settings-depth-store"
 import { useSettings } from "../stores/settings-store"
 import { type SecuritySource, SecuritySourceProvider } from "./security-source"
 
 /*
  * Beveiliging over the design app's settings store, as it was before the seam (`security-source.tsx`): the switches
- * flip at once, the seeded sessions sign out with Ongedaan maken, and Exporteren writes the seeded trail. How long it is
- * kept is Gegevens en privacy's, from the settings-depth store.
+ * flip at once, the seeded sessions sign out with Ongedaan maken, and Exporteren writes the seeded trail.
  */
 
 const SESSIONS = [
@@ -49,7 +46,6 @@ export function DemoSecuritySource({ children }: { children: ReactNode }) {
   const revoked = useSettings((s) => s.revokedSessions)
   const revokeSession = useSettings((s) => s.revokeSession)
   const restoreSession = useSettings((s) => s.restoreSession)
-  const kept = useSettingsDepth((s) => logsKept(s.privacy.classes))
   const source: SecuritySource = {
     twoFactor: mfa,
     requireMfa: enforce,
@@ -63,7 +59,6 @@ export function DemoSecuritySource({ children }: { children: ReactNode }) {
       return Promise.resolve(true)
     },
     restore: restoreSession,
-    ...(kept === undefined ? {} : { auditKept: kept }),
     exportAudit: () => exportCsv("insyte-audit-log", ["Tijd", "Teamlid", "Actie", "Detail", "Locatie"], AUDIT)
   }
   return <SecuritySourceProvider value={source}>{children}</SecuritySourceProvider>

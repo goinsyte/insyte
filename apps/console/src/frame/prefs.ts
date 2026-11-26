@@ -22,7 +22,7 @@ export function usePrefSection<T>(frame: Frame, section: PrefSection, defaults: 
   // The writer lives as long as the component; what it calls is the latest render's.
   const calls = useRef({ patch, refresh })
   calls.current = { patch, refresh }
-  const [write] = useState(() =>
+  const [writes] = useState(() =>
     prefWrites<T>({
       version,
       lane: (run) => inTurn(registry, frameWrites.patchPrefs, run),
@@ -31,16 +31,14 @@ export function usePrefSection<T>(frame: Frame, section: PrefSection, defaults: 
     })
   )
 
-  // A fresh read of the frame (another tab, a conflict) is the truth.
+  // A fresh read of the frame (another tab, a conflict) is the truth, unless it is older than what the writes know.
   useEffect(() => {
-    if (saved === undefined) return
-    version.current = saved.version
-    setValue(saved.value as T)
+    if (saved !== undefined && writes.read(saved.version)) setValue(saved.value as T)
   }, [saved?.version])
 
   const set = (next: T) => {
     setValue(next)
-    void write(next)
+    void writes.write(next)
   }
   return [value, set] as const
 }

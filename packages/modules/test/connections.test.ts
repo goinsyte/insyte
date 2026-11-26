@@ -54,7 +54,7 @@ describe("a Klaviyo or Slack connection", () => {
   })
 })
 
-const slack = (status: "connected" | "action_required" | "disconnected") =>
+const slack = (status: "connected" | "action_required" | "connecting" | "disconnected") =>
   new ConnectionRow({
     provider: "slack",
     id: "slack",
@@ -72,8 +72,11 @@ describe("Slack's row", () => {
     expect(slackOnStage(slack("disconnected"), true)).toMatchObject({ status: "disconnected", reason: null })
   })
 
-  it("keeps a connection made before as it stands", () => {
+  it("keeps a connection that works, and offers none to connect again", () => {
     expect(slackOnStage(slack("connected"), false)).toMatchObject({ status: "connected", reason: null })
-    expect(slackOnStage(slack("action_required"), false)).toMatchObject({ reason: "token_expired" })
+    const gone = { status: "disconnected", reason: "unavailable" }
+    expect(slackOnStage(slack("action_required"), false)).toMatchObject(gone)
+    expect(slackOnStage(slack("connecting"), false)).toMatchObject(gone)
+    expect(slackOnStage(slack("action_required"), true)).toMatchObject({ reason: "token_expired" })
   })
 })

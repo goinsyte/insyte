@@ -94,14 +94,6 @@ export const RETENTION_COPY: ReadonlyArray<{ id: string; label: string; detail: 
 	{ id: "customers", label: "Klantgegevens", detail: "Naam, adres en e-mail van klanten zonder bestelling in deze periode." },
 ];
 
-/** A period as Gegevens en privacy names it ("6 maanden", "1 jaar"); `null` is kept without an end. */
-export const periodWords = (months: number | null): string =>
-	months === null ? "zonder einddatum" : months % 12 === 0 ? `${months / 12} jaar` : `${months} maanden`;
-
-/** How long the Logboek is kept: the Logboeken period under Gegevens en privacy. */
-export const logsKept = (classes: ReadonlyArray<{ id: string; months: number | null }>): number | null | undefined =>
-	classes.find((c) => c.id === "logs")?.months;
-
 export const GOTO_DEFAULTS: ReadonlyArray<GoTo> = [
 	{ id: "dashboard", label: "Dashboard", to: "/dashboard", key: "D" },
 	{ id: "orders", label: "Bestellingen", to: "/orders", key: "B" },

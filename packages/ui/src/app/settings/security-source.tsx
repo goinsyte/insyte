@@ -33,11 +33,6 @@ export interface SecuritySource {
   restore?: (id: string) => void
   /** The audit log as a CSV. */
   exportAudit?: () => void
-  /**
-   * How long the audit log is kept, in months: the Logboeken period under Gegevens en privacy; `null` without an end.
-   * Absent where the host has not read it: the page then only says where it is set.
-   */
-  auditKept?: number | null
 }
 
 const SecurityContext = createContext<SecuritySource | null>(null)

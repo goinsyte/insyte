@@ -89,11 +89,13 @@ export const accountStatus = (
 }
 
 /**
- * Slack's row where this stage has no Slack app: with nothing connected there is nothing to connect either, so it says
- * so (`unavailable`), as Meldingen does. A connection made before keeps its own row.
+ * Slack's row where this stage has no Slack app: nothing can be connected, or connected again, so it says so
+ * (`unavailable`), as Meldingen does. A connection that still works keeps its own row.
  */
 export const slackOnStage = (row: ConnectionRow, configured: boolean): ConnectionRow =>
-  configured || row.status !== "disconnected" ? row : new ConnectionRow({ ...row, reason: "unavailable" })
+  configured || row.status === "connected"
+    ? row
+    : new ConnectionRow({ ...row, status: "disconnected", reason: "unavailable" })
 
 /**
  * A store's row, as the shell's line reads its health (`Health.line`): a store Shopify asks to connect again says so

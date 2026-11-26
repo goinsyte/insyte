@@ -6,7 +6,6 @@ import { FileText } from "@insyte/ui/icons"
 import { createFileRoute } from "@tanstack/react-router"
 import { Effect } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { depthSections } from "../data/settings-depth.ts"
 import { firstLogAtom, logFacetsAtom } from "../data/settings-log.ts"
 import { useConsoleLogSource } from "../settings/log-source.tsx"
 import { SettingsPage, SettingsPending } from "../settings/settings-page.tsx"
@@ -22,13 +21,10 @@ export const Route = createFileRoute("/_frame/settings/log")({
     // Mounted so the values survive until the registry is dehydrated into the document.
     context.registry.mount(firstLogAtom)
     context.registry.mount(logFacetsAtom)
-    // How long the log is kept, from Gegevens en privacy; the page says only where it is set if this does not load.
-    context.registry.mount(depthSections.retention)
     await Effect.runPromise(Effect.ignore(Effect.all([
       AtomRegistry.getResult(context.registry, firstLogAtom),
-      AtomRegistry.getResult(context.registry, logFacetsAtom),
-      Effect.ignore(AtomRegistry.getResult(context.registry, depthSections.retention))
-    ], { concurrency: 3 })))
+      AtomRegistry.getResult(context.registry, logFacetsAtom)
+    ], { concurrency: 2 })))
   },
   pendingComponent: () => <SettingsPending title="Logboek" />,
   component: LogRoute

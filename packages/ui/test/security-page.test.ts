@@ -10,7 +10,6 @@ interface SecuritySource {
   googleSso: boolean
   sessions: ReadonlyArray<never>
   revoke: () => Promise<boolean>
-  auditKept?: number | null
 }
 
 // Loaded the way `console-screens.test.ts` loads screens: the screens' own imports are written for the bundler.
@@ -43,8 +42,8 @@ const page = (patch: Partial<SecuritySource> = {}) =>
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
 
 /*
- * Beveiliging: each switch is named by its label for a screen reader, and the audit log says the period set under
- * Gegevens en privacy, with the way there, rather than a period of its own.
+ * Beveiliging: each switch is named by its label for a screen reader, and the audit log says what is true of it: it is
+ * append-only and kept at least 13 months, whatever Gegevens en privacy says for Logboeken.
  */
 describe("Beveiliging", () => {
   it("names each switch by its label", () => {
@@ -58,15 +57,10 @@ describe("Beveiliging", () => {
     expect(names).toEqual(["Tweestapsverificatie", "2FA verplichten voor alle teamleden", "Google SSO"])
   })
 
-  it("says how long the audit log is kept, as Gegevens en privacy has it", () => {
-    expect(text(page({ auditKept: 12 }))).toContain("Bewaard: 1 jaar . Dat stel je in onder Gegevens en privacy .")
-    expect(text(page({ auditKept: 6 }))).toContain("Bewaard: 6 maanden")
-    expect(text(page({ auditKept: null }))).toContain("Bewaard: zonder einddatum")
-    expect(page({ auditKept: 3 })).toContain("href=\"/settings/privacy\"")
-    expect(page()).not.toContain("90 dagen")
-  })
-
-  it("only says where it is set while the period is not in", () => {
-    expect(text(page())).toContain("Hoe lang het bewaard blijft, stel je in onder Gegevens en privacy .")
+  it("says the audit log's floor, not a period of its own or the one under Gegevens en privacy", () => {
+    const html = page()
+    expect(text(html)).toContain("Bewaard: minstens 13 maanden . Er wordt niets in gewijzigd of uit gewist.")
+    expect(html).not.toContain("90 dagen")
+    expect(html).not.toContain("/settings/privacy")
   })
 })

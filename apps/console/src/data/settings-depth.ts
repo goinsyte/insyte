@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react"
 import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { SendingDomainState } from "@insyte/modules/settings/domain/SendingDomain"
 import {
@@ -7,7 +6,6 @@ import {
   type SettingsSectionId,
   StatusCounts
 } from "@insyte/modules/settings/domain/Settings"
-import { logsKept } from "@insyte/ui/app/lib/settings-depth"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
@@ -78,13 +76,3 @@ export const depthWrites = {
   saveSenders: ConsoleClient.mutation("SendingDomain.saveSenders"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const
-
-/**
- * How long Logboeken are kept, in months (`null`: without an end), as Gegevens en privacy has it: for Beveiliging and
- * the Logboek, which say it. `undefined` until the section is in, or where it did not load.
- */
-export function useLogsKept(): number | null | undefined {
-  const result = useAtomValue(depthSections.retention)
-  if (!AsyncResult.isSuccess(result) || result.value.section !== "retention") return undefined
-  return logsKept(result.value.value.classes)
-}

@@ -34,11 +34,6 @@ export interface LogSource {
   retry?: () => void
   /** The lines under the filter as a CSV. */
   exportCsv: () => void
-  /**
-   * How long the log is kept, in months: the Logboeken period under Gegevens en privacy; `null` without an end.
-   * Absent where the host has not read it: the page then only says where it is set.
-   */
-  kept?: number | null
 }
 
 const LogContext = createContext<LogSource | null>(null)

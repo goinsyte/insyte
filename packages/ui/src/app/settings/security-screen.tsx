@@ -1,10 +1,8 @@
-import { Link } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { toast } from "sonner"
 import { MonitorSmartphone, ShieldCheck, Smartphone } from "../../icons"
 import { PageGuide } from "../common/page-guide"
 import { SoonChip } from "../common/soon-chip"
-import { periodWords } from "../lib/settings-depth"
 import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { type SessionRow, useSecuritySource } from "./security-source"
@@ -20,8 +18,7 @@ const GUIDE = [
   { title: "Google SSO", body: "Teamleden loggen in met hun Google Workspace-account.", art: "keys" },
   {
     title: "Auditlog",
-    body:
-      "Een alleen-lezen spoor van elke gevoelige beheeractie. Hoe lang het bewaard blijft, stel je in onder Gegevens en privacy.",
+    body: "Een alleen-lezen spoor van elke gevoelige beheeractie. Insyte bewaart het minstens 13 maanden.",
     art: "log"
   }
 ] as const
@@ -41,7 +38,8 @@ const switchOf = (set: ((on: boolean) => void) | undefined, what: string, said: 
 /**
  * Beveiliging: how members sign in, the reader's own signed-in sessions, and the audit log's export. What it reads and
  * does comes from its host (`security-source.tsx`). A session signed out where the host cannot bring it back gets no
- * Ongedaan maken. How long the audit log is kept is set under Gegevens en privacy; the page says it and links there.
+ * Ongedaan maken. The audit log is append-only and kept at least 13 months (its floor, `settings/use-cases/retention.ts`):
+ * the period under Gegevens en privacy does not shorten it, so the page names the floor, not that setting.
  */
 export function SecurityPage() {
   const source = useSecuritySource()
@@ -147,13 +145,9 @@ export function SecurityPage() {
             strokeWidth={1.75}
           />
           <p className="font-normal text-base text-ink-3 leading-[1.6]">
-            {source.auditKept === undefined ? "Hoe lang het bewaard blijft, stel je in onder " : (
-              <>
-                Bewaard:{" "}
-                <span className="font-medium text-ink">{periodWords(source.auditKept)}</span>. Dat stel je in onder{" "}
-              </>
-            )}
-            <Link to="/settings/privacy" className="text-arc-ink hover:underline">Gegevens en privacy</Link>.
+            Bewaard:{" "}
+            <span className="font-medium text-ink">minstens 13 maanden</span>. Er wordt niets in gewijzigd of uit
+            gewist.
           </p>
         </div>
       </SettingCard>

@@ -24,17 +24,17 @@ function server() {
   return { state, send }
 }
 
-function writer(send: ReturnType<typeof server>["send"]) {
+function writer(send: (value: string, baseVersion: number) => ReturnType<ReturnType<typeof server>["send"]>) {
   const registry = AtomRegistry.make()
   const atom = {}
   const refused: Array<true> = []
-  const write = prefWrites<string>({
+  const writes = prefWrites<string>({
     version: { current: 1 },
     lane: (run) => inTurn(registry, atom, run),
     send,
     refused: () => refused.push(true)
   })
-  return { write, refused }
+  return { write: writes.write, read: writes.read, refused }
 }
 
 describe("a preference section's writes", () => {
@@ -67,5 +67,33 @@ describe("a preference section's writes", () => {
     await write("a")
     expect(state.value).toBe("start")
     expect(refused).toEqual([true])
+  })
+
+  it("read the frame again, and do not throw, when a write does not come back", async () => {
+    const { write, refused } = writer(() => Promise.reject(new Error("offline")))
+    await expect(write("a")).resolves.toBeUndefined()
+    expect(refused).toEqual([true])
+  })
+})
+
+describe("a fresh read of the frame", () => {
+  it("is not shown when it set out before a write landed", async () => {
+    const { send } = server()
+    const { write, read } = writer(send)
+    await write("a")
+    // The frame as it was read before "a" landed (version 1), then as it is (version 2).
+    expect(read(1)).toBe(false)
+    expect(read(2)).toBe(false)
+    expect(read(3)).toBe(true)
+  })
+
+  it("is shown after a refusal, whatever its version", async () => {
+    const { state, send } = server()
+    const { write, read } = writer(send)
+    state.version = 5
+    await write("a")
+    expect(read(1)).toBe(true)
+    // Only the one read after the refusal: the next older one is stale again.
+    expect(read(1)).toBe(false)
   })
 })
