@@ -17,7 +17,11 @@ export class ThreadTickets extends Context.Service<ThreadTickets, {
     readonly title: string
     readonly description: string
     readonly threadId: string
+    /** A website chat's, rather than mail's. */
+    readonly chat: boolean
     readonly customerId: string | null
+    /** The order the thread is about: a chat's is its customer's latest in the store, as its chip shows it. */
+    readonly orderId: string | null
   }) => Effect.Effect<{ readonly id: string; readonly number: number }, SqlError.SqlError, CurrentPrincipal>
   readonly remove: (
     sql: SqlClient.SqlClient,

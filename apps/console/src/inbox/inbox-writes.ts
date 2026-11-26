@@ -177,7 +177,9 @@ export function useInboxWrites(
       if (Exit.isFailure(exit)) return refused(failureOf(exit))
       const { ticketId, ticketNumber, created } = exit.value
       toast.success(
-        created ? `Ticket #${ticketNumber} aangemaakt vanuit deze mail` : `Gekoppeld aan ticket #${ticketNumber}`,
+        created
+          ? `Ticket #${ticketNumber} aangemaakt vanuit ${t.channel === undefined ? "deze mail" : "dit gesprek"}`
+          : `Gekoppeld aan ticket #${ticketNumber}`,
         { action: { label: "Openen", onClick: () => openTicket(ticketId) } }
       )
     },

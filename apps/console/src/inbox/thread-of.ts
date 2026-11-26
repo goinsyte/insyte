@@ -1,3 +1,4 @@
+import { HANDOVER_LABEL } from "@insyte/modules/channel-agent/domain/Rules"
 import type { ChatEntry, MailboxView, MessageView, ThreadRow } from "@insyte/modules/inbox/domain/Inbox"
 import type { InboxMailbox, InboxThread, LetterEntry, Place } from "@insyte/ui/app/inbox/source"
 import type { ChatMessage } from "@insyte/ui/app/lib/channels"
@@ -40,7 +41,8 @@ export const threadOf = (r: ThreadRow, now: number): InboxThread => {
   const other = r.participants.find((p) => !p.team) ?? r.participants[0] ?? { name: "", email: "" }
   return {
     id: r.id,
-    subject: r.subject.trim() === "" ? "(geen onderwerp)" : r.subject,
+    // A website chat has no subject of its own: it is named after where it was held.
+    subject: r.subject.trim() !== "" ? r.subject : r.channel === "webchat" ? "Websitechat" : "(geen onderwerp)",
     mailbox: r.mailboxId,
     other: named(other),
     last_message_at: iso(r.lastMessageAt),
@@ -57,6 +59,12 @@ export const threadOf = (r: ThreadRow, now: number): InboxThread => {
     ...(r.agentState === null ? {} : { agent: { state: r.agentState } })
   }
 }
+
+/**
+ * Why the customer agent handed a chat over, in the band's words: its reason code as the design says it. A reason
+ * that is no code (a person's or an integration's own note) reads as it was written.
+ */
+export const reasonOf = (reason: string) => (Object.hasOwn(HANDOVER_LABEL, reason) ? HANDOVER_LABEL[reason]! : reason)
 
 /**
  * A website chat's message as a bubble (M15 step 8): the shopper's on the left; the team's, the agent's and Insyte's

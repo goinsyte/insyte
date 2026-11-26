@@ -134,16 +134,17 @@ export interface TicketsSource {
   drafts?: true | TicketDrafts | undefined
   /**
    * "Klant informeren"; absent until a mailbox can send it. `true`: the screen marks the ticket Wacht op antwoord and
-   * says so. A function sends it itself, says what it did, and answers whether it went.
+   * says so. A function mails the shopper `body` (absent, Insyte's short update) itself, says what it did, and answers
+   * whether it went.
    */
-  notifyCustomer?: true | ((ticket: Ticket) => Promise<boolean>) | undefined
+  notifyCustomer?: true | ((ticket: Ticket, body?: string) => Promise<boolean>) | undefined
 }
 
 /** Insyte AI on a ticket (M15 step 2): a person reads what it wrote, and keeps it or not. */
 export interface TicketDrafts {
   /** "Samenvatten": Insyte's summary in the activity, as its line; `false` when it did not come (the host said why). */
   summarize: (ticketId: string) => Promise<boolean>
-  /** "Antwoord voorstellen (AI)": a reply for the composer; `undefined` when none came (the host said why). */
+  /** "Antwoord voorstellen (AI)": an answer to the shopper, to send or not; `undefined` when none came (the host said why). */
   suggestReply: (ticketId: string) => Promise<string | undefined>
 }
 
