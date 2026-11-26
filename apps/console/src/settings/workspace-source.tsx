@@ -1,4 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import type { Regional, WorkspaceAccount } from "@insyte/modules/workspaces/domain/Settings"
 import type {
   AccountFields,
@@ -54,14 +55,14 @@ const COPY: RefusalCopy = {
   }
 }
 
-/** How many decimals the workspace's money has (two for the euro, none for the yen), and its sign. */
+/** How many decimals the workspace's money has as Insyte stores it (two for the euro, none for the yen), and its sign. */
 const moneyOf = (currency: string) => {
+  const scale = 10 ** minorDigits(currency)
   try {
     const format = new Intl.NumberFormat("nl-NL", { style: "currency", currency, currencyDisplay: "narrowSymbol" })
-    const sign = format.formatToParts(0).find((p) => p.type === "currency")?.value ?? currency
-    return { scale: 10 ** (format.resolvedOptions().maximumFractionDigits ?? 2), sign }
+    return { scale, sign: format.formatToParts(0).find((p) => p.type === "currency")?.value ?? currency }
   } catch {
-    return { scale: 100, sign: currency }
+    return { scale, sign: currency }
   }
 }
 

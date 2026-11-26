@@ -1,6 +1,7 @@
 /*
  * How many decimals an amount has in Insyte's minor units: none for the currencies without minor units, two for every
- * other one, the three-decimal currencies too (`toMinor` and `fromMinor` in the stores' mirror, the console's amounts).
+ * other one, the three-decimal currencies too (`toMinor` and `fromMinor` in the stores' mirror, the console's amounts,
+ * the design's `formatCurrency`).
  */
 
 /** ISO 4217 currencies without minor units (Shopify's set); the rest have two. */

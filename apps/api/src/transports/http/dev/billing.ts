@@ -21,3 +21,26 @@ export const BillingCheckouts = HttpRouter.add(
     return HttpServerResponse.jsonUnsafe({ checkouts: fakeCheckouts(workspace) })
   })
 )
+
+/**
+ * `POST /api/__dev/billing/end-fails?workspace=<id>&reason=unreachable|refused|none`: the fake will not end that
+ * workspace's subscription (Stripe not answering, or saying no) until told `none`, for the worker tests of a deletion
+ * whose billing step fails. Refused in production; nothing to change where the fake is not the adapter.
+ */
+export const BillingEndFails = HttpRouter.add(
+  "POST",
+  "/api/__dev/billing/end-fails",
+  Effect.gen(function*() {
+    const { environment } = yield* AppInfo
+    if (environment === "production") {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const params = new URL(request.url, "http://local").searchParams
+    const workspace = params.get("workspace") ?? ""
+    const reason = params.get("reason")
+    const { fakeEndFails } = yield* Effect.promise(() => import("@insyte/integrations-stripe/StripeFake"))
+    fakeEndFails(workspace, reason === "unreachable" || reason === "refused" ? reason : null)
+    return HttpServerResponse.jsonUnsafe({ ok: true })
+  })
+)

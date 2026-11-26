@@ -1,7 +1,7 @@
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { minorDigits } from "../domain/Units.ts"
 
 /*
  * A limit in the workspace's currency held against an amount in another: a role's refund limit and a flow's are set in

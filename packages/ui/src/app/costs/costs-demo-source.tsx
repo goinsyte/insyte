@@ -73,8 +73,8 @@ function useDemoCostsSource(): CostsSource {
       )
       return Promise.resolve(true)
     },
-    update: (row, patch, said) => {
-      undoable(said.label, useCosts.getState().update(row.id, patch), said.detail)
+    update: (row, { name, kind, rate }, said) => {
+      undoable(said.label, useCosts.getState().update(row.id, { name, kind, rate }), said.detail)
       return Promise.resolve(true)
     },
     setAmount: (row, month, amount, said) => {

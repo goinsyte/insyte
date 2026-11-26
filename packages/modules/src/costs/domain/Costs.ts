@@ -41,6 +41,11 @@ export const CostLine = Schema.Struct({
   rate: Schema.NullOr(Schema.Finite),
   /** `per_order`: the amount per counted order. */
   rateMinor: Schema.NullOr(Schema.Int),
+  /**
+   * `per_order`, set in another currency than the workspace's with no rate to read it in: `rateMinor` is null. Saving
+   * the line without a `rateMinor` keeps the amount as it was set.
+   */
+  rateUnconverted: Schema.optional(Schema.Boolean),
   source: CostSource,
   /** An ad line whose account is connected: its untyped months are what the account reports. */
   readsFromSource: Schema.Boolean,
@@ -104,7 +109,10 @@ export const CreateInput = Schema.Struct({
   source: Schema.optional(CostSource)
 })
 
-/** "Opslaan" in the line's dialog: its name, kind and rule. */
+/**
+ * "Opslaan" in the line's dialog: its name, kind and rule. A per-order line saved without `rateMinor` keeps the amount
+ * it has, in the currency it was set in (one with no rate to read it in is shown without an amount).
+ */
 export const UpdateInput = Schema.Struct({
   id: Schema.String,
   name: Schema.String,

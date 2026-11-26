@@ -85,10 +85,15 @@ describe("formatCurrency", () => {
     expect(plain(formatCurrency(1234.5, "GBP"))).toBe("£ 1.234,50")
   })
 
-  it("keeps a currency without minor units whole, and a three-decimal one at Insyte's two", () => {
+  it("writes the decimals Insyte stores the amount in, not Intl's own", () => {
     expect(minorDigitsOf("JPY")).toBe(0)
     expect(plain(formatCurrency(2495, "JPY" as never))).toBe("JP¥ 2.495")
+    expect(minorDigitsOf("ISK")).toBe(0)
+    // Three decimals in ISO, two in Insyte's minor units.
     expect(minorDigitsOf("KWD")).toBe(2)
+    // None in Intl, two in Insyte's: a stored 1.234,50 is not shown as 1.235.
+    for (const c of ["ALL", "RSD", "LBP", "IQD"]) expect(minorDigitsOf(c)).toBe(2)
+    expect(plain(formatCurrency(1234.5, "RSD" as never))).toMatch(/1\.234,50$/)
     expect(minorDigitsOf("EUR")).toBe(2)
   })
 

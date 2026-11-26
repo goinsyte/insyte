@@ -188,13 +188,18 @@ export const update = Effect.fn("Costs.update")(function*(input: typeof UpdateIn
   yield* require
   const fields: Record<string, string> = {}
   const name = nameOf(input.name, fields)
+  // A per-order line saved without an amount keeps the one it has (checked once the line is read).
+  const keep = input.kind === "per_order" && input.rateMinor === undefined
   const rule = ruleOf(input)
-  Object.assign(fields, rule.fields)
+  Object.assign(fields, keep ? {} : rule.fields)
   if (Object.keys(fields).length > 0) return yield* new Invalid({ fields })
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const l = yield* lock(sql, input.id)
+      if (keep && (l.kind !== "per_order" || l.rateMinor === null)) {
+        return yield* new Invalid({ fields: { rate: "required" } })
+      }
       const before = yield* snapshot(sql, l)
       const worked = input.kind === "percent" || input.kind === "per_order"
       if (worked && input.kind !== l.kind && before.kind === "line" && before.amounts.length > 0) {
@@ -204,22 +209,24 @@ export const update = Effect.fn("Costs.update")(function*(input: typeof UpdateIn
       const source = input.kind === "ads" ? (input.source ?? (l.kind === "ads" ? l.source : "manual")) : "manual"
       // A rate per order stored in another currency than the workspace's now is not the number the page shows.
       const { currency } = yield* workspaceMonth(sql)
+      const rateMinor = keep ? Number(l.rateMinor) : rule.rateMinor
       const same = name === l.name && input.kind === l.kind &&
         rule.rate === (l.rate === null ? null : Number(l.rate)) &&
-        rule.rateMinor === (l.rateMinor === null ? null : Number(l.rateMinor)) &&
-        (rule.rateMinor === null || l.currency === currency) && source === l.source
+        rateMinor === (l.rateMinor === null ? null : Number(l.rateMinor)) &&
+        (keep || rateMinor === null || l.currency === currency) && source === l.source
       if (same) return new CostChange({ id: l.id, undo: null })
-      // The rate as the page showed it, in the workspace's currency (`costs.ts` reads an older one converted).
+      // The rate as the page showed it, in the workspace's currency (`costs.ts` reads an older one converted); a kept
+      // one stays in the currency it was set in.
       yield* sql`
-        update cost_lines set name = ${name}, kind = ${input.kind}, rate = ${rule.rate}, rate_minor = ${rule.rateMinor},
-                              currency = (select currency from workspaces where id = app_workspace_id()),
+        update cost_lines set name = ${name}, kind = ${input.kind}, rate = ${rule.rate}, rate_minor = ${rateMinor},
+                              currency = ${keep ? l.currency : currency},
                               source = ${source}, connection_id = case when ${source} = source then connection_id end
         where id = ${l.id}`
       yield* audit(sql, "cost_line.updated", l.id, {
         name: [l.name, name],
         kind: [l.kind, input.kind],
         rate: [l.rate, rule.rate],
-        rateMinor: [l.rateMinor === null ? null : Number(l.rateMinor), rule.rateMinor],
+        rateMinor: [l.rateMinor === null ? null : Number(l.rateMinor), rateMinor],
         source: [l.source, source]
       })
       return yield* answer(sql, l.id, before)

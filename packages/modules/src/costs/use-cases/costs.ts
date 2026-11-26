@@ -222,6 +222,7 @@ export const list = Effect.fn("Costs.list")(function*(input: typeof ListInput.Ty
           kind: row.kind,
           rate: rule.rate,
           rateMinor: rule.rateMinor,
+          ...(row.rateUnconverted ? { rateUnconverted: true } : {}),
           source: row.source,
           readsFromSource: row.reads,
           hasTyped: row.hasTyped,

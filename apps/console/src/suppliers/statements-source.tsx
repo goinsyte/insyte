@@ -38,8 +38,7 @@ const monthLabel = (month: string) => {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
-const moneyIn = (currency: string) => (amount: number) =>
-  formatCurrency(amount, currency as Currency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const moneyIn = (currency: string) => (amount: number) => formatCurrency(amount, currency as Currency)
 
 const viewOf = (r: StatementRow): StatementView => ({
   id: r.month,

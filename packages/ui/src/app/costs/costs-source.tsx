@@ -24,6 +24,8 @@ export interface CostRow {
   kind: CostKind
   /** Percent: the share of revenue, 0–100; per order: the amount; else 0. */
   rate: number
+  /** Per order, in another currency than the workspace's with no rate to read it in: `rate` is 0 and not the amount. */
+  rateUnconverted?: boolean
   source: CostSource
   /** An ad line whose account is connected: its untyped months are what the account reports. */
   reads: boolean
@@ -91,7 +93,12 @@ export interface CostsSource {
   connect?: { to: string } | { run: (source: CostSource) => void } | undefined
   /** Each change resolves whether it took: a dialog that did not keeps what was typed. */
   add: (line: NewCostLine, said: Said) => Promise<boolean>
-  update: (row: CostRow, patch: { name: string; kind: CostKind; rate: number }, said: Said) => Promise<boolean>
+  /** `keepRate`: a per-order line keeps the amount it has (one shown as "geen koers", left empty in the dialog). */
+  update: (
+    row: CostRow,
+    patch: { name: string; kind: CostKind; rate: number; keepRate?: boolean },
+    said: Said
+  ) => Promise<boolean>
   /** A month typed, or cleared with `null`. */
   setAmount: (row: CostRow, month: string, amount: number | null, said: Said) => void
   readFromSource: (row: CostRow, said: Said) => void

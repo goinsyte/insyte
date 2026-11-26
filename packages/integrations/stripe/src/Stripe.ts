@@ -304,8 +304,10 @@ export const makeStripe = (config: StripeConfig): Provider => {
           prorate: false,
           expand: ["default_payment_method"]
         }, {
-          // One end per subscription: a retried step is the same request.
-          idempotencyKey: `insyte-end-${current.subscriptionId}`
+          // Per call, as above: the SDK's own retry is one request, while a retried step asks again (a key Stripe has
+          // answered with a 500 replays that 500 for a day). The step reads the subscription first, so an ended one is
+          // not ended twice.
+          idempotencyKey: `insyte-end-${current.subscriptionId}-${crypto.randomUUID()}`
         })).pipe(Effect.flatMap(read)),
     portal: ({ customerId, returnUrl }) =>
       call(

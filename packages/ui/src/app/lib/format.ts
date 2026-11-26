@@ -1,27 +1,14 @@
+import { minorDigits } from "@insyte/domain/MinorUnits";
 import type { Currency } from "./types/domain.ts";
 
-const minorDigits = new Map<string, number>();
-
 /**
- * The decimals an amount in `currency` is written with: its minor unit's, as Intl knows them ("€ 24,95", "¥ 2.495"),
- * at most two, because Insyte keeps two for the three-decimal currencies too (`minorDigits` in the fx module).
+ * The decimals an amount in `currency` is written with: the ones Insyte stores it in ("€ 24,95", "¥ 2.495"), so a
+ * shown amount is the stored one. Not Intl's own: it writes ISK and three-decimal currencies otherwise.
  */
-export function minorDigitsOf(currency: string) {
-	let digits = minorDigits.get(currency);
-	if (digits === undefined) {
-		try {
-			const own = new Intl.NumberFormat("nl-NL", { style: "currency", currency }).resolvedOptions();
-			digits = Math.min(own.maximumFractionDigits ?? 2, 2);
-		} catch {
-			digits = 2;
-		}
-		minorDigits.set(currency, digits);
-	}
-	return digits;
-}
+export const minorDigitsOf = (currency: string) => minorDigits(currency);
 
 /** Whole units, for a KPI tile, a sum or a threshold ("€ 1.235"): the options a caller passes to opt in. */
-export const WHOLE: Intl.NumberFormatOptions = { maximumFractionDigits: 0 };
+export const WHOLE: Intl.NumberFormatOptions = { minimumFractionDigits: 0, maximumFractionDigits: 0 };
 
 /**
  * An amount in `currency`, Dutch. A record's amount (an order, a product, a refund) keeps its minor digits
@@ -35,6 +22,7 @@ export function formatCurrency(
 	return new Intl.NumberFormat("nl-NL", {
 		style: "currency",
 		currency,
+		minimumFractionDigits: minorDigitsOf(currency),
 		maximumFractionDigits: minorDigitsOf(currency),
 		...options,
 	}).format(value);
