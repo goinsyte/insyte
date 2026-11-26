@@ -81,8 +81,9 @@ export function ShortcutsPage() {
               ) :
               null}
             <label className="flex items-center gap-2 text-ink-2 text-sm">
-              <Switch checked={on} onCheckedChange={(v) => setGotoOn(v)} />
-              {on ? "Aan" : "Uit"}
+              {/* Its own name: the state is the switch's, so the word beside it is for the eye only. */}
+              <Switch checked={on} onCheckedChange={(v) => setGotoOn(v)} aria-label="Ga naar-sneltoetsen" />
+              <span aria-hidden>{on ? "Aan" : "Uit"}</span>
             </label>
           </span>
         }

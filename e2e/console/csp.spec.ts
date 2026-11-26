@@ -4,7 +4,8 @@ import { founded, hydrated, test } from "./founder.ts"
 /*
  * The console's Content-Security-Policy (M18, 08 §6) breaks no page: a founder signs up through the forms Turnstile
  * guards, and every screen of the rail renders and hydrates with no policy violation reported by the browser. Each
- * page carries its own nonce on Start's inline scripts, and the policy names no `'unsafe-inline'` for scripts.
+ * page carries its own nonce on Start's inline scripts, and the policy names no `'unsafe-inline'` for scripts. The
+ * not-found pages, in the frame and out of it, and the shell's own keys are checked on the way.
  */
 
 const PAGES = [
@@ -53,5 +54,29 @@ test("every screen renders under the console's CSP, with a nonce on each page", 
     expect(nonce, `a nonce on ${path}`).toBeTruthy()
     expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/)
   }
+
+  // The area panel's rows are links: a new tab or a copied address goes where a click does.
+  await expect(page.locator("aside a[href='/settings/team']").first()).toBeVisible()
+
+  // An address no page answers, under an area: said in the frame (its top bar, with ⌘K on the search), with the way back.
+  const search = page.locator("[aria-keyshortcuts='Meta+K Control+K']")
+  await page.goto("/settings/region")
+  await hydrated(page)
+  await expect(page.getByRole("heading", { name: "Deze pagina bestaat niet" })).toBeVisible()
+  await expect(page.getByRole("main").getByRole("link", { name: /Instellingen/ })).toHaveAttribute("href", "/settings")
+  await expect(search).toBeVisible()
+  // ? lists every shortcut, and ⌘J opens Vraag Insyte, as the list says.
+  await page.keyboard.press("?")
+  const shortcuts = page.getByRole("dialog", { name: "Sneltoetsen" })
+  await expect(shortcuts.getByText("Alle sneltoetsen")).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(shortcuts).toHaveCount(0)
+  await page.keyboard.press("ControlOrMeta+j")
+  await expect(page.getByRole("dialog", { name: "Vraag Insyte" })).toBeVisible()
+  // Anywhere else: a page of its own, no frame around it.
+  await page.goto("/nergens")
+  await hydrated(page)
+  await expect(page.getByRole("heading", { name: "Deze pagina bestaat niet" })).toBeVisible()
+  await expect(search).toHaveCount(0)
   expect(seen, "Content-Security-Policy violations").toEqual([])
 })

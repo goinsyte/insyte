@@ -28,6 +28,11 @@ describe("the frame", () => {
     expect(frame.teammates.map((t) => t.roleLabel).toSorted()).toEqual(["Eigenaar", "Klantenservice"])
     expect(frame.proposals).toBeNull()
 
+    // The seats, as Team counts them (two people of the trial's), for the workspace switch.
+    const team = ok(await rpc("Team.get", undefined, owner.cookie))
+    expect(frame.seats).toEqual(team.seats)
+    expect(frame.seats).toMatchObject({ active: 2, pending: 0, full: false })
+
     // The colleague sees the same faces, without Team's details.
     const theirs = ok(await rpc("Shell.frame", undefined, colleague))
     expect(theirs.teammates).toEqual(frame.teammates)
@@ -39,5 +44,23 @@ describe("the frame", () => {
       "/orders?status=shipped": 0,
       "/orders?status=cancelled": 0
     })
+    // Klantenservice may see the team, so the seats too.
+    expect(theirs.seats).toEqual(frame.seats)
+  })
+
+  it("carries no seats for a role that may not see the team, and refuses it nothing", async () => {
+    const owner = await person("frame-seats", "Plekken B.V.")
+    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    // A role made from nothing: no level in any area, Team included.
+    const made = ok(await rpc("Roles.create", { label: "Niets", from: null }, owner.cookie))
+    const email = `frame-${run}-seatless@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: made.id, stores: "all" }] }, owner.cookie))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const outsider = await join(email)
+
+    const theirs = ok(await rpc("Shell.frame", undefined, outsider))
+    expect(theirs.seats).toBeNull()
+    expect(ok(await rpc("Shell.frame", undefined, owner.cookie)).seats).toMatchObject({ active: 2 })
   })
 })

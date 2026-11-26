@@ -23,16 +23,18 @@ const hasSessionCookie = (request: Request) =>
 
 /**
  * The session gate (ADR-0028, M2.4): a signed-out visitor asking for an app route goes to sign-in before any HTML,
- * with where they were going as a safe `redirect`. Only the cookie's presence is checked here; the API checks that it
- * is valid on the first RPC, and the client gate handles an expired one.
+ * with where they were going as a safe `redirect`; asking for the front door (`/`), to sign-in with nowhere to come
+ * back to (`routes/index.tsx` sends a signed-in one on). Only the cookie's presence is checked here; the API checks that
+ * it is valid on the first RPC, and the client gate handles an expired one.
  */
 const signInFirst = (request: Request): Response | undefined => {
   const url = new URL(request.url)
   const first = url.pathname.split("/")[1] ?? ""
-  const isAppRoute = (CONSOLE_ROUTES as ReadonlyArray<string>).includes(first) && !OPEN_ROUTES.has(first)
+  const front = url.pathname === "/"
+  const isAppRoute = front || ((CONSOLE_ROUTES as ReadonlyArray<string>).includes(first) && !OPEN_ROUTES.has(first))
   if (request.method !== "GET" || !isAppRoute || hasSessionCookie(request)) return undefined
   const login = new URL("/login", url)
-  const back = safeRedirect(`${url.pathname}${url.search}`)
+  const back = front ? undefined : safeRedirect(`${url.pathname}${url.search}`)
   if (back !== undefined) login.searchParams.set("redirect", back)
   return new Response(null, { status: 302, headers: { location: `${login.pathname}${login.search}` } })
 }

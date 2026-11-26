@@ -37,7 +37,8 @@ export type EmptyKind =
 	| "knowledge"
 	| "courses"
 	| "sheets"
-	| "live";
+	| "live"
+	| "missing";
 
 /* The glyphs, drawn on a 24×24 field so they can be placed by one transform. Strokes only: a
    filled glyph at this size turns into a blot the moment the theme goes dark. */
@@ -204,6 +205,15 @@ const GLYPH: Record<EmptyKind, React.ReactNode> = {
 			<rect x="5" y="10.5" width="14" height="10" rx="2" />
 			<path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
 			<path d="M12 14.5v2.5" />
+		</>
+	),
+	/* A page with its corner turned and a question where its words would be: an address that leads nowhere. */
+	missing: (
+		<>
+			<path d="M6 3.5h8l4.5 4.5v12.5H6z" />
+			<path d="M14 3.5V8h4.5" />
+			<path d="M10.3 12.2a2 2 0 1 1 2.8 1.8c-.6.3-.9.7-.9 1.3" />
+			<path d="M12.2 17.8h.01" />
 		</>
 	),
 };

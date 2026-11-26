@@ -7,12 +7,14 @@ import { useEffect } from "react"
 import { admit } from "../auth/gate.ts"
 import { frameAtom } from "../data/frame.ts"
 import { ConsoleFrame } from "../frame/console-frame.tsx"
+import { InAppNotFound } from "../frame/not-found.tsx"
 import { applyNotation, leaveNotation } from "../frame/notation.ts"
 
 /**
  * The signed-in frame (step 7.4c, M5.3): every screen of a member in a finished workspace sits in it. The gate is the
  * console's first (M2.4): signed out, sign-in with the way back; a workspace still onboarding, onboarding. The loader
- * reads `Shell.frame` on the server, so the frame paints with the document.
+ * reads `Shell.frame` on the server, so the frame paints with the document. An address under one of its areas that no
+ * screen answers (`/settings/integrations/x`, `/orders/1/x`) is said inside it, where the page would be.
  */
 export const Route = createFileRoute("/_frame")({
   beforeLoad: (options) => admit("/dashboard", options),
@@ -21,7 +23,8 @@ export const Route = createFileRoute("/_frame")({
     context.registry.mount(frameAtom)
     await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, frameAtom)))
   },
-  component: FrameRoute
+  component: FrameRoute,
+  notFoundComponent: InAppNotFound
 })
 
 function FrameRoute() {

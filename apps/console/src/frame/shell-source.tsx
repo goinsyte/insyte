@@ -376,7 +376,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     loading: { pace: "live", setPace: () => {} },
     persona: { selection: "admin", persona: "admin", landing: "/dashboard" },
     activeStore,
-    seats: { total: 0, used: 0, active: frame.teammates.length, pending: 0, extra: 0, free: 0, full: false },
+    // The plan's seats, as Team counts them; none for a role that may not see the team.
+    seats: frame.seats,
     currentRole: roleOf(frame),
     workflows: {},
     supplierOrders: NO_ROWS,

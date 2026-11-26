@@ -189,3 +189,17 @@ export const get = Effect.fn("Members.get")(function*() {
   const db = yield* Db
   return yield* db.scoped(readTeam)
 })
+
+/**
+ * `Members.shownSeats`: the seats alone, for the shell's workspace switch, to whoever may see the team; anyone else gets
+ * none (`null`), not a refusal, and the switch leaves the line out.
+ */
+export const shownSeats = Effect.fn("Members.shownSeats")(function*() {
+  const shown = yield* Policy.require("team", 1).pipe(
+    Effect.as(true),
+    Effect.catchTag("Forbidden", () => Effect.succeed(false))
+  )
+  if (!shown) return null
+  const db = yield* Db
+  return yield* db.scoped(seatsIn)
+})

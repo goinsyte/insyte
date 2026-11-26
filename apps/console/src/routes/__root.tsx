@@ -2,13 +2,17 @@ import { Toaster } from "@insyte/ui/components/sonner"
 import { ClientOnly, createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
 import type { AtomRegistry } from "effect/reactivity"
 import { type ReactNode, useEffect } from "react"
+import { PlainNotFound } from "../frame/not-found.tsx"
 import appCss from "../styles/app.css?url"
 
 export interface RouterContext {
   readonly registry: AtomRegistry.AtomRegistry
 }
 
-/** The document. `<HeadContent />` and `<Scripts />` are what make the server's HTML hydrate. */
+/**
+ * The document. `<HeadContent />` and `<Scripts />` are what make the server's HTML hydrate. An address no route
+ * answers, outside the frame's areas, is said here on a page of its own (inside them, the frame says it).
+ */
 export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
     meta: [
@@ -20,7 +24,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     links: [{ rel: "stylesheet", href: appCss }]
   }),
   shellComponent: RootDocument,
-  component: Outlet
+  component: Outlet,
+  notFoundComponent: PlainNotFound
 })
 
 function RootDocument({ children }: { readonly children: ReactNode }) {
