@@ -19,8 +19,8 @@ type ReturnMailEvent = Extract<OutboxEvent, { type: keyof typeof RETURN_MAIL }>
 
 /**
  * The shopper's mails about their returns (M9.3), once a team's change has waited out its undo window: each return's,
- * once per kind. A mail the provider could take later (busy, out) fails the delivery, so the queue tries again; one it
- * refused for good is in the return's history and fails nothing, so the event's other sinks (Shopify) still commit.
+ * once per kind. A mail the provider refused for its recipient is in the return's history and fails nothing, so the
+ * event's other sinks (Shopify) still commit; any other that does not go fails the delivery, so the queue tries again.
  */
 const returnMails = (event: ReturnMailEvent, sql: SqlClient.SqlClient) =>
   Effect.forEach(

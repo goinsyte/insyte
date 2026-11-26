@@ -221,14 +221,6 @@ function Detail({ view }: { view: ReturnView }) {
 						<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
 							<h2 className="font-medium text-ink text-md">Retourlabel</h2>
 							<p className="text-ink-2 text-sm">Geen vervoerder gekoppeld voor labels. De klant stuurt het pakket zelf; vul de tracking in zodra je die hebt.</p>
-							{commands.addTracking ? (
-								<GateBy gate={gates.work}>
-									<button type="button" onClick={() => setTracking(true)} className={cn(QUIET, "self-start")}>
-										<Truck className="size-3.5" strokeWidth={1.75} />
-										Tracking invullen
-									</button>
-								</GateBy>
-							) : null}
 						</section>
 					) : null}
 
