@@ -1,11 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { GOTO_DEFAULTS } from "../lib/settings-depth";
+import { typing } from "../lib/typing";
 import { useShellDialog } from "./shell-dialogs";
 import { useHasPage, useSettingsDepth } from "./state";
-
-/** Whether a key press belongs to whatever the person is typing in. */
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest("[role=grid],[role=dialog],[role=menu]") !== null);
 
 /**
  * G, then a key: go to an area (PLAN 43). The keys are the ones set under Instellingen →

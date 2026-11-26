@@ -28,6 +28,7 @@ import {
   wakesAt
 } from "../lib/notifications"
 import type { Persona } from "../lib/types/persona"
+import { typing } from "../lib/typing"
 import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { type RowAction, SelectionBar } from "../table/selection-bar"
@@ -232,8 +233,7 @@ export function NotificationsPage({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
-      const t = e.target as HTMLElement | null
-      if (t?.closest("input, textarea, select, [contenteditable=true], [role=dialog], [role=menu]")) return
+      if (typing(e.target)) return
       const k = e.key
       const at = ordered.findIndex((n) => n.id === activeId)
       const move = (to: number) => {

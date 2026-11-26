@@ -62,4 +62,21 @@ describe("a store's sync health on Winkels", () => {
     expect(finding(null)).toBe("Synchroniseren met Shopify lukt niet.")
     expect(finding(NOW - HOUR)).toBe("Synchroniseren met Shopify lukte niet.")
   })
+
+  it("says a resolved refusal with Shopify's reason, and nothing to do next", () => {
+    const [open, over] = storeHealthOf(
+      connection({
+        state: "broken",
+        incidents: [
+          incident({ facts: { refused: "token" } }),
+          incident({ id: "inc_2", facts: { refused: "token" }, resolvedAt: NOW - HOUR })
+        ]
+      }),
+      NOW
+    ).incidents
+    expect(open!.finding).toBe("De eerste import is gestopt: Shopify accepteert de toegang van Insyte niet meer.")
+    expect(open!.next).toBe("Koppel de winkel opnieuw, dan vraagt Shopify je toestemming.")
+    expect(over!.finding).toBe("De eerste import stopte: Shopify accepteerde de toegang van Insyte niet meer.")
+    expect(over!.next).toBeNull()
+  })
 })

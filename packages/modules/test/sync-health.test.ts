@@ -237,6 +237,15 @@ describe("the words", () => {
     expect(resolvedFindingSentence("scope_missing", { missing: ["read_orders"] }, NOW)).toBe(
       "Insyte mocht de bestellingen niet lezen."
     )
+    expect(resolvedFindingSentence("sync_failed", { refused: "token" }, NOW)).toBe(
+      "De eerste import stopte: Shopify accepteerde de toegang van Insyte niet meer."
+    )
+    expect(resolvedFindingSentence("sync_failed", { refused: "scope", missing: ["read_customers"] }, NOW)).toBe(
+      "De eerste import stopte: Insyte mocht de klanten niet lezen."
+    )
+    expect(resolvedFindingSentence("sync_failed", { refused: "data" }, NOW)).toBe(
+      "De eerste import stopte: Shopify gaf Insyte geen toegang tot een deel van de winkelgegevens."
+    )
     const kinds = [
       "webhook_gap",
       "token_expiring",

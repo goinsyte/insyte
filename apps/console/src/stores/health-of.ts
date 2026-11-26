@@ -47,7 +47,8 @@ const incidentOf = (i: ConnectionHealth["incidents"][number], now: number): Stor
   finding: i.resolvedAt === null
     ? findingSentence(i.kind, i.facts, now)
     : resolvedFindingSentence(i.kind, i.facts, now),
-  next: handlingSentence(i.kind, i.facts) ?? remedySentence(i.kind, i.facts),
+  // What Insyte is doing or the operator can do holds only while it lasts: once it is over there is nothing next.
+  next: i.resolvedAt === null ? (handlingSentence(i.kind, i.facts) ?? remedySentence(i.kind, i.facts)) : null,
   tried: i.tried.map((t) => ({ at: when(t.at, now), text: triedSentence(t, now) })),
   since: `Sinds ${when(i.openedAt, now)}`,
   told: i.notifiedYou ? "Gemeld aan jou" : i.notified === null ? null : `Gemeld aan ${i.notified}`,

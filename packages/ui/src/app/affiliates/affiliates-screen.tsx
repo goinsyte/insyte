@@ -12,6 +12,7 @@ import { DataTable, type RowAction } from "../table/data-table";
 import { AddressDisc, PersonDisc, WELL_BTN } from "../team/bits";
 import { counted } from "../lib/counted";
 import { formatDate, formatRelative } from "../lib/format";
+import { typing } from "../lib/typing";
 import { cn } from "../lib/utils";
 import { type View } from "./affiliates-search";
 import { type ApplicationRow, type PayoutRow, type ProgramAffiliateRow, tierIn, useAffiliatesSource } from "./source";
@@ -212,8 +213,7 @@ function Applications() {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			const t = e.target as HTMLElement | null;
-			if (t?.closest("input, textarea, [role=dialog], [contenteditable=true]") || e.metaKey || e.ctrlKey) return;
+			if (typing(e.target) || e.metaKey || e.ctrlKey) return;
 			if (e.key !== "j" && e.key !== "k") return;
 			const i = ordered.findIndex((a) => a.id === active?.id);
 			const next = ordered[Math.min(ordered.length - 1, Math.max(0, i + (e.key === "j" ? 1 : -1)))];

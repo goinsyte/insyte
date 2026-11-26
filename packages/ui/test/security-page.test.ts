@@ -59,7 +59,9 @@ describe("Beveiliging", () => {
 
   it("says the audit log's floor, not a period of its own or the one under Gegevens en privacy", () => {
     const html = page()
-    expect(text(html)).toContain("Bewaard: minstens 13 maanden . Er wordt niets in gewijzigd of uit gewist.")
+    expect(text(html)).toContain(
+      "Bewaard: minstens 13 maanden . Gegevens van een klant die om verwijdering vraagt, en van een definitief verwijderde leverancier, worden eruit gehaald."
+    )
     expect(html).not.toContain("90 dagen")
     expect(html).not.toContain("/settings/privacy")
   })

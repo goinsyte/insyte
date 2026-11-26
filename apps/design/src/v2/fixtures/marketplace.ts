@@ -453,7 +453,8 @@ export const LEGAL = {
     label: "Privacy",
     body: [
       "Een app krijgt alleen de data die in zijn rechten staat. Je ziet en trekt die rechten in onder Instellingen, dan Apps.",
-      "Insyte legt elk verzoek vast dat een app namens jou doet. Dat logboek hoort bij de auditlog van de werkruimte en wordt 90 dagen bewaard.",
+      "Insyte legt elk verzoek vast dat een app met zijn API-sleutel doet. Je ziet ze bij die sleutel onder Instellingen, dan API-sleutels.",
+      "Insyte legt ook vast wie een app installeert, verwijdert of zijn rechten wijzigt. Dat wordt minstens 13 maanden bewaard.",
       "Klantdata verlaat via Insyte nooit je regio. Een aanbieder die data elders opslaat, vermeldt dat bij de app."
     ]
   },
