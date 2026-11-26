@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * Vraag Insyte (M15 step 3, W11.1): a new admin with the recorded store asks what waits on them. The answer streams in
@@ -62,7 +62,7 @@ test("@ask Vraag Insyte answers with figures, asks on, and sets the conversation
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   await page.goto("/ask")
   await hydrated(page)

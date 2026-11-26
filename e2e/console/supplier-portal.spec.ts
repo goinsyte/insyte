@@ -1,5 +1,5 @@
 import { type APIRequestContext, type BrowserContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, newContext, onPreview, previewRequest } from "./access.ts"
+import { admit, newContext, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * The supplier portal's journey (M16 steps 1–2): a new admin's recorded store has orders for its vendor Atelier Noord;
@@ -75,7 +75,7 @@ test("@supplier-portal a brand invites its supplier, who accepts and ships an or
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   // The store's vendor Atelier Noord is a supplier: its orders go to this address.
   await page.goto("/suppliers")

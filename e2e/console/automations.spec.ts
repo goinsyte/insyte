@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * Automations' journey (M12 step 6, W2.1): a new admin with the recorded store builds "Levertijd-update op dag 5" from
@@ -72,7 +72,7 @@ test("@automations a new admin builds the day-5 update from the template, tests,
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   // The template, used: a draft with its three steps.
   await page.goto("/automations?view=templates")
@@ -102,7 +102,7 @@ test("@automations a new admin builds the day-5 update from the template, tests,
   // The clock moved on to that day, 9:00 in the workspace's timezone: the hourly tick starts the run.
   let at = PLACED + days * 86_400_000
   while (amsterdamHour(at) !== 9) at += 3_600_000
-  const tick = await page.request.post(
+  const tick = await pageRequest(page).post(
     `/api/__dev/automations/schedule?at=${encodeURIComponent(new Date(at).toISOString())}`,
     onPreview()
   )
