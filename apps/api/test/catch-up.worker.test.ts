@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { failure, ok, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
-import { call, rpc } from "./support.ts"
+import { call, rpc, rpcStream } from "./support.ts"
 
 /*
  * Start catching up with the records (M10.1–M10.2, M13), against Shopify's recorded twin. An order leg the
@@ -63,6 +63,10 @@ describe("Start's queue catches up", () => {
       title: "Bestelling #1001 niet doorgestuurd naar Atelier Noord · versturen naar de leverancier mislukt",
       valueMinor: order.totalMinor
     })
+    // Vraag Insyte reads the same row, and names its order by its number.
+    const asked = ok(await rpcStream("Ask.send", { text: "Wat wacht op mij?" }, store.cookie)) as Array<Json>
+    const turn = asked.find((f) => f._tag === "settled")!.turn
+    expect(turn.tokens).toContainEqual({ ref: "#1001", to: `/orders/${order.id}`, kind: "order" })
 
     const caseNumber = `CU-${run}`
     await cases(store.workspace, { insert: [{ caseNumber, storeId: store.storeId, status: "open" }] })

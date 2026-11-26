@@ -62,6 +62,79 @@ const pageOf = (context: AskContext | undefined) => {
 /** The words of an answer part as tokens: a word and the space after it each their own, as the thread streams them. */
 const words = (text: string): Array<Token> => text.split(/(\s+)/).filter((w) => w !== "").map((t) => ({ t }))
 
+/**
+ * Punctuation that sits against what comes before it, and brackets and quotes that sit against what follows. A `’`
+ * that starts "’s" or "’t" ("’s avonds") is a word, not a closing quote.
+ */
+const CLOSES = /^(?:[.,;:!?)\]}»”…%]|’(?![st]\b))/
+const OPENS = /[([{«“‘„]$/
+/** What may follow a figure or a record without a space: "#1001-2", "€ 20/maand". */
+const JOINS = /^[-/]/
+
+/**
+ * An answer's parts as the thread's tokens. The model writes its words around the figures and records it places and
+ * does not always leave a space at the seams ("is" then "€ 568,65", "#1" then "Open het ticket"), so every seam gets
+ * one space: none before closing punctuation, after an opening bracket or quote, or before a dash or a slash right
+ * after a chip, and a straight `"` opens and closes in turn. A run of whitespace becomes one space, and the answer
+ * starts and ends on a word. A figure or record no tool gave is left out.
+ */
+export const tokensOf = (
+  parts: ReadonlyArray<AnswerPart>,
+  figures: ReadonlyMap<string, Pick<ToolFigure, "display" | "label" | "to" | "explain">>,
+  records: ReadonlyMap<string, Pick<ToolRecord, "label" | "to" | "kind">>
+): Array<Token> => {
+  const tokens: Array<Token> = []
+  // The last character written so far, whether a chip wrote it, and how many straight quotes were written.
+  let last = ""
+  let chipped = false
+  let quotes = 0
+  /** Whether a space goes between what was written and what comes next: words, or a chip (`null`). */
+  const spaced = (next: string | null) => {
+    if (last === "" || last === " " || next?.startsWith(" ") === true || OPENS.test(last)) return false
+    // Inside a quote, the `"` written last opened it and the next one closes it.
+    const inQuote = quotes % 2 === 1
+    if (next === null) return !(inQuote && last === "\"")
+    if (CLOSES.test(next) || (chipped && JOINS.test(next))) return false
+    return !(inQuote && (last === "\"" || next.startsWith("\"")))
+  }
+  for (const part of parts) {
+    if (part.kind === "text") {
+      let text = part.value.replaceAll(/\s+/g, " ")
+      if (last === "" || last === " ") text = text.trimStart()
+      if (text === "") continue
+      if (spaced(text)) tokens.push({ t: " " })
+      tokens.push(...words(text))
+      last = text.at(-1)!
+      chipped = false
+      quotes += text.split("\"").length - 1
+      continue
+    }
+    const chip = chipOf(part, figures, records)
+    if (chip === null) continue
+    if (spaced(null)) tokens.push({ t: " " })
+    tokens.push(chip)
+    last = "x"
+    chipped = true
+  }
+  while (tokens.length > 0 && isBlank(tokens.at(-1)!)) tokens.pop()
+  return tokens
+}
+
+const chipOf = (
+  part: AnswerPart,
+  figures: Parameters<typeof tokensOf>[1],
+  records: Parameters<typeof tokensOf>[2]
+): Token | null => {
+  if (part.kind === "figure") {
+    const f = figures.get(part.value)
+    return f === undefined ? null : { figure: f.display, label: f.label, to: f.to, explain: f.explain }
+  }
+  const r = records.get(part.value)
+  return r === undefined ? null : { ref: r.label, to: r.to, kind: r.kind }
+}
+
+const isBlank = (token: Token) => "t" in token && token.t.trim() === ""
+
 const plainOf = (tokens: ReadonlyArray<Token>) =>
   tokens.map((t) => ("t" in t ? t.t : "ref" in t ? t.ref : t.figure)).join("")
 
@@ -336,17 +409,7 @@ const run = <R>(
         toolRuns += calls.length
       }
 
-      const tokens: Array<Token> = []
-      for (const part of parts ?? []) {
-        if (part.kind === "text") tokens.push(...words(part.value))
-        else if (part.kind === "figure") {
-          const f = found.figures.get(part.value)
-          if (f !== undefined) tokens.push({ figure: f.display, label: f.label, to: f.to, explain: f.explain })
-        } else {
-          const r = found.records.get(part.value)
-          if (r !== undefined) tokens.push({ ref: r.label, to: r.to, kind: r.kind })
-        }
-      }
+      const tokens = tokensOf(parts ?? [], found.figures, found.records)
       if (tokens.length === 0) {
         tokens.push(...words("Ik kon deze vraag niet beantwoorden met wat ik kon lezen."))
         limited = limited || parts === null

@@ -5,7 +5,6 @@ import { useState } from "react";
 import { filterSections } from "../lib/panel-filter";
 import type { SubPanelItem } from "../lib/types/sub-panel";
 import { cn } from "../lib/utils";
-import { isDrawn, isNeedsYou } from "../lib/queue-state";
 import { useCreateIntent } from "../stores/create-intent";
 import type { Conversation, Ticket, TicketSource } from "../lib/types/domain";
 import { SourceMark } from "../tickets/source-mark";
@@ -38,7 +37,7 @@ import type { QueueRow } from "../lib/queue-row";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
-import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useHasPage, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useServerCounts, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
+import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useHasPage, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useQueueCounts, useReturns, useServerCounts, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -273,13 +272,13 @@ function SubPanelLink({
 	const active = onSamePath && searchMatches;
 
 	const still = useReducedMotion();
-	const live = useWorkspace((s) =>
+	const queueCounts = useQueueCounts();
+	const live =
 		item.liveCount === "needs-you"
-			? s.queue.filter(isNeedsYou).length
+			? queueCounts?.needsYou
 			: item.liveCount === "drawn"
-				? s.queue.filter(isDrawn).length
-				: undefined,
-	);
+				? queueCounts?.drawn
+				: undefined;
 	const count = live ?? item.count;
 	const canOpen = useCanOpen();
 	const role = useCurrentRole();

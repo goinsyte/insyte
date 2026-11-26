@@ -122,8 +122,8 @@ describe("Vraag Insyte", () => {
       outcome,
       subjectId
     }))).toEqual([
-      { purpose: "ask", prompt: "ask_step@1.2.0", provider: "fake", outcome: "ok", subjectId: answerId },
-      { purpose: "ask", prompt: "ask_step@1.2.0", provider: "fake", outcome: "ok", subjectId: answerId }
+      { purpose: "ask", prompt: "ask_step@1.3.0", provider: "fake", outcome: "ok", subjectId: answerId },
+      { purpose: "ask", prompt: "ask_step@1.3.0", provider: "fake", outcome: "ok", subjectId: answerId }
     ])
   })
 

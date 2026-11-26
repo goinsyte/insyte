@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { askPrompt } from "../src/ai/prompts/ask.ts"
 import { STALE_MS, TURN_MS } from "../src/ask/domain/Ask.ts"
 import type { StepInput } from "../src/ask/domain/Steps.ts"
-import { faultsOf } from "../src/ask/use-cases/answer.ts"
+import { faultsOf, tokensOf } from "../src/ask/use-cases/answer.ts"
 
 /*
  * Vraag Insyte's figure check (ai.md §6.2) and its fake: a number in the answer's words is one the question or the
@@ -76,6 +76,68 @@ describe("the figure check", () => {
       { index: 0, why: "onbekende figuur f9" },
       { index: 1, why: "onbekend record r7" }
     ])
+  })
+})
+
+describe("the answer's words", () => {
+  const shown = new Map([["f1", { display: "€ 568,65", label: "Omzet", to: "/analytics", explain: null }]])
+  const named = new Map([["r1", { label: "#1", to: "/tickets/1", kind: "ticket" as const }]])
+  const plain = (parts: Parameters<typeof tokensOf>[0]) =>
+    tokensOf(parts, shown, named).map((t) => ("t" in t ? t.t : "ref" in t ? t.ref : t.figure)).join("")
+
+  it("puts one space between a figure or a record and the words around it", () => {
+    expect(plain([
+      { kind: "text", value: "De omzet is" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: ". Het gaat om" },
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "Open het ticket" },
+      { kind: "record", value: "r1" },
+      { kind: "record", value: "r1" }
+    ])).toBe("De omzet is € 568,65. Het gaat om #1 Open het ticket #1 #1")
+  })
+
+  it("leaves no space before punctuation or after an opening bracket, and none twice", () => {
+    expect(plain([
+      { kind: "text", value: "  Omzet  (" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "),  zie " },
+      { kind: "record", value: "r1" },
+      { kind: "text", value: " \n en verder.  " }
+    ])).toBe("Omzet (€ 568,65), zie #1 en verder.")
+  })
+
+  it("keeps quotes against what they quote, opening and closing", () => {
+    expect(plain([
+      { kind: "text", value: "Klant schreef „" },
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "” en daarna \"" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "\" als" },
+      { kind: "text", value: "\"bedrag\"" },
+      { kind: "record", value: "r1" }
+    ])).toBe("Klant schreef „#1” en daarna \"€ 568,65\" als \"bedrag\" #1")
+  })
+
+  it("joins a dash or a slash to the chip before it, and spaces a word that starts with ’s", () => {
+    expect(plain([
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "-2 kost" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "/maand, ook" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "’s avonds. Of " },
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "’." }
+    ])).toBe("#1-2 kost € 568,65/maand, ook € 568,65 ’s avonds. Of #1’.")
+  })
+
+  it("keeps the words and their spaces as their own tokens, and leaves out what no tool gave", () => {
+    expect(tokensOf(
+      [{ kind: "text", value: "Zie" }, { kind: "record", value: "r9" }, { kind: "figure", value: "f1" }],
+      shown,
+      named
+    )).toEqual([{ t: "Zie" }, { t: " " }, { figure: "€ 568,65", label: "Omzet", to: "/analytics", explain: null }])
   })
 })
 

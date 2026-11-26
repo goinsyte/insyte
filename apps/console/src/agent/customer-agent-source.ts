@@ -122,11 +122,12 @@ export function useConsoleCustomerAgentSource(view: ChannelAgentView): CustomerA
       if (a.handover !== null) {
         return { from: "insyte", text: a.text, source: `Overgedragen: ${a.handover.label}`, handover: true }
       }
-      const from = a.source === null ? undefined : `Uit Kennisbank: ${a.source.title} · versie ${a.source.version}`
+      // Under the balloon, not in it: where the answer came from, or what the test chat does differently.
+      const from = a.source === null ? a.note : `Uit Kennisbank: ${a.source.title} · versie ${a.source.version}`
       return {
         from: "insyte",
         text: a.text,
-        ...(from === undefined ? {} : { source: a.mode === "drafts" ? `Als concept voor je team · ${from}` : from })
+        ...(from === null ? {} : { source: a.mode === "drafts" ? `Als concept voor je team · ${from}` : from })
       }
     }
   }

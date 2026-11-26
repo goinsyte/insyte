@@ -51,6 +51,8 @@ export function CustomerAgentPage() {
 	const now = new Date();
 	const open = isOpen(draft.hours, now, source.timeZone);
 	const [testing, setTesting] = useState(false);
+	// The stores whose website chat is connected: none, and the chat answers nowhere yet.
+	const chatLive = source.webchatDetail !== "";
 
 	// The handover sentence is what a handed-over shopper reads: a save without one is said at the field, not sent.
 	const handoverEmpty = draft.handoverMessage.trim() === "";
@@ -120,7 +122,7 @@ export function CustomerAgentPage() {
 						<ul className="flex flex-col overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)] [&>li+li]:shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
 							{(
 								[
-									["webchat", "Websitechat", source.webchatDetail, true],
+									["webchat", "Websitechat", chatLive ? source.webchatDetail : "Nog niet gekoppeld", true],
 									["whatsapp", "WhatsApp", "", false],
 									["instagram", "Instagram", "", false],
 									["email", "E-mail", "", false],
@@ -137,7 +139,11 @@ export function CustomerAgentPage() {
 								</li>
 							))}
 						</ul>
-						{draft.channels.webchat === "auto" && source.sendReply !== "auto" ? (
+						{!chatLive && draft.channels.webchat !== "off" ? (
+							<Notice tone="amber" action={<Link to="/settings/integrations" className="font-medium text-sm hover:underline">Koppelingen openen</Link>}>
+								<span className="font-medium">De websitechat is nog niet gekoppeld.</span> Koppel hem in Koppelingen bij Websitechat. Tot dan krijgt Insyte geen chats om te beantwoorden.
+							</Notice>
+						) : draft.channels.webchat === "auto" && source.sendReply !== "auto" ? (
 							<Notice tone="amber" action={<Link to="/settings/ai/autonomy" search={{ actie: "SendReply" }} className="font-medium text-sm hover:underline">Zelfstandigheid openen</Link>}>
 								<span className="font-medium">Zelf antwoorden werkt nog niet.</span>{" "}
 								{source.sendReply === "ask" ? "Klant beantwoorden staat in Zelfstandigheid op Eerst vragen, dus Insyte zet op de websitechat alleen concepten klaar." : "Klant beantwoorden staat in Zelfstandigheid op Nooit, dus Insyte geeft elk gesprek op de websitechat aan je team."}
@@ -240,6 +246,8 @@ export function CustomerAgentPage() {
 							Klantagent uitzetten
 						</button>
 					)}
+					{/* In the settings' column, so it never sits over the test chat beside it. */}
+					<UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(saved)} onSave={() => save()} />
 				</fieldset>
 
 				<aside className="hidden flex-col gap-3 lg:sticky lg:top-4 lg:flex lg:self-start">
@@ -257,7 +265,6 @@ export function CustomerAgentPage() {
 				</SheetContent>
 			</Sheet>
 
-			<UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(saved)} onSave={() => save()} />
 			<PageGuide id="settings.ai.customer-agent" title="Klantagent" steps={GUIDE} />
 		</>
 	);

@@ -57,6 +57,18 @@ export const QueueCounts = Schema.Struct({
 
 export const QueueTab = Schema.Literals(["needs_you", "drawn", "all"])
 
+/**
+ * The open rows of one store (`storeId`), or of no store (`null`, everyone's): what the frame counts on every page. A
+ * view of one store is that store's and the storeless ones; a view of every store is all of them.
+ */
+export const QueueStoreCounts = Schema.Struct({
+  storeId: Schema.NullOr(Schema.String),
+  /** Open, red or amber. */
+  needsYou: Schema.Int,
+  /** Open, with a drawn proposal. */
+  drawn: Schema.Int
+})
+
 export const ListInput = Schema.Struct({
   tab: Schema.optional(QueueTab),
   limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500))),

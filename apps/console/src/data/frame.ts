@@ -14,9 +14,11 @@ import { ConsoleClient } from "./client.ts"
 export const FRAME = ["frame"] as const
 export const NOTES = ["notes"] as const
 export const VIEWS = ["views"] as const
+/** Start's queue (`data/queue.ts`): the frame carries its figures, so it is read again when the queue changes. */
+export const QUEUE = ["queue"] as const
 
 export const frameAtom = Atom.serializable(
-  ConsoleClient.query("Shell.frame", undefined, { reactivityKeys: FRAME }),
+  ConsoleClient.query("Shell.frame", undefined, { reactivityKeys: [...FRAME, ...QUEUE] }),
   {
     key: "frame",
     schema: AsyncResult.Schema({

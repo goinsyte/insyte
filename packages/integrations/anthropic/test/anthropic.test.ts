@@ -1,7 +1,7 @@
 import { replyPrompt } from "@insyte/modules/ai/prompts/reply"
 import { topicPrompt } from "@insyte/modules/ai/prompts/topic"
 import { billed, generate, meter, worstCase } from "@insyte/modules/ai/use-cases/call"
-import { Effect, Exit, Redacted } from "effect"
+import { Effect, Exit, Logger, Redacted } from "effect"
 import { LanguageModel } from "effect/ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { makeAnthropic, makeFake } from "../src/Anthropic.ts"
@@ -73,6 +73,32 @@ describe("the Anthropic adapter", () => {
     expect(Exit.isFailure(exit)).toBe(true)
     expect(JSON.stringify(exit)).toContain("ContentPolicyError")
     expect(seen.usage).toEqual({ input: 120, output: 30, cacheRead: 10, cacheWrite: 0 })
+  })
+
+  it("says why the model declined, by its category and explanation, and never what was asked", async () => {
+    vi.stubGlobal("fetch", async () =>
+      answer({
+        stop_reason: "refusal",
+        stop_details: { type: "refusal", category: "cyber", explanation: "Could enable malware development." },
+        content: []
+      }))
+    const logged: Array<{ level: string; line: string }> = []
+    const collect = Logger.make((o) => logged.push({ level: o.logLevel, line: JSON.stringify(o.message) }))
+    const { exit } = await run(
+      generate(topicPrompt, input).pipe(Effect.provide(Logger.layer([collect]))),
+      makeAnthropic(config)
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(JSON.stringify(exit)).toContain("The model declined to answer (cyber): Could enable malware development.")
+    const warned = logged.filter((l) => l.level === "Warn")
+    expect(warned).toHaveLength(1)
+    expect(warned[0]!.line).toContain("\"category\":\"cyber\"")
+    expect(warned[0]!.line).toContain("\"explanation\":\"Could enable malware development.\"")
+    expect(warned[0]!.line).toContain("\"promptId\":\"ticket_topic")
+    // The prompt and the ticket's words stay out of it.
+    for (const asked of [input.title, input.description, topicPrompt.system.slice(0, 40)]) {
+      expect(logged.map((l) => l.line).join("\n")).not.toContain(asked)
+    }
   })
 
   it("keeps the usage of an answer that does not decode, or is cut off at the limit", async () => {

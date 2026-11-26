@@ -14,7 +14,7 @@ import { type LimitsDraft as Draft, type LimitsPerson, useLimitsSource } from ".
 const GUIDE = [
 	{ title: "Een budget per maand", body: "Wat Insyte deze maand mag kosten, voor iedereen samen en het werk op de achtergrond. Leeg is geen limiet.", art: "budget" },
 	{ title: "Per persoon", body: "Wat iemand met Vraag Insyte gebruikt. Bij 80% krijgen die persoon en de eigenaar een melding.", art: "people" },
-	{ title: "Bij 100%", body: "Wat Insyte zelf zou doen, komt als voorstel bij jou en de klantagent draagt nieuwe gesprekken over. Vragen blijven werken, via een snellere route.", art: "handover" },
+	{ title: "Bij 100%", body: "Wat Insyte zelf zou doen, komt als voorstel bij jou en de klantagent draagt nieuwe gesprekken over. Vraag Insyte en concepten stoppen tot de maand omslaat of je de limiet verhoogt.", art: "handover" },
 ] as const;
 
 const MONTH = () => new Intl.DateTimeFormat("nl-NL", { month: "long" }).format(new Date());
@@ -67,13 +67,13 @@ export function LimitsPage() {
 				</Notice>
 			) : state === "warn" ? (
 				<Notice tone="amber">
-					<span className="font-medium">{Math.round((budget.used / (draft.limit ?? 1)) * 100)}% van het budget voor {month} is op.</span> Bij 100% stopt Insyte met zelf handelen tot de maand omslaat.
+					<span className="font-medium">{Math.round((budget.used / (draft.limit ?? 1)) * 100)}% van het budget voor {month} is op.</span> Bij 100% stopt Insyte met zelf handelen tot de maand omslaat of je de limiet verhoogt.
 				</Notice>
 			) : null}
 
-			<SettingCard title={`Werkruimte · ${month}`} icon={Wallet}>
+			<SettingCard title={`Werkruimte · ${month}`} icon={Wallet} subtitle="Bij 80% krijgen de eigenaar en wie de limieten mag instellen een melding. Is het budget op, dan komt wat Insyte zelf zou doen als voorstel, geeft de klantagent nieuwe gesprekken aan je team en antwoordt Vraag Insyte niet, tot de maand omslaat of je de limiet verhoogt.">
 				<div className="flex flex-col gap-1">
-					<FieldRow label="Maandbudget" hint="In hele euro's, ook als je winkel in een andere valuta verkoopt. Leeg is geen limiet.">
+					<FieldRow label="Maandbudget" hint="Voor alles wat Insyte AI doet, van iedereen samen en op de achtergrond. In hele euro's, ook als je winkel in een andere valuta verkoopt. Leeg is geen limiet.">
 						<EuroField text={texts[WORKSPACE] ?? ""} error={errorOf(read(WORKSPACE, saved.limit))} disabled={readOnly} onChange={type(WORKSPACE)} label="Maandbudget in euro" />
 					</FieldRow>
 					<div className="grid grid-cols-1 items-center gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]">
@@ -81,13 +81,16 @@ export function LimitsPage() {
 						<BudgetBar used={budget.used} limit={draft.limit} wide />
 					</div>
 					<div className="grid grid-cols-1 items-center gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]">
-						<span className="font-medium text-ink text-sm">Op de achtergrond</span>
+						<span className="flex flex-col gap-0.5">
+							<span className="font-medium text-ink text-sm">Op de achtergrond</span>
+							<span className="text-ink-2 text-sm">Werk zonder iemand van je team: de klantagent, ticketonderwerpen, bewijspakketten en de kennisbank doorzoekbaar maken.</span>
+						</span>
 						<span className="text-ink-2 text-sm tabular-nums">{euroCents(background)}</span>
 					</div>
 				</div>
 			</SettingCard>
 
-			<SettingCard title="Per persoon" icon={Users}>
+			<SettingCard title="Per persoon" icon={Users} subtitle="Wat iemand zelf met Insyte AI doet, zoals Vraag Insyte en concepten. Bij 80% krijgen die persoon en de eigenaar een melding. Is het op, dan doet Insyte AI niets meer voor die persoon tot de maand omslaat of je de limiet verhoogt. Leeg is geen limiet.">
 				<BandedList>
 					{people.map((p) => {
 						const limit = draft.people[p.memberId] ?? null;
@@ -112,7 +115,7 @@ function PersonRow({ p, name, role, limit, text, error, state, readOnly, onChang
 				<span className="flex min-w-0 flex-col">
 					<span className="truncate font-medium text-base text-ink">{name}</span>
 					<span className={cn("truncate text-sm", state === "spent" ? "text-signal-red" : state === "warn" ? "text-signal-amber" : "text-ink-3")}>
-						{state === "spent" ? "Limiet bereikt · gebruikt de snelle route" : state === "warn" ? `${Math.round((p.used / (limit ?? 1)) * 100)}% gebruikt` : role}
+						{state === "spent" ? "Limiet bereikt" : state === "warn" ? `${Math.round((p.used / (limit ?? 1)) * 100)}% gebruikt` : role}
 					</span>
 				</span>
 			</span>

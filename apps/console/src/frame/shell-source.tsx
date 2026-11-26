@@ -44,7 +44,9 @@ import {
 import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { channelsAtom, inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { COUNTED_AREAS, navCountsAtom } from "../data/nav.ts"
+import { queueCountsIn } from "../data/queue.ts"
 import { sheetsAtom } from "../data/sheets.ts"
+import { viewStoreAtom } from "../data/store-view.ts"
 import { healthLineAtom } from "../data/stores.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
 import { useConsoleMarketplace } from "../marketplace/marketplace-source.tsx"
@@ -208,6 +210,9 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const area = useRouterState({ select: (s) => s.location.pathname.split("/").find((part) => part !== "") ?? "" })
   const otherCounts = value(useAtomValue(COUNTED_AREAS.has(area) ? navCountsAtom(area) : NO_COUNTS))
   const areaCounts = ticketCounts ?? inboxCounts ?? otherCounts
+  // Start's queue figures, on every page: the panel's "Wacht op jou" and "Voorstellen klaar", the top bar's proposals.
+  // They come with the frame (no read of their own), by store, so the store in view picks them.
+  const queueCounts = queueCountsIn(frame.queue, useAtomValue(viewStoreAtom))
   // The Marketplace (M17 step 3): read while its modal is open or Instellingen → Apps shows.
   const marketplace = useConsoleMarketplace()
   const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
@@ -362,6 +367,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       integrations: [],
       createdCustomers: []
     },
+    queueCounts,
     returns: { records: [] },
     sheets,
     courses: panelCourses,

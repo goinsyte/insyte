@@ -46,6 +46,9 @@ const GUIDE = [
   }
 ] as const
 
+/** The history's versions shown at first, and added by each "Meer tonen". */
+const HISTORY_PAGE = 6
+
 export function AutonomyPage() {
   const search = useSearch({ strict: false }) as AutonomySearch
   // The console's from `Autonomy.get`; the design app's from its store.
@@ -56,6 +59,8 @@ export function AutonomyPage() {
   const readOnly = !gate.ok
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState<Policy>(policy)
+  // The history the host gave, six versions at a time.
+  const [shownVersions, setShownVersions] = useState(HISTORY_PAGE)
   const savedKey = JSON.stringify(policy)
   const last = useRef(savedKey)
   useEffect(() => {
@@ -139,7 +144,7 @@ export function AutonomyPage() {
 
           <SettingCard title="Geschiedenis" icon={Clock} subtitle={`Versie ${version} is nu van kracht.`}>
             <ul className="flex flex-col overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)] [&>li+li]:shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
-              {history.slice(0, 6).map((h) => (
+              {history.slice(0, shownVersions).map((h) => (
                 <li key={h.id} className="flex flex-col gap-0.5 px-3.5 py-2.5">
                   <span className="flex flex-wrap items-baseline gap-x-2 text-sm">
                     <span className="font-medium text-ink">Versie {h.version}</span>
@@ -159,6 +164,17 @@ export function AutonomyPage() {
                 </li>
               ))}
             </ul>
+            {shownVersions < history.length ?
+              (
+                <button
+                  type="button"
+                  onClick={() => setShownVersions((n) => n + HISTORY_PAGE)}
+                  className="flex h-8 w-fit items-center rounded-md px-2 font-medium text-arc-ink text-sm hover:bg-arc-tint"
+                >
+                  Meer tonen · nog {history.length - shownVersions}
+                </button>
+              ) :
+              null}
           </SettingCard>
         </div>
 

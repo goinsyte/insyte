@@ -119,8 +119,10 @@ const OWN_TITLE: ReadonlySet<string> = new Set([
  * that does not start the way its kind does says only the kind. A kind this list does not know says nothing more.
  */
 const queueLine = (r: QueueRow): { readonly line: string; readonly label: string | null } => {
-  if (OWN_TITLE.has(r.kind)) return { line: r.title, label: null }
   const take = (pattern: RegExp) => pattern.exec(r.title)
+  // A leg that did not go names its order first ("Bestelling #1001 niet doorgestuurd …"): its chip says that number.
+  if (r.kind === "forwarding_failed") return { line: r.title, label: take(/^Bestelling (\S+)/)?.[1] ?? null }
+  if (OWN_TITLE.has(r.kind)) return { line: r.title, label: null }
   switch (r.kind) {
     case "order_delayed": {
       const m = take(/^Bestelling (\S+)/)

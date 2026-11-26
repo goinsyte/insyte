@@ -6,6 +6,7 @@ import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { TestAnswer, type TestInput } from "../domain/ChannelAgent.ts"
 import {
   aboutAnOrder,
+  ASK_PROOF,
   checkable,
   claimOf,
   handFor,
@@ -23,9 +24,8 @@ import { sendReplyLevel, timezoneOf } from "./settings.ts"
  * reaches would, and looks up no order: a question about one says what a shopper would be asked.
  */
 
-/** In the test chat no order is looked up: what the shopper would be asked instead. */
-const TEST_ORDER =
-  "Een klant vraagt Insyte hier eerst het bestelnummer en het e-mailadres of de postcode. In de testchat zoekt Insyte geen bestellingen op."
+/** In the test chat no order is looked up: the shopper's question is what they would read, and this says why. */
+const TEST_ORDER_NOTE = "In de testchat zoekt Insyte geen bestellingen op"
 
 export const test = (brain: Brain, inTx: InTx<CurrentPrincipal>, input: TestInput) =>
   Effect.gen(function*() {
@@ -60,13 +60,14 @@ export const test = (brain: Brain, inTx: InTx<CurrentPrincipal>, input: TestInpu
         text: handoverText(s, tz, now),
         source: null,
         handover: { reason, label: TEST_HANDOVER_LABEL[reason] ?? TEST_HANDOVER_LABEL["error"]! },
+        note: null,
         mode: shown
       })
     if (level === "never") return handover("policy")
     if (hand === "handover") return handover("outside_hours")
     const claim = claimOf(input.text)
     if (checkable(claim) || aboutAnOrder(input.text)) {
-      return new TestAnswer({ text: TEST_ORDER, source: null, handover: null, mode: shown })
+      return new TestAnswer({ text: ASK_PROOF, source: null, handover: null, note: TEST_ORDER_NOTE, mode: shown })
     }
     const thought = yield* think(brain, {
       text: input.text,
@@ -89,6 +90,7 @@ export const test = (brain: Brain, inTx: InTx<CurrentPrincipal>, input: TestInpu
       text: thought.text,
       source: hit === undefined ? null : { articleId: hit.articleId, title: hit.title, version: hit.version },
       handover: null,
+      note: null,
       mode: shown
     })
   })

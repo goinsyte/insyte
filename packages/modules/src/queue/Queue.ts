@@ -6,7 +6,7 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import type { SqlClient } from "effect/sql"
 import { inStore } from "../shared/use-cases/StoreScope.ts"
-import type { ListInput, QueueChange, QueueItemClosed, QueueList } from "./domain/Queue.ts"
+import type { ListInput, QueueChange, QueueItemClosed, QueueList, QueueStoreCounts } from "./domain/Queue.ts"
 import * as Queue from "./use-cases/queue.ts"
 
 type R = Db | CurrentPrincipal
@@ -19,12 +19,15 @@ type R = Db | CurrentPrincipal
  */
 export class QueueService extends Context.Service<QueueService, {
   readonly list: (input: typeof ListInput.Type) => Effect.Effect<QueueList, never, R>
+  /** The frame's figures, by store: one aggregate, no rows. */
+  readonly counts: Effect.Effect<ReadonlyArray<typeof QueueStoreCounts.Type>, never, R>
   readonly markSeen: (id: string) => Effect.Effect<QueueChange, NotFound | QueueItemClosed, R>
   readonly reopen: (id: string) => Effect.Effect<QueueChange, NotFound | QueueItemClosed, R>
 }>()("modules/QueueService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.succeed(QueueService)({
     list: (input) => Queue.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    counts: Queue.counts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     markSeen: (id) => Queue.markSeen(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     reopen: (id) => Queue.reopen(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })
