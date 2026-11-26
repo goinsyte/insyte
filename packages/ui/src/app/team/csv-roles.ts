@@ -1,5 +1,5 @@
 /*
- * The role a row of a CSV import names, read the way a person types it: case, accents and extra spaces aside
+ * The role (and the stores) a row of a CSV import names, read the way a person types it: case, accents and extra spaces aside
  * ("financien" is Financiën). A name that is no role, or the owner's, is a problem on that row and never a quiet
  * fallback: the person would otherwise join with a role nobody meant. Pure, so the import's reading is tested.
  */
@@ -22,4 +22,24 @@ export function roleForCell(roles: ReadonlyArray<{ id: string; label: string }>,
 	if (role === undefined) return { ok: false, reason: `Rol "${cell.trim()}" bestaat niet, kies een rol uit Rollen` };
 	if (role.id === "owner") return { ok: false, reason: `${role.label} kun je niet uitnodigen, kies een andere rol` };
 	return { ok: true, id: role.id };
+}
+
+/** `stores` is Team's `StoreAccess`: every store, or just these. */
+export type CsvStores = { ok: true; stores: "all" | string[] } | { ok: false; reason: string };
+
+/**
+ * The stores a cell names, separated by |, by name as Winkels shows them (case aside). An empty cell is every store,
+ * the ones connected later too; a cell that names stores grants just those, even when it names every store there is
+ * now, so a store connected later is never granted by accident.
+ */
+export function storesForCell(shops: ReadonlyArray<{ id: string; name: string }>, cell: string): CsvStores {
+	const names = cell.split("|").map((s) => s.trim()).filter(Boolean);
+	if (names.length === 0) return { ok: true, stores: "all" };
+	const ids: string[] = [];
+	for (const name of names) {
+		const shop = shops.find((s) => s.name.toLowerCase() === name.toLowerCase());
+		if (shop === undefined) return { ok: false, reason: `Onbekende winkel: ${name}` };
+		if (!ids.includes(shop.id)) ids.push(shop.id);
+	}
+	return { ok: true, stores: ids };
 }

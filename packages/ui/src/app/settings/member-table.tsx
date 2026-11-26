@@ -138,13 +138,22 @@ export function MemberTable({ onOpen, onInvite }: { onOpen: (id: string) => void
 			searchPlaceholder="Personen zoeken"
 			pageSize={20}
 			initialVisibility={{ by: false }}
-			empty={
-				<EmptyState
-					kind="people"
-					title={rows.length <= 1 ? "Je werkt hier nog alleen." : "Niemand past bij deze filters."}
-					body={rows.length <= 1 ? "Nodig je team uit." : "Pas de filters aan of wis ze."}
-					action={rows.length <= 1 ? { label: "Collega uitnodigen", onClick: onInvite } : undefined}
-				/>
+			empty={({ search, filtered, clear }) =>
+				search !== "" || filtered ? (
+					<EmptyState
+						kind="people"
+						title={search !== "" ? `Niemand gevonden voor “${search}”.` : "Niemand past bij deze filters."}
+						body={search !== "" ? "Zoek op een andere naam of e-mailadres." : "Pas de filters aan of wis ze."}
+						action={{ label: "Wissen", onClick: clear }}
+					/>
+				) : (
+					<EmptyState
+						kind="people"
+						title="Je werkt hier nog alleen."
+						body="Nodig je team uit."
+						action={{ label: "Collega uitnodigen", onClick: onInvite }}
+					/>
+				)
 			}
 		/>
 	);

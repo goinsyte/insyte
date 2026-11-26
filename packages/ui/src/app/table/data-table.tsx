@@ -157,6 +157,17 @@ function fieldsFrom<T>(columns: ReadonlyArray<ColumnDef<T, unknown>>, facets: Re
 	return out;
 }
 
+/**
+ * What an empty table is empty of, for a screen whose empty state differs between a list with nothing
+ * in it and a search or filter that matches nothing: `search` is the trimmed search, `clear` empties
+ * the search and the filters (the toolbar's "Wissen").
+ */
+export interface EmptyCut {
+	readonly search: string;
+	readonly filtered: boolean;
+	readonly clear: () => void;
+}
+
 /** Display nouns for the list keys callers pass as `noun`, so every table speaks Dutch. */
 /* One empty list for every table without facets. A fresh `[]` per render would remake `fields` and
    `filtered` each time, and the table answers new rows by resetting its page — a render loop. */
@@ -205,7 +216,8 @@ export function DataTable<T>({
 	facets?: ReadonlyArray<Facet>;
 	searchPlaceholder?: string;
 	onRowClick?: (row: T) => void;
-	empty?: ReactNode;
+	/** In place of the rows when there are none; a function tells a search or filter from an empty list. */
+	empty?: ReactNode | ((cut: EmptyCut) => ReactNode);
 	/** Screen-specific toolbar controls, at the right end. */
 	toolbarEnd?: ReactNode;
 	pageSize?: number;
@@ -382,6 +394,10 @@ export function DataTable<T>({
 	}, [filtered, globalFilter, sorting]);
 
 	const activeFilters = countRules(filter);
+	const clear = () => {
+		setFilter({ ...filter, children: [] });
+		setGlobalFilter("");
+	};
 	const picked = server === undefined ? table.getSelectedRowModel().rows.map((r) => r.original) : pickedOf(rowSelection);
 	const rows = table.getRowModel().rows;
 	const total = server === undefined ? table.getFilteredRowModel().rows.length : server.total;
@@ -437,10 +453,7 @@ export function DataTable<T>({
 				{activeFilters > 0 || globalFilter !== "" ? (
 					<button
 						type="button"
-						onClick={() => {
-							setFilter({ ...filter, children: [] });
-							setGlobalFilter("");
-						}}
+						onClick={clear}
 						className="flex h-8 items-center gap-1.5 rounded-md px-2 font-medium text-xs text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink"
 					>
 						<X className="size-3.5" strokeWidth={2} />
@@ -548,7 +561,9 @@ export function DataTable<T>({
 							<tr>
 								<td colSpan={table.getVisibleLeafColumns().length}>
 									{/* A table with nothing to show says so, rather than ending at its header. */}
-									{empty ?? (
+									{(typeof empty === "function"
+										? empty({ search: globalFilter.trim(), filtered: activeFilters > 0, clear })
+										: empty) ?? (
 										<p className="py-12 text-center text-ink-3 text-sm">
 											{nothingYet ? `Nog geen ${shown[1]}.` : `Geen ${shown[1]} voor deze zoekopdracht of filters.`}
 										</p>

@@ -1,6 +1,6 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
-import type { Principal } from "@insyte/domain/Principal"
+import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { Effect } from "effect"
 import { activate } from "../../shared/use-cases/ActiveWorkspace.ts"
@@ -20,7 +20,15 @@ export interface Membership {
   /** The workspace finished onboarding: the session lands on Start rather than in onboarding. */
   readonly onboarded: boolean
   readonly principal: Principal
+  /** The member's "last active" (Team) is unset or older than `ACTIVITY_EVERY`: `markActive` writes it now. */
+  readonly activityDue: boolean
 }
+
+/**
+ * How often a member's "last active" is written: once in five minutes at most, so a busy console does not write on
+ * every call. Whether it is due comes with the membership read, so a call that is not due costs nothing more.
+ */
+const ACTIVITY_EVERY = "5 minutes"
 
 interface Row {
   readonly id: string
@@ -35,6 +43,7 @@ interface Row {
   readonly refundLimitMinor: string | number | null
   readonly roleStores: "all" | ReadonlyArray<string>
   readonly memberStores: "all" | ReadonlyArray<string>
+  readonly activityDue: boolean
 }
 
 /** The member's stores narrow the role's, never widen them; `null` is every store. */
@@ -48,7 +57,8 @@ export const memberships = Effect.fn("Workspaces.memberships")(function*() {
     sql<Row>`
       select m.id, m.workspace_id, w.name as workspace_name,
              w.onboarding_completed_at is not null as onboarded, m.role_id, r.label as role_label, r.version as role_version,
-             r.levels, r.specials, r.refund_limit_minor, r.stores as role_stores, m.stores as member_stores
+             r.levels, r.specials, r.refund_limit_minor, r.stores as role_stores, m.stores as member_stores,
+             coalesce(m.last_active_at < now() - ${ACTIVITY_EVERY}::interval, true) as activity_due
       from members m
       join workspaces w on w.id = m.workspace_id
       join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
@@ -76,7 +86,8 @@ export const memberships = Effect.fn("Workspaces.memberships")(function*() {
         stores: row.roleStores === "all" ? "all" : [...row.roleStores]
       },
       storeScope: storeScope(row.roleStores, row.memberStores)
-    }
+    },
+    activityDue: row.activityDue
   }))
 })
 
@@ -102,3 +113,23 @@ export const current = Effect.fn("Workspaces.current")(function*() {
   }
   return mine
 })
+
+/**
+ * The member was active just now (Team's "Laatst actief"), when their membership says it is due: one statement on
+ * their own row, held to `ACTIVITY_EVERY` again so that calls at the same moment write it once. Bookkeeping, never the
+ * call's business: a failure is logged and the call goes on.
+ */
+export const markActive = (membership: Membership) =>
+  membership.activityDue
+    ? Effect.flatMap(Effect.service(Db), (db) =>
+      db.scoped((sql) =>
+        sql`update members set last_active_at = now()
+            where id = ${membership.memberId}
+              and (last_active_at is null or last_active_at < now() - ${ACTIVITY_EVERY}::interval)`
+      )).pipe(
+        Effect.provideService(CurrentPrincipal, membership.principal),
+        Effect.asVoid,
+        Effect.catchCause((cause) => Effect.logWarning("member activity not recorded", { cause })),
+        Effect.withSpan("Workspaces.markActive")
+      )
+    : Effect.void
