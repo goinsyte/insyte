@@ -37,8 +37,8 @@ const StoreConnection = HttpRouter.add(
 
 /**
  * `GET /api/__dev/stores/mirror?workspace=<id>&store=<id>`: a store's mirrored orders and products by their states,
- * its deliveries (with why one failed, if it did) and its stock-outs (M9.5), for the webhook, reconcile and stock-out
- * tests. Refused in production.
+ * its deliveries (with why one failed, if it did), its stock-outs (M9.5) and which of its returns' shopper mails still
+ * wait to go, for the webhook, reconcile, stock-out and return-mail tests. Refused in production.
  */
 const StoreMirror = HttpRouter.add(
   "GET",
@@ -70,7 +70,11 @@ const StoreMirror = HttpRouter.add(
         stockouts: sql<{ product: string; variant: string; open: boolean }>`
           select p.title as product, v.title as variant, s.to_at is null as open
           from stockouts s join variants v on v.id = s.variant_id join products p on p.id = s.product_id
-          where s.store_id = ${store} order by s.from_at, v.title`
+          where s.store_id = ${store} order by s.from_at, v.title`,
+        returnMails: sql<{ returnId: string; kind: string; waiting: boolean }>`
+          select m.return_id, m.kind, m.sent_at is null as waiting
+          from return_mails m join returns r on r.id = m.return_id
+          where r.store_id = ${store} order by m.return_id, m.kind`
       })
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe(mirror)

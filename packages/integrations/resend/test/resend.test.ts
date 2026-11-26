@@ -399,6 +399,11 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(noLink) && JSON.stringify(noLink.cause)).toContain("auth.verify needs a link")
     const noFacts = await sendWith(http, { kind: "team.invite", to: "eva@example.com", url })
     expect(Exit.isFailure(noFacts) && JSON.stringify(noFacts.cause)).toContain("team.invite needs its facts")
+    // A mail that cannot be made says so, so a caller does not try it again; a key refused is not that.
+    for (const unmade of [noLink, noFacts]) {
+      expect(Exit.isFailure(unmade) && JSON.stringify(unmade.cause)).toContain("\"unrenderable\":true")
+    }
+    expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).not.toContain("unrenderable")
     expect(seen).toHaveLength(0)
   })
 

@@ -1,9 +1,11 @@
 import type { Db } from "@insyte/database/Db"
 import type { Forbidden, Invalid } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
+import { type Fmt, METRICS } from "@insyte/domain/sheets"
 import { dataBlock, defused } from "@insyte/modules/ai/domain/Guards"
 import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
 import type { ExplainRef, Figure } from "@insyte/modules/analytics/domain/Analytics"
+import { NOT_KEPT_YET } from "@insyte/modules/analytics/use-cases/figures"
 import type { RefKind, Source } from "@insyte/modules/ask/domain/Ask"
 import {
   type AskTool,
@@ -498,23 +500,21 @@ const LOOKUP_EXPLAINS: Readonly<Record<string, ExplainRef["key"]["_tag"]>> = {
   roas: "roas"
 }
 
-const METRIC_LABEL: Readonly<
-  Record<string, { label: string; fmt: "money" | "integer" | "percent" | "number"; about?: string }>
-> = {
-  omzet: { label: "Omzet", fmt: "money" },
-  bestellingen: { label: "Betaalde bestellingen", fmt: "integer" },
-  gemiddelde_bestelling: { label: "Gemiddelde bestelling", fmt: "money" },
-  terugbetaald: { label: "Terugbetaald", fmt: "money" },
-  // As /v1 and MCP describe it (`AnalyticsTools.ts`).
-  terugbetaald_omzet: { label: "Terugbetaald op omzet", fmt: "money", about: "refunded on the orders omzet counts" },
-  chargebacks: { label: "Onder geschil", fmt: "money" },
-  advertentiekosten: { label: "Advertentiekosten", fmt: "money" },
-  overige_kosten: { label: "Overige kosten", fmt: "money" },
-  kosten: { label: "Alle kosten", fmt: "money" },
-  nettowinst: { label: "Nettowinst", fmt: "money" },
-  marge: { label: "Nettomarge", fmt: "percent" },
-  roas: { label: "ROAS", fmt: "number" }
+/** What a figure's id means where its name does not say, as /v1 and MCP describe it (`AnalyticsTools.ts`). */
+const ABOUT: Readonly<Record<string, string>> = {
+  terugbetaald_omzet: "refunded on the orders omzet counts"
 }
+
+/**
+ * The month figures a sheet's INSYTE() reads (`METRICS`), with its labels and formats, but for those not kept yet
+ * (`NOT_KEPT_YET`), which answer unavailable: a figure added there is offered here too.
+ */
+const METRIC_LABEL: Readonly<Record<string, { label: string; fmt: Fmt; about?: string }>> = Object.fromEntries(
+  METRICS.filter((m) => !NOT_KEPT_YET.has(m.id)).map((m) => [
+    m.id,
+    { label: m.label, fmt: m.fmt, ...(ABOUT[m.id] === undefined ? {} : { about: ABOUT[m.id] }) }
+  ])
+)
 
 const getFigures: AskTool<AnalyticsService | Base> = {
   name: "get_figures",

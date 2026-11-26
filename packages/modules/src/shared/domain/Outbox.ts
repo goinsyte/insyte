@@ -362,8 +362,8 @@ export const OutboxEvent = Schema.Union([
     returnIds: Schema.Array(Schema.String)
   }),
   // A return's shopper mail that did not go at its first try (the provider busy or out, Insyte's own setup refused),
-  // tried again on its own, so the event that asked for it, and Shopify's write of it, did not wait on the mail. `from`
-  // is the sender that first try used (`MailRetry.ts`). `userId` is `system`.
+  // tried again on its own, so the event that asked for it, and Shopify's write of it, did not wait on the mail.
+  // `attempt` is which try this is, `from` the sender the first try used (`MailRetry.ts`). `userId` is `system`.
   Schema.Struct({
     type: Schema.Literal("return.mail"),
     workspaceId: Schema.String,
@@ -371,7 +371,7 @@ export const OutboxEvent = Schema.Union([
     returnId: Schema.String,
     mail: Schema.Literals(["received", "approved", "rejected", "label", "resolved"]),
     via: Schema.Literals(["portal", "team"]),
-    from: RetryFields.from
+    ...RetryFields
   }),
   // A delay mail put in line by a filed plate (M10.2): sent to the shopper once the undo window has passed.
   Schema.Struct({

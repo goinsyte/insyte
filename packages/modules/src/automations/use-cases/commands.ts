@@ -213,7 +213,8 @@ export const saveDraft = Effect.fn("Automations.saveDraft")(function*(input: typ
       yield* lock(sql, input.id)
       const nodes = yield* withApprovers(sql, input.nodes)
       // Never the placeholder over a name: publishing names an untitled flow after its steps, and a save the canvas
-      // sent before it heard of that (one in flight while the publish held the row) still carries "Naamloze".
+      // sent before it heard of that (one in flight while the publish held the row) still carries "Naamloze". The
+      // price, on purpose: a flow with a name cannot be renamed to the placeholder itself, which names nothing.
       const [saved] = yield* sql<{ draftSavedAt: Date }>`
         update automations set draft_nodes = ${JSON.stringify(nodes)}::jsonb, draft_saved_at = now(),
                                name = case when ${input.name?.trim() ?? null}::text = ${UNTITLED}::text

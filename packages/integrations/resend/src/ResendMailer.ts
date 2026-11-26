@@ -72,7 +72,8 @@ export const sentAlready = (reason: string) => /^resend 409: invalid_idempotent_
  */
 export const refusesMail = (reason: string) => /^resend 422\b/.test(reason)
 
-const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
+const missing = (mail: Mail, what: string) =>
+  new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}`, unrenderable: true })
 
 const link = (mail: Mail) => mail.url === undefined ? Effect.fail(missing(mail, "a link")) : Effect.succeed(mail.url)
 
@@ -167,7 +168,7 @@ export const ResendMailer = Layer.effect(
       return rendered.pipe(
         Effect.catchTag(
           "MailRenderError",
-          (error) => Effect.fail(new MailNotSent({ kind: mail.kind, reason: error.reason }))
+          (error) => Effect.fail(new MailNotSent({ kind: mail.kind, reason: error.reason, unrenderable: true }))
         )
       )
     }

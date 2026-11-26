@@ -38,6 +38,9 @@ const WAITS: Readonly<Record<string, FigureWaitsFor>> = {
   omzet_organisch: "channels"
 }
 
+/** The figures not kept yet: each answers unavailable, never a number. */
+export const NOT_KEPT_YET: ReadonlySet<string> = new Set(Object.keys(WAITS))
+
 /** The figures Kosten works out, and what each reads of its month. */
 const COSTED: Readonly<Record<string, (m: CostMonth) => number>> = {
   advertentiekosten: (m) => m.adsMinor / 100,
