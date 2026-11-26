@@ -29,6 +29,34 @@ import { call, rpc, sessionMe } from "./support.ts"
 const supplierNamed = async (cookie: string, name: string) =>
   ok(await rpc("Suppliers.list", {}, cookie)).rows.find((r) => r.name === name)!
 
+let delivery = 0
+/** Shopify's report of one location's count of one inventory item. */
+const stockHook = (shop: string, body: Record<string, unknown>) =>
+  call("http://api.public.test/hooks/shopify", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-shopify-topic": "inventory_levels/update",
+      "x-shopify-shop-domain": shop,
+      "x-shopify-webhook-id": `sup-stk-${run}-${++delivery}`,
+      "x-shopify-hmac-sha256": "valid"
+    },
+    body: JSON.stringify(body)
+  })
+
+/** Until every count Shopify reported is applied (the queue consumer runs on its own). */
+const levelsApplied = async (store: { workspace: string; storeId: string }) => {
+  for (let i = 0; i < 100; i++) {
+    const mirror = (await (await call(
+      `http://api.test/api/__dev/stores/mirror?workspace=${store.workspace}&store=${store.storeId}`
+    )).json()) as { inbound: Array<{ topic: string; processed: boolean }> }
+    const levels = mirror.inbound.filter((e) => e.topic === "inventory_levels/update")
+    if (levels.length >= delivery && levels.every((e) => e.processed)) return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error("the counts were not applied")
+}
+
 describe("the supplier portal", () => {
   it("invites a supplier's person, who works its orders and stock in the portal and nothing else", async () => {
     const store = await importedStore("sup-portal")
@@ -225,6 +253,23 @@ describe("the supplier portal", () => {
     // The dashboard counts what is theirs.
     const dashboard = ok(await rpc("SupplierPortal.dashboard", undefined, cookie))
     expect(dashboard.figures.totalOrders).toBe(1)
+
+    // Stock as the console counts it: the shirt's M oversold at the shop (Shopify says -5) is none there, not less, so
+    // the shirt has the L's 38; the bag Shopify does not count is no stock at nothing, so it is not sold out.
+    const bag = ok(await rpc("Products.list", { limit: 50 }, store.cookie)).rows.find((p) => p.title === "Canvas tas")!
+    ok(await rpc("Suppliers.assignProducts", { supplierId: atelier.id, productIds: [bag.id] }, store.cookie))
+    await stockHook(store.shop, { inventory_item_id: 11, location_id: 900, available: -5 })
+    await levelsApplied(store)
+    const counted = ok(await rpc("SupplierPortal.products.list", undefined, cookie)).rows
+    expect(counted.map((p) => [p.title, p.units, p.stock])).toEqual([
+      ["Canvas tas", 0, "in_stock"],
+      ["Linnen overhemd", 38, "low"]
+    ])
+    const shirt = ok(await rpc("SupplierPortal.products.get", { productId: products[0]!.id }, cookie))
+    expect(shirt.variants.map((v) => [v.title, v.available])).toEqual([["M", 0], ["L", 38]])
+    expect(ok(await rpc("SupplierPortal.dashboard", undefined, cookie)).lowStock.map((p) => p.title)).toEqual([
+      "Linnen overhemd"
+    ])
 
     // The portal's Undo takes back only the portal's own writes.
     expect(failure(await rpc("SupplierPortal.undo", { token: "und_none.x" }, cookie))).toMatchObject({

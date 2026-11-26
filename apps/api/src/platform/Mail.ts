@@ -25,6 +25,12 @@ export const busyReferences = new Set<string>()
 export const setupReferences = new Set<string>()
 
 /**
+ * The records whose mails cannot be made (`POST /api/__dev/mail/refuse?unmade=1`), as a template that does not render
+ * them: trying the same mail again changes nothing. Only this isolate's, and never in production.
+ */
+export const unmadeReferences = new Set<string>()
+
+/**
  * The sending domains whose `from` the capture adapter refuses as Resend does a domain that is not verified
  * (`POST /api/__dev/mail/refuse-sender`): so a brand's mail falling back to Insyte's address can be seen. Only this
  * isolate's, and never in production.
@@ -65,6 +71,10 @@ export const MailerCapture = Layer.effect(
         mail.reference !== undefined && refusedReferences.has(mail.reference)
           ? Effect.fail(
             new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail", refusedForRecipient: true })
+          )
+          : mail.reference !== undefined && unmadeReferences.has(mail.reference)
+          ? Effect.fail(
+            new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs its facts`, unrenderable: true })
           )
           : mail.reference !== undefined && setupReferences.has(mail.reference)
           ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "resend 401: validation_error API key is invalid" }))

@@ -239,7 +239,12 @@ export class MailNotSent extends Schema.TaggedError<MailNotSent>()("MailNotSent"
    * that bounces), not for Insyte's own setup (a key, Insyte's sending domain, a template): trying again changes
    * nothing, and other mails still go. A caller may record it as not sent and go on; any other refusal fails as before.
    */
-  refusedForRecipient: Schema.optional(Schema.Boolean)
+  refusedForRecipient: Schema.optional(Schema.Boolean),
+  /**
+   * The mail could not be made from what it was given (its template did not render, a fact it needs is missing): the
+   * provider was never asked, and trying the same mail again changes nothing until the code does.
+   */
+  unrenderable: Schema.optional(Schema.Boolean)
 }) {}
 
 export class Mailer extends Context.Service<Mailer, {

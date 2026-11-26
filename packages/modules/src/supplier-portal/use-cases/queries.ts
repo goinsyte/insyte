@@ -151,22 +151,33 @@ interface ProductRowSql {
 }
 
 /**
- * The console's rule (`levelOf`, `LOW_STOCK`), so the brand and its supplier read the same stock alike: sold out at
- * none, low where a variant is at or under the threshold, else in stock.
+ * The console's rule (`levelOf`, `LOW_STOCK`), so the brand and its supplier read the same stock alike: sold out when
+ * every counted variant is at none, low where one is at or under the threshold, else in stock. A product with no
+ * counted variant (`lowest` null: Shopify counts none of them and the supplier reported none) has nothing to run out
+ * of, as Shopify keeps selling what it does not count: in stock, never sold out.
  */
 export const stockOf = (units: number, lowest: number | null): StockState => {
-  const level = levelOf(units, lowest ?? units, LOW_STOCK)
+  if (lowest === null) return "in_stock"
+  const level = levelOf(units, lowest, LOW_STOCK)
   return level === "available" ? "in_stock" : level ?? "out"
 }
 
-/** A variant's count: what the supplier reported, else what the store holds over its locations. */
-export const availableSql = (sql: SqlClient.SqlClient, variant: string) =>
+/**
+ * A variant's count (`v` names `supplier_variants_v`), as the console counts it (`VARIANT_UNITS`): what the supplier
+ * reported, else what the store holds over its locations, each at nothing or more (an oversold location is none, not
+ * less). A variant Shopify does not count (`tracked` false) has no count of its own there, so only a supplier's report
+ * counts it; one with no count at all is null, and left out of a product's units and its lowest.
+ */
+export const countSql = (sql: SqlClient.SqlClient, v: string) =>
   sql`coalesce(
-        (select il.available from inventory_levels il
-         where il.variant_id = ${sql.literal(variant)} and il.source = 'supplier' order by il.reported_at desc limit 1),
-        (select sum(il.available)::int from inventory_levels il
-         where il.variant_id = ${sql.literal(variant)} and il.source = 'shopify'),
-        0)`
+        (select greatest(il.available, 0) from inventory_levels il
+         where il.variant_id = ${sql.literal(v)}.id and il.source = 'supplier' order by il.reported_at desc limit 1),
+        case when ${sql.literal(v)}.tracked is not false then
+          (select sum(greatest(il.available, 0))::int from inventory_levels il
+           where il.variant_id = ${sql.literal(v)}.id and il.source = 'shopify') end)`
+
+/** A variant's count to show beside it: none where it has none. */
+export const availableSql = (sql: SqlClient.SqlClient, v: string) => sql`coalesce(${countSql(sql, v)}, 0)`
 
 /** The supplier's products (not archived), by title; `ids` narrows to those. */
 export const productRows = (sql: SqlClient.SqlClient, ids?: ReadonlyArray<string>) =>
@@ -174,13 +185,9 @@ export const productRows = (sql: SqlClient.SqlClient, ids?: ReadonlyArray<string
     sql<ProductRowSql>`
       select p.id, p.title, p.images[1] as image, p.lead_days, p.stock_reporting as reporting,
              (select count(*)::int from supplier_variants_v v where v.product_id = p.id) as variants,
-             coalesce((select sum(${
-      availableSql(sql, "v.id")
-    })::int from supplier_variants_v v where v.product_id = p.id), 0)
+             coalesce((select sum(${countSql(sql, "v")})::int from supplier_variants_v v where v.product_id = p.id), 0)
                as units,
-             (select min(${
-      availableSql(sql, "v.id")
-    })::int from supplier_variants_v v where v.product_id = p.id) as lowest,
+             (select min(${countSql(sql, "v")})::int from supplier_variants_v v where v.product_id = p.id) as lowest,
              (select count(distinct o.id)::int from supplier_orders_v o join supplier_lines_v l on l.order_id = o.id
               where l.product_id = p.id and o.work_status in ('to_accept', 'to_ship')
                 and o.order_status not in ('cancelled', 'refunded')) as open_orders

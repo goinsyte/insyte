@@ -72,11 +72,13 @@ export const sentAlready = (reason: string) => /^resend 409: invalid_idempotent_
  */
 export const refusesMail = (reason: string) => /^resend 422\b/.test(reason)
 
-const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
+const missing = (mail: Mail, what: string) =>
+  new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}`, unrenderable: true })
 
 const link = (mail: Mail) => mail.url === undefined ? Effect.fail(missing(mail, "a link")) : Effect.succeed(mail.url)
 
-export const ResendMailer = Layer.effect(
+/** The mailer before its services: `ResendMailer` with Resend, the renderer and the links it needs. */
+export const ResendMailerOver = Layer.effect(
   Mailer,
   Effect.gen(function*() {
     const resend = yield* Resend
@@ -167,7 +169,15 @@ export const ResendMailer = Layer.effect(
       return rendered.pipe(
         Effect.catchTag(
           "MailRenderError",
-          (error) => Effect.fail(new MailNotSent({ kind: mail.kind, reason: error.reason }))
+          // Templates that did not load in this isolate are worth trying again; one that would not render is not.
+          (error) =>
+            Effect.fail(
+              new MailNotSent({
+                kind: mail.kind,
+                reason: error.reason,
+                ...(error.loading === true ? { retryable: true } : { unrenderable: true })
+              })
+            )
         )
       )
     }
@@ -216,4 +226,6 @@ export const ResendMailer = Layer.effect(
       })
     })
   })
-).pipe(Layer.provide([Resend.layer, MailRenderer.layer, MailUrls.layer]))
+)
+
+export const ResendMailer = ResendMailerOver.pipe(Layer.provide([Resend.layer, MailRenderer.layer, MailUrls.layer]))

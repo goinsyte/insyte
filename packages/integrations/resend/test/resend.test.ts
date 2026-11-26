@@ -7,10 +7,10 @@ import { describe, expect, it } from "vitest"
 import { type EmailKind, EMAILS } from "../src/emails/index.ts"
 import { dark, light, mix } from "../src/emails/theme.ts"
 import { MailRenderer } from "../src/MailRenderer.ts"
-import { urlsFor } from "../src/MailUrls.ts"
+import { MailUrls, urlsFor } from "../src/MailUrls.ts"
 import { renderEmail } from "../src/RenderEmail.ts"
 import { Resend } from "../src/Resend.ts"
-import { ResendMailer } from "../src/ResendMailer.ts"
+import { ResendMailer, ResendMailerOver } from "../src/ResendMailer.ts"
 
 interface Seen {
   readonly url: string
@@ -399,6 +399,34 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(noLink) && JSON.stringify(noLink.cause)).toContain("auth.verify needs a link")
     const noFacts = await sendWith(http, { kind: "team.invite", to: "eva@example.com", url })
     expect(Exit.isFailure(noFacts) && JSON.stringify(noFacts.cause)).toContain("team.invite needs its facts")
+    // A mail that cannot be made says so, so a caller does not try it again; a key refused is not that.
+    for (const unmade of [noLink, noFacts]) {
+      expect(Exit.isFailure(unmade) && JSON.stringify(unmade.cause)).toContain("\"unrenderable\":true")
+    }
+    expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).not.toContain("unrenderable")
+    expect(seen).toHaveLength(0)
+  })
+
+  it("takes templates that did not load as worth trying again, not as a mail that cannot be made", async () => {
+    const seen: Array<Seen> = []
+    const notLoaded = ResendMailerOver.pipe(
+      Layer.provide([
+        Resend.layer,
+        MailUrls.layer,
+        MailRenderer.layerFrom(() => Promise.reject(new Error("module load failed")))
+      ]),
+      Layer.provide(fakeResend(() => Promise.resolve(Response.json({ id: "re_9" })), seen)),
+      Layer.provide(config)
+    )
+    const result = await Effect.runPromiseExit(
+      Effect.flatMap(Effect.service(Mailer), (m) => m.send({ kind: "auth.reset", to: "eva@example.com", url })).pipe(
+        Effect.provide(notLoaded)
+      )
+    )
+    const cause = Exit.isFailure(result) ? JSON.stringify(result.cause) : ""
+    expect(cause).toContain("templates did not load")
+    expect(cause).toContain("\"retryable\":true")
+    expect(cause).not.toContain("unrenderable")
     expect(seen).toHaveLength(0)
   })
 
@@ -433,6 +461,16 @@ describe("MailRenderer", () => {
     )
     expect(Exit.isFailure(result) && JSON.stringify(result.cause)).toContain("MailRenderError")
     expect(JSON.stringify(result)).toContain("team.supplier_invite")
+    expect(JSON.stringify(result)).not.toContain("\"loading\"")
+  })
+
+  it("says when the templates did not load, apart from one that would not render", async () => {
+    const result = await Effect.runPromiseExit(
+      Effect.flatMap(Effect.service(MailRenderer), (r) => r.render("auth.reset", { url: "https://a.example/r" })).pipe(
+        Effect.provide(MailRenderer.layerFrom(() => Promise.reject(new Error("module load failed"))))
+      )
+    )
+    expect(Exit.isFailure(result) && JSON.stringify(result.cause)).toContain("\"loading\":true")
   })
 })
 

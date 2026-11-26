@@ -15,6 +15,7 @@ describe("a supplier's stock", () => {
     // One variant sold out while another has stock: low, not out.
     expect(stockOf(38, 0)).toBe("low")
     expect(stockOf(0, 0)).toBe("out")
-    expect(stockOf(0, null)).toBe("out")
+    // Nothing counted (Shopify tracks none of its variants): nothing to run out of, as the console has no level for it.
+    expect(stockOf(0, null)).toBe("in_stock")
   })
 })

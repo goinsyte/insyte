@@ -1,3 +1,5 @@
+import { METRICS } from "@insyte/domain/sheets"
+import { NOT_KEPT_YET } from "@insyte/modules/analytics/use-cases/figures"
 import { STALE_MS } from "@insyte/modules/ask/domain/Ask"
 import { unzip } from "@insyte/modules/privacy/domain/Archive"
 import { introspectWorkflow } from "cloudflare:test"
@@ -5,6 +7,7 @@ import { env } from "cloudflare:workers"
 import { ConfigProvider, Effect, Option, Redacted } from "effect"
 import { describe, expect, it } from "vitest"
 import { aiModeOf, AiSettings, askModeOf } from "../src/platform/AiSettings.ts"
+import { askTools } from "../src/platform/ask/AskTools.ts"
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { call, rpc, rpcStream, sessionMe } from "./support.ts"
 
@@ -71,6 +74,19 @@ describe("Vraag Insyte", () => {
   let answerId = ""
   let firstTokens: Array<Json> = []
 
+  it("offers the month figures /v1 and MCP offer, each as they describe it", () => {
+    const figures = askTools.find((t) => t.name === "get_figures")!
+    expect(figures.description).toContain("terugbetaald, terugbetaald_omzet (refunded on the orders omzet counts),")
+    // Every figure INSYTE() reads that is kept: a figure added to the sheets is offered here too.
+    const offered = new Set(
+      /comma-separated ids from (.*), "month"/.exec(figures.description)![1]!.split(", ").map((id) =>
+        id.replace(/ \(.*\)$/, "")
+      )
+    )
+    expect(METRICS.filter((m) => !NOT_KEPT_YET.has(m.id)).map((m) => m.id).filter((id) => !offered.has(id))).toEqual([])
+    expect([...offered].filter((id) => NOT_KEPT_YET.has(id))).toEqual([])
+  })
+
   it("streams an answer whose numbers are figures and whose records are chips, and meters each step", async () => {
     const me = await person("ask-owner", "Vraag B.V.")
     owner = me.cookie
@@ -122,8 +138,8 @@ describe("Vraag Insyte", () => {
       outcome,
       subjectId
     }))).toEqual([
-      { purpose: "ask", prompt: "ask_step@1.3.0", provider: "fake", outcome: "ok", subjectId: answerId },
-      { purpose: "ask", prompt: "ask_step@1.3.0", provider: "fake", outcome: "ok", subjectId: answerId }
+      { purpose: "ask", prompt: "ask_step@1.4.0", provider: "fake", outcome: "ok", subjectId: answerId },
+      { purpose: "ask", prompt: "ask_step@1.4.0", provider: "fake", outcome: "ok", subjectId: answerId }
     ])
   })
 
