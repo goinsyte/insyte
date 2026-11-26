@@ -28,9 +28,6 @@ import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refus
  * once, in Dutch; a missing permission says which.
  */
 
-const euros = (minor: number) =>
-  new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
-
 /** `10869` in USD → "US$ 108,69": an amount in Insyte's minor units of its currency (two decimals, or none). */
 const moneyIn = (minor: number, currency: string) => {
   const digits = minorDigits(currency)
@@ -53,6 +50,17 @@ const limitText = (limitMinor: number, l: LimitBasis) =>
     ? moneyIn(limitMinor, l.currency)
     : `${moneyIn(limitMinor, l.currency)} (${moneyIn(l.roleMinor, l.roleCurrency)} tegen de ECB-koers)`
 
+/**
+ * The server's limit on an order as the refund's confirmation says it, `null` where the role has none. Without a rate
+ * to the order's currency yet, the role's own amount, in its own currency.
+ */
+export const refundLimitText = (limit: typeof RefundLimit.Type | null): string | null =>
+  limit === null
+    ? null
+    : limit.limitMinor === null
+    ? moneyIn(limit.roleMinor, limit.roleCurrency)
+    : limitText(limit.limitMinor, limit)
+
 const noRateText = (l: LimitBasis) =>
   `Er is nog geen wisselkoers van ${l.currency} naar ${l.roleCurrency}, dus je limiet van ${
     moneyIn(l.roleMinor, l.roleCurrency)
@@ -69,6 +77,10 @@ export const sayOverLimit = (tagged: Readonly<Record<string, unknown>>) => {
   })
   toast.error("Boven je limiet", { description: `Je rol mag tot ${text} per bestelling terugbetalen.` })
 }
+
+/** "Meer dan er openstaat": what is left on the order, in its currency (the server's `RefundOverBalance`). */
+export const balanceText = (tagged: Readonly<Record<string, unknown>>) =>
+  moneyIn(Number(tagged["balanceMinor"]), typeof tagged["currency"] === "string" ? tagged["currency"] : "EUR")
 
 /** A refund the server could not hold to the limit: no exchange rate yet from the order's currency. */
 export const NO_FX_RATE: [string, string] = [
@@ -108,7 +120,7 @@ const COPY: RefusalCopy = {
         return true
       case "RefundOverBalance":
         toast.error("Meer dan er openstaat", {
-          description: `Er staat nog ${euros(Number(tagged["balanceMinor"]))} open op deze bestelling.`
+          description: `Er staat nog ${balanceText(tagged)} open op deze bestelling.`
         })
         return true
       case "CustomerMailRefused":
@@ -178,13 +190,13 @@ export function useRefundGate(refundableMinor: number, limit?: typeof RefundLimi
       reason: `Je rol ${role.label} mag tot ${limitText(limit.limitMinor, limit)} per bestelling terugbetalen`
     }
   }
-  const euro = refundableMinor / 100
-  if (role === null || canRole(role, "refunds.write", euro)) return { ok: true, reason: "" }
-  if (canRole(role, "refunds.write") && role.refundLimit !== null) {
-    return {
-      ok: false,
-      reason: `Je rol ${role.label} mag tot ${euros(role.refundLimit * 100)} per bestelling terugbetalen`
-    }
+  if (role === null) return { ok: true, reason: "" }
+  if (canRole(role, "refunds.write")) {
+    // The role's own limit is in the workspace's currency, not the order's: it is not held against the amount (nor
+    // said in euros) until the server's, converted, is in.
+    return role.refundLimit === null
+      ? { ok: true, reason: "" }
+      : { ok: false, reason: "Je limiet op deze bestelling wordt nog opgehaald" }
   }
   return { ok: false, reason: `Je rol ${role.label} mist ${permissionName("refunds.write")}` }
 }
@@ -349,7 +361,9 @@ export function useOrderCommands() {
       const exit = await write.refund({ payload: { id: order.id, refundId: mintId("rfd"), amountMinor }, ...keys })
       if (Exit.isFailure(exit)) return orderRefused(failureOf(exit))
       toast.success(`${order.number} wordt terugbetaald`, {
-        description: `${euros(amountMinor)} aan ${order.customer_name}, via de oorspronkelijke betaalmethode.`
+        description: `${
+          moneyIn(amountMinor, order.currency)
+        } aan ${order.customer_name}, via de oorspronkelijke betaalmethode.`
       })
     },
     /**

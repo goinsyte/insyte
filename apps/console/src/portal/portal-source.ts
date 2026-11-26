@@ -77,6 +77,7 @@ export function useConsolePortalSource(handle: string, store: PortalStore | null
         offered: store.offered,
         giftCardBonus: store.giftCardBonusPct,
         claimSteps: store.claimSteps,
+        ...(store.labels === undefined ? {} : { labels: store.labels }),
         look: {
           color: store.look.color ?? undefined,
           logo: store.look.logoUrl ?? undefined

@@ -95,7 +95,7 @@ describe("refunds", () => {
     expect(
       failure(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 7000 }, store.cookie))
     )
-      .toMatchObject({ _tag: "RefundOverBalance", balanceMinor: 6900 })
+      .toMatchObject({ _tag: "RefundOverBalance", balanceMinor: 6900, currency: "EUR" })
 
     const refunded = await orderNumbered(store.cookie, "#1004")
     const voided = await orderNumbered(store.cookie, "#1005")

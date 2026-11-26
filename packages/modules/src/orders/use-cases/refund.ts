@@ -83,7 +83,9 @@ export const refundOn = Effect.fn("Orders.refundOn")(
       if (order.paymentStatus === "pending" || order.paymentStatus === "voided" || balance <= 0) {
         return yield* new AlreadyRefunded({ orderId: input.id })
       }
-      if (input.amountMinor > balance) return yield* new RefundOverBalance({ balanceMinor: balance })
+      if (input.amountMinor > balance) {
+        return yield* new RefundOverBalance({ balanceMinor: balance, currency: order.currency })
+      }
 
       const inserted = yield* sql`
         insert into refunds (id, workspace_id, store_id, order_id, shopify_id, amount_minor, currency, note, status,

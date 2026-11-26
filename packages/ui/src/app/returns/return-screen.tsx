@@ -10,7 +10,7 @@ import { ProductThumb } from "../product/product-thumb";
 import { formatCurrency } from "../lib/format";
 import { countryName } from "../lib/format-flag";
 import { euro } from "../lib/permissions";
-import { amountOf, type Carrier, pastDeadline, type Resolution, RESOLUTION_LABEL, resolutionAmount, type ReturnRecord } from "../lib/returns";
+import { amountOf, type Carrier, pastDeadline, type Resolution, RESOLUTION_LABEL, resolutionAmount, type ReturnRecord, variantShown } from "../lib/returns";
 import { cn } from "../lib/utils";
 import { CarrierMark, GateBy, KindWord, RejectDialog, ResolutionPicker, ReturnStatusBadge, ReturnTimeline } from "./parts";
 import { type ReturnView, useReturnDetailSource } from "./source";
@@ -54,6 +54,8 @@ function Detail({ view }: { view: ReturnView }) {
 	const [rejecting, setRejecting] = useState(false);
 	const [resolving, setResolving] = useState(false);
 	const [tracking, setTracking] = useState(false);
+	// Waiting on the parcel with no label to send: no carrier is set up for labels, so the shopper sends it themselves.
+	const noCarrier = source.labels === false && !view.arriving && r.status === "awaiting_parcel" && !r.label && !r.labelPending && !r.labelFailed;
 
 	const actions = (
 		<>
@@ -181,7 +183,7 @@ function Detail({ view }: { view: ReturnView }) {
 											<span className="truncate font-medium text-base text-ink">{i.title}</span>
 										)}
 										<span className="text-ink-3 text-sm">
-											{i.variantTitle ? `${i.variantTitle} · ` : ""}{i.qty}× {formatCurrency(i.unitPrice, r.currency)}
+											{variantShown(i.title, i.variantTitle) ? `${variantShown(i.title, i.variantTitle)} · ` : ""}{i.qty}× {formatCurrency(i.unitPrice, r.currency)}
 											{r.exchangeTo ? ` · ruilen naar ${r.exchangeTo}` : ""}
 										</span>
 									</span>
@@ -214,6 +216,21 @@ function Detail({ view }: { view: ReturnView }) {
 							<p className="text-signal-amber text-sm">Foto verplicht voor deze reden, maar de klant stuurde er geen.</p>
 						) : null}
 					</section>
+
+					{noCarrier ? (
+						<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
+							<h2 className="font-medium text-ink text-md">Retourlabel</h2>
+							<p className="text-ink-2 text-sm">Geen vervoerder gekoppeld voor labels. De klant stuurt het pakket zelf; vul de tracking in zodra je die hebt.</p>
+							{commands.addTracking ? (
+								<GateBy gate={gates.work}>
+									<button type="button" onClick={() => setTracking(true)} className={cn(QUIET, "self-start")}>
+										<Truck className="size-3.5" strokeWidth={1.75} />
+										Tracking invullen
+									</button>
+								</GateBy>
+							) : null}
+						</section>
+					) : null}
 
 					{r.label || r.resolution || r.labelPending || r.labelFailed ? (
 						<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
@@ -335,7 +352,7 @@ function Detail({ view }: { view: ReturnView }) {
 				onClose={() => setTracking(false)}
 				onSave={(parcel) => commands.addTracking?.(r.id, parcel, said(`Trackingnummer bij ${r.number} ingevuld`, "Insyte volgt het pakket nu bij de vervoerder."))}
 			/>
-			<ResolveDialog r={r} open={resolving} offered={offered} onClose={() => setResolving(false)} roleLimit={role.refundLimit} roleLabel={role.label} />
+			<ResolveDialog r={r} open={resolving} offered={offered} onClose={() => setResolving(false)} roleLimit={role.refundLimit} roleLabel={role.label} limitText={role.limitText} />
 		</DetailShell>
 	);
 }
@@ -452,7 +469,7 @@ function Fact({ k, children }: { k: string; children: React.ReactNode }) {
  * Afhandelen: the resolution picker, then — for anything but a refund — done, with Undo. A refund
  * leaves the building, so it asks first, naming the amount and the role's limit, and has no Undo.
  */
-function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel }: { r: ReturnRecord; open: boolean; offered: ReadonlyArray<Resolution>; onClose: () => void; roleLimit: number | null; roleLabel: string }) {
+function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel, limitText }: { r: ReturnRecord; open: boolean; offered: ReadonlyArray<Resolution>; onClose: () => void; roleLimit: number | null; roleLabel: string; limitText?: string | null | undefined }) {
 	const source = useReturnDetailSource();
 	const settings = source.money;
 	const [pick, setPick] = useState<Resolution | null>(null);
@@ -461,6 +478,8 @@ function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel }: { r:
 	const amount = resolutionAmount(chosen, amountOf(r), settings);
 	const refundGate = source.useRefundGate(amount);
 	const money = formatCurrency(amount, r.currency, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+	// The host's limit on this order, converted to its currency; absent, the role's own (the design's euros).
+	const limit = limitText !== undefined ? limitText : roleLimit === null ? null : euro(roleLimit);
 
 	const settle = () => {
 		source.commands.settle(r, chosen, amount);
@@ -494,7 +513,7 @@ function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel }: { r:
 					if (!o) setConfirm(false);
 				}}
 				title={`${money} terugbetalen aan ${r.customerName}?`}
-				description={`Het geld gaat terug op de oorspronkelijke betaalmethode van ${r.orderNumber}. Dit kan niet worden teruggedraaid. ${roleLimit === null ? `Je rol ${roleLabel} heeft geen terugbetaallimiet.` : `Je rol ${roleLabel} mag tot ${euro(roleLimit)} per bestelling terugbetalen.`}`}
+				description={`Het geld gaat terug op de oorspronkelijke betaalmethode van ${r.orderNumber}. Dit kan niet worden teruggedraaid. ${limit === null ? `Je rol ${roleLabel} heeft geen terugbetaallimiet.` : `Je rol ${roleLabel} mag tot ${limit} per bestelling terugbetalen.`}`}
 				confirmLabel={`${money} terugbetalen`}
 				onConfirm={() => {
 					source.commands.refund(r, amount);

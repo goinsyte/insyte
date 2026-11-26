@@ -40,7 +40,13 @@ const DEFAULT_REJECT = [
 const DEFAULT_STEPS = ["Wat is er mis", "Foto's van het artikel en de verpakking", "Wat wil je dat we doen"]
 
 const INTRO = "Iets terugsturen of een probleem melden? Vul je bestelnummer en e-mailadres in."
-const DONE = "We bekijken je aanvraag binnen twee werkdagen. " +
+/**
+ * Under the done page's three steps, which already say when it is looked at and what comes by mail: so not that again,
+ * and no label promised where no carrier makes one.
+ */
+const DONE = "Vragen over je aanvraag? Neem contact met ons op en noem je retournummer."
+/** The default before, which repeated the steps above it: read as today's default where it was never changed. */
+const DONE_BEFORE = "We bekijken je aanvraag binnen twee werkdagen. " +
   "Je krijgt een mail met het retourlabel zodra we hem hebben goedgekeurd."
 
 /** The workspace's settings, made with the defaults when there are none yet. */
@@ -149,7 +155,12 @@ export const load = Effect.fn("Returns.loadSettings")(function*(sql: SqlClient.S
     giftCardBonusPct: Number(s!.giftCardBonusPct),
     exchangeFeeMinor: Number(s!.exchangeFeeMinor),
     rejectReasons: s!.rejectReasons,
-    portal: { on: s!.portalOn, handle: s!.portalSlug, intro: s!.portalIntro, done: s!.portalDone },
+    portal: {
+      on: s!.portalOn,
+      handle: s!.portalSlug,
+      intro: s!.portalIntro,
+      done: s!.portalDone === DONE_BEFORE ? DONE : s!.portalDone
+    },
     reasons,
     rules,
     addresses,

@@ -35,9 +35,11 @@ export class RefundOverLimit extends Schema.TaggedError<RefundOverLimit>()("Refu
   roleCurrency: Schema.String
 }) {}
 
-/** More than is left on the order. */
+/** More than is left on the order: what is left, in the order's currency. */
 export class RefundOverBalance extends Schema.TaggedError<RefundOverBalance>()("RefundOverBalance", {
-  balanceMinor: Schema.Int
+  balanceMinor: Schema.Int,
+  /** Optional, so a console deployed before the API it calls still decodes the refusal. */
+  currency: Schema.optional(Schema.String)
 }) {}
 
 /** Nothing left to refund: refunded in full, or never paid. */

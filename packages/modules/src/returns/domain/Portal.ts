@@ -33,6 +33,11 @@ export class PortalStore extends Schema.Class<PortalStore>("returns/PortalStore"
   giftCardBonusPct: Schema.Finite,
   claimSteps: Schema.Array(Schema.String),
   /**
+   * Whether a carrier is set up for return labels: without one, an approval mails where the parcel goes, not a label.
+   * Optional, so a console deployed before the API it reads still decodes the store.
+   */
+  labels: Schema.optional(Schema.Boolean),
+  /**
    * Huisstijl (M17 step 20.1b): the brand's colour for the page's button, only where white text reads on it, and the
    * path its logo is served from on this origin; none of either, the portal's own look.
    */
@@ -118,7 +123,9 @@ export class PortalStarted extends Schema.Class<PortalStarted>("returns/PortalSt
   number: Schema.String,
   kind: ReturnKind,
   requested: Resolution,
-  exchangeTo: Schema.NullOr(Schema.String)
+  exchangeTo: Schema.NullOr(Schema.String),
+  /** The order's address, where the confirmation goes (the shopper may have typed it in other capitals). */
+  email: Schema.optional(Schema.NullOr(Schema.String))
 }) {}
 
 /** No store has this handle; also a store whose portal is off, for anything past its page. */
