@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -12,9 +12,19 @@ import { Archive, Bell, Check, CreditCard, Download, Store, Trash2, Users } from
 import { ConfirmDialog } from "../common/confirm-dialog"
 import { PageGuide } from "../common/page-guide"
 import { cn } from "../lib/utils"
-import { FieldRow, INPUT_CLASS, SelectInput, TextInput, UnsavedBar } from "./form"
+import {
+  type FieldControl,
+  FieldRow,
+  INPUT_CLASS,
+  INVALID_CLASS,
+  type SaveOutcome,
+  SelectInput,
+  TextInput,
+  UnsavedBar,
+  useFieldErrors
+} from "./form"
 import { BandedList, SettingCard, SettingsItem } from "./setting-card"
-import { type AlertFields, type RetentionDays, useAccountSource } from "./workspace-source"
+import { accountErrors, type AlertFields, type RetentionDays, useAccountSource } from "./workspace-source"
 
 const GUIDE = [
   {
@@ -42,7 +52,16 @@ const alertText = (alerts: AlertFields) => ({
   disputeAmount: String(alerts.disputeAmount)
 })
 
-/** What the host cannot do yet, said when it is asked for. */
+/** A field the server refused that the page did not catch itself, said at the field. */
+const SERVER_SAYS: Record<string, string> = {
+  workspace: "Geef de werkruimte een naam van hoogstens 80 tekens.",
+  legalEntity: "Hoogstens 200 tekens.",
+  vat: "Dat btw-nummer klopt niet. Begin met de landcode, zoals NL123456789B01.",
+  billingEmail: "Een e-mailadres als facturen@jouwbedrijf.nl.",
+  country: "Kies een land uit de lijst.",
+  delayHours: "Een late bestelling is 1 tot en met 720 uur oud.",
+  disputeAmount: "Een bedrag van 0 of meer."
+}
 
 /**
  * The workspace's own facts, and nothing else.
@@ -57,14 +76,14 @@ const alertText = (alerts: AlertFields) => ({
  * of the page that says so and offers both ways out, and it goes once the change is kept or undone.
  *
  * What it reads and writes comes from its host (`workspace-source.tsx`). A save the host refuses keeps
- * what was typed, and the bar stays up; the host says why.
+ * what was typed, and the bar stays up; what is wrong is said under its field, before the save goes out where the page
+ * can tell, and after the server's answer where only it can.
  */
 export function AccountSettingsPage() {
   const source = useAccountSource()
   const { account, alerts, members, stores } = source
   const [form, setForm] = useState(account)
   const [alertForm, setAlertForm] = useState(() => alertText(alerts))
-  const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [retention, setRetention] = useState(false)
   useEffect(() => setForm(account), [account])
@@ -75,24 +94,24 @@ export function AccountSettingsPage() {
     alertForm.disputeAmount !== String(alerts.disputeAmount)
   const dirty = accountDirty || alertsDirty
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }))
+  const fe = useFieldErrors(accountErrors(form, alertForm), {
+    draftKey: JSON.stringify([form, alertForm]),
+    say: (field) => SERVER_SAYS[field] ?? "Dit klopt nog niet."
+  })
 
-  const save = async () => {
-    const delayHours = Number(alertForm.delayHours)
-    const disputeAmount = Number(alertForm.disputeAmount)
-    if (alertsDirty && (!(delayHours > 0) || !(disputeAmount >= 0) || alertForm.disputeAmount === "")) {
-      toast.error("Drempels voor meldingen hebben een getal nodig: meer dan 0 uur, een bedrag van 0 of meer")
-      return
-    }
-    setSaving(true)
-    try {
-      const accountKept = accountDirty ? await source.saveAccount(form) : true
-      const alertsKept = alertsDirty && accountKept ? await source.setAlerts({ delayHours, disputeAmount }) : true
-      if (accountKept && alertsKept) {
-        toast.success(accountDirty ? "Werkruimte opgeslagen" : "Drempels voor meldingen opgeslagen")
-      }
-    } finally {
-      setSaving(false)
-    }
+  // The Werkruimte first, then the thresholds; one the server refuses stops there, with its fields marked.
+  const save = async (): Promise<SaveOutcome> => {
+    const accountKept = accountDirty ? await source.saveAccount(form) : true
+    if (accountKept !== true) return accountKept
+    const alertsKept = alertsDirty
+      ? await source.setAlerts({
+        delayHours: Number(alertForm.delayHours),
+        disputeAmount: Number(alertForm.disputeAmount)
+      })
+      : true
+    if (alertsKept !== true) return alertsKept
+    toast.success(accountDirty ? "Werkruimte opgeslagen" : "Drempels voor meldingen opgeslagen")
+    return true
   }
 
   return (
@@ -100,16 +119,29 @@ export function AccountSettingsPage() {
       <SettingCard title="Werkruimte">
         <div className="flex flex-col">
           <FieldRow label="Naam werkruimte">
-            <TextInput value={form.workspace} onChange={set("workspace")} />
+            <Wrong message={fe.message("workspace")}>
+              <TextInput control={fe.control("workspace")} value={form.workspace} onChange={set("workspace")} />
+            </Wrong>
           </FieldRow>
           <FieldRow label="Rechtspersoon">
-            <TextInput value={form.legalEntity} onChange={set("legalEntity")} />
+            <Wrong message={fe.message("legalEntity")}>
+              <TextInput control={fe.control("legalEntity")} value={form.legalEntity} onChange={set("legalEntity")} />
+            </Wrong>
           </FieldRow>
           <FieldRow label="Btw-nummer">
-            <TextInput value={form.vat} onChange={set("vat")} />
+            <Wrong message={fe.message("vat")}>
+              <TextInput control={fe.control("vat")} value={form.vat} onChange={set("vat")} />
+            </Wrong>
           </FieldRow>
           <FieldRow label="Factuur-e-mail">
-            <TextInput type="email" value={form.billingEmail} onChange={set("billingEmail")} />
+            <Wrong message={fe.message("billingEmail")}>
+              <TextInput
+                control={fe.control("billingEmail")}
+                type="email"
+                value={form.billingEmail}
+                onChange={set("billingEmail")}
+              />
+            </Wrong>
           </FieldRow>
           <FieldRow label="Land">
             <SelectInput value={form.country} onChange={set("country")} options={source.countries} />
@@ -124,18 +156,24 @@ export function AccountSettingsPage() {
       >
         <div className="flex flex-col">
           <FieldRow label="Late bestelling">
-            <NumberInput
-              value={alertForm.delayHours}
-              onChange={(v) => setAlertForm((f) => ({ ...f, delayHours: v }))}
-              unit="uur"
-            />
+            <Wrong message={fe.message("delayHours")}>
+              <NumberInput
+                control={fe.control("delayHours")}
+                value={alertForm.delayHours}
+                onChange={(v) => setAlertForm((f) => ({ ...f, delayHours: v }))}
+                unit="uur"
+              />
+            </Wrong>
           </FieldRow>
           <FieldRow label="Groot geschil">
-            <NumberInput
-              value={alertForm.disputeAmount}
-              onChange={(v) => setAlertForm((f) => ({ ...f, disputeAmount: v }))}
-              prefix={source.disputePrefix}
-            />
+            <Wrong message={fe.message("disputeAmount")}>
+              <NumberInput
+                control={fe.control("disputeAmount")}
+                value={alertForm.disputeAmount}
+                onChange={(v) => setAlertForm((f) => ({ ...f, disputeAmount: v }))}
+                prefix={source.disputePrefix}
+              />
+            </Wrong>
           </FieldRow>
         </div>
       </SettingCard>
@@ -215,15 +253,24 @@ export function AccountSettingsPage() {
 
       <UnsavedBar
         visible={dirty}
-        saving={saving}
         onDiscard={() => {
           setForm(account)
           setAlertForm(alertText(alerts))
         }}
-        onSave={() => void save()}
+        onSave={fe.guard(save)}
       />
       <PageGuide id="settings.profile" title="Account" steps={GUIDE} />
     </>
+  )
+}
+
+/** A control with its error under it, while it has one. */
+function Wrong({ message, children }: { message: ReactNode; children: ReactNode }) {
+  return (
+    <span className="flex flex-col gap-1.5">
+      {children}
+      {message}
+    </span>
   )
 }
 
@@ -231,12 +278,14 @@ function NumberInput({
   value,
   onChange,
   unit,
-  prefix
+  prefix,
+  control
 }: {
   value: string
   onChange: (v: string) => void
   unit?: string
   prefix?: string
+  control: FieldControl
 }) {
   return (
     <span className="relative block">
@@ -248,10 +297,11 @@ function NumberInput({
         ) :
         null}
       <input
+        {...control}
         inputMode="numeric"
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
-        className={cn(INPUT_CLASS, "tabular-nums", prefix && "pl-6", unit && "pr-16")}
+        className={cn(INPUT_CLASS, INVALID_CLASS, "tabular-nums", prefix && "pl-6", unit && "pr-16")}
       />
       {unit ?
         (

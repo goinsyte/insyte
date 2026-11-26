@@ -22,6 +22,7 @@ const currencyLabel = (code: string | null) =>
  */
 export function VatPage() {
   const stores = useSettingsDepthSource().stores ?? []
+  const nameOf = (id: string) => stores.find((x) => x.id === id)?.name ?? id
   const s = useSection("vat", "Btw", (a, b) => {
     const out: Array<[string, string, string]> = []
     for (const st of b.stores) {
@@ -84,6 +85,7 @@ export function VatPage() {
               <span className="text-ink-2 tabular-nums" title="Uit Shopify">{currencyLabel(v.currency)}</span>
               <label className="flex items-center gap-2 text-ink-2">
                 <Switch
+                  aria-label={`Btw over verzending voor ${nameOf(v.storeId)}`}
                   checked={v.vatOnShipping}
                   disabled={!s.canEdit}
                   onCheckedChange={(c) => set(v.storeId, { vatOnShipping: c })}
@@ -92,6 +94,7 @@ export function VatPage() {
               </label>
               <label className="flex items-center gap-2 text-ink-2">
                 <Switch
+                  aria-label={`Terugbetalen met btw voor ${nameOf(v.storeId)}`}
                   checked={v.refundInclVat}
                   disabled={!s.canEdit}
                   onCheckedChange={(c) => set(v.storeId, { refundInclVat: c })}
@@ -114,6 +117,7 @@ export function VatPage() {
           <FieldRow label="OSS-registratie">
             <label className="flex items-center gap-2.5 sm:pt-1.5">
               <Switch
+                aria-label="OSS-registratie"
                 checked={s.draft.oss}
                 disabled={!s.canEdit}
                 onCheckedChange={setOss}

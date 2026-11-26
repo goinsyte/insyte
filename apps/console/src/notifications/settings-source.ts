@@ -8,7 +8,7 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import type { NotificationSettingsSource, SlackHere } from "@insyte/ui/app/settings/notifications-source"
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { inboxAtom, NOTES } from "../data/frame.ts"
 import { useAtomSetInTurn } from "../data/in-turn.ts"
@@ -51,12 +51,9 @@ const inputOf = (draft: NotifyPrefs): NotifyPrefsInput => ({
   slackChannel: draft.slackChannel === "" ? null : draft.slackChannel
 })
 
-/** Why the page did not save, in Dutch; what was typed stays. */
+/** Why the page did not save, in Dutch; what was typed stays. Quiet hours that end when they begin are said there. */
 const notSaved = (error: unknown) => {
   const tag = (error as { _tag?: string })._tag
-  if (tag === "QuietHoursEmpty") {
-    return void toast.error("Stille uren hebben een begin en een eind nodig die niet gelijk zijn")
-  }
   if (tag === "SlackNotConnected") {
     return void toast.error("Slack is nog niet gekoppeld", { description: "Kies een kanaal zodra Slack gekoppeld is." })
   }
@@ -141,7 +138,10 @@ const thresholdOf = (minor: number, currency: Currency) => {
   return formatCurrency(minor / scale, currency, minor % scale === 0 ? { minimumFractionDigits: 0 } : undefined)
 }
 
-export function useConsoleNotificationSettingsSource(prefs: NotePrefs): NotificationSettingsSource {
+export function useConsoleNotificationSettingsSource(read: NotePrefs): NotificationSettingsSource {
+  // What the last save answered, until the route's read catches up behind it: the bar goes as the save lands.
+  const [prefs, setLatest] = useState(read)
+  useEffect(() => setLatest(read), [read])
   const setPrefs = useAtomSet(notifyWrites.setPrefs, { mode: "promiseExit" })
   const { push, testPush } = useBrowserPush(prefs)
   const { slack, channels } = useSlack(prefs)
@@ -155,9 +155,12 @@ export function useConsoleNotificationSettingsSource(prefs: NotePrefs): Notifica
     save: async (next, said) => {
       const exit = await setPrefs({ payload: inputOf(next), reactivityKeys: [...NOTES] })
       if (Exit.isFailure(exit)) {
-        notSaved(failureOf(exit))
+        const error = failureOf(exit)
+        if ((error as { _tag?: string })._tag === "QuietHoursEmpty") return { fields: { quiet: "equal" } }
+        notSaved(error)
         return false
       }
+      setLatest(exit.value.prefs)
       const token = exit.value.undo.token
       undoable(said.label, () =>
         void undo({ payload: { token }, reactivityKeys: [...NOTES] }).then((done) => {

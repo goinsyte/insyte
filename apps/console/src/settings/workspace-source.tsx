@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { minorDigits } from "@insyte/domain/MinorUnits"
 import type { Regional, WorkspaceAccount } from "@insyte/modules/workspaces/domain/Settings"
+import type { SaveOutcome } from "@insyte/ui/app/settings/form"
 import type {
   AccountFields,
   AccountSource,
@@ -66,6 +67,26 @@ const moneyOf = (currency: string) => {
   }
 }
 
+/** The server's field names as Account names its fields, for a refusal the page marks at the field. */
+const PAGE_FIELD: Record<string, string> = {
+  name: "workspace",
+  legalEntity: "legalEntity",
+  vatNumber: "vat",
+  billingEmail: "billingEmail",
+  country: "country",
+  delayHours: "delayHours",
+  disputeAmountMinor: "disputeAmount"
+}
+
+/** A refusal of the page's own fields, by the page's names; none where the server named something else. */
+const pageFields = (error: unknown): Record<string, string> | undefined => {
+  const tagged = error as { _tag?: string; fields?: Record<string, string> }
+  if (tagged._tag !== "Invalid" || tagged.fields === undefined) return undefined
+  const entries = Object.entries(tagged.fields)
+  if (entries.length === 0 || entries.some(([field]) => PAGE_FIELD[field] === undefined)) return undefined
+  return Object.fromEntries(entries.map(([field, code]) => [PAGE_FIELD[field], code]))
+}
+
 const fieldsOf = (doc: WorkspaceAccount): AccountFields => ({
   workspace: doc.name,
   legalEntity: doc.legalEntity,
@@ -97,9 +118,13 @@ export function useConsoleAccountSource(saved: WorkspaceAccount): AccountSource 
     () => ({ delayHours: doc.alerts.delayHours, disputeAmount: doc.alerts.disputeAmountMinor / money.scale }),
     [doc, money.scale]
   )
-  const took = (exit: Exit.Exit<WorkspaceAccount, unknown>) => {
+  // A refused field is said under it on the page; anything else once, here.
+  const took = (exit: Exit.Exit<WorkspaceAccount, unknown>): SaveOutcome => {
     if (Exit.isFailure(exit)) {
-      sayRefusal(failureOf(exit), COPY)
+      const error = failureOf(exit)
+      const fields = pageFields(error)
+      if (fields !== undefined) return { fields }
+      sayRefusal(error, COPY)
       return false
     }
     setDoc(exit.value)
@@ -140,7 +165,8 @@ export function useConsoleAccountSource(saved: WorkspaceAccount): AccountSource 
           reactivityKeys: [...WORKSPACE]
         })
       ),
-    setRetention: async (days) => took(await write.setRetention({ payload: { days }, reactivityKeys: [...WORKSPACE] }))
+    setRetention: async (days) =>
+      took(await write.setRetention({ payload: { days }, reactivityKeys: [...WORKSPACE] })) === true
   }
 }
 

@@ -283,6 +283,12 @@ const concernsMe = (n: Note) => n.reason !== undefined || n.via !== undefined;
  * switches elsewhere; for the admin, the event's "In de app" switch, "Alleen als het mij betreft"
  * and the follow rules decide.
  */
+/** What is wrong with the page as the server checks it (`setPrefs`): quiet hours that end when they begin. */
+export function notifyErrors(prefs: Pick<NotifyPrefs, "quiet">): Record<string, string> {
+	if (prefs.quiet.on && prefs.quiet.from === prefs.quiet.to) return { quiet: "Kies een eind dat niet gelijk is aan het begin." };
+	return {};
+}
+
 export function heard(n: Note, prefs: NotifyPrefs): boolean {
 	if (n.persona !== "admin") return true;
 	const p = prefs.events[n.event];

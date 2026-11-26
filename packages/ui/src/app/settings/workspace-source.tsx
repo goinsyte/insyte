@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useContext } from "react"
 import type { TeamGate } from "../orders/source"
+import type { SaveOutcome } from "./form"
 
 /**
  * What Instellingen → Account and Regio read and do, from whoever hosts them (as `returns/source.tsx` is for the
@@ -25,6 +26,36 @@ export interface AlertFields {
 
 export type RetentionDays = 30 | 90 | 180
 
+const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
+
+/**
+ * What is wrong with the Werkruimte and Meldingen fields, said under each: the server's rules (`checkAccount`,
+ * `checkAlerts`) checked as they are typed, so a save it would refuse does not go out. The thresholds are kept as text
+ * while typed (digits only), so an empty one is wrong rather than 0.
+ */
+export function accountErrors(
+  account: Pick<AccountFields, "workspace" | "legalEntity" | "billingEmail">,
+  alerts: { delayHours: string; disputeAmount: string }
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  const name = account.workspace.trim()
+  if (name === "") out["workspace"] = "Geef de werkruimte een naam."
+  else if (name.length > 80) out["workspace"] = `Hoogstens 80 tekens; dit zijn er ${name.length}.`
+  const legal = account.legalEntity.trim()
+  if (legal.length > 200) out["legalEntity"] = `Hoogstens 200 tekens; dit zijn er ${legal.length}.`
+  const email = account.billingEmail.trim()
+  if (email !== "" && (email.length > 254 || !EMAIL.test(email))) {
+    out["billingEmail"] = "Een e-mailadres als facturen@jouwbedrijf.nl."
+  }
+  const hours = Number(alerts.delayHours)
+  if (alerts.delayHours.trim() === "" || !Number.isInteger(hours) || hours < 1) {
+    out["delayHours"] = "Vul een aantal uren in, 1 of meer."
+  } else if (hours > 720) out["delayHours"] = "Hoogstens 720 uur, dat is 30 dagen."
+  const amount = Number(alerts.disputeAmount)
+  if (alerts.disputeAmount.trim() === "" || !(amount >= 0)) out["disputeAmount"] = "Vul een bedrag in, 0 of meer."
+  return out
+}
+
 export interface AccountSource {
   account: AccountFields
   /** What "Land" offers: the stored value and the name the operator reads. */
@@ -39,8 +70,9 @@ export interface AccountSource {
   stores: { connected: number; total: number } | null
   /** Instellingen · Beheren: what a closed store keeps. The page's own fields go by the settings sheet's read-only line. */
   manage: TeamGate
-  saveAccount: (next: AccountFields) => Promise<boolean>
-  setAlerts: (next: AlertFields) => Promise<boolean>
+  /** Saved, not saved (the host said why), or refused per field, named as the page names its fields. */
+  saveAccount: (next: AccountFields) => Promise<SaveOutcome>
+  setAlerts: (next: AlertFields) => Promise<SaveOutcome>
   setRetention: (days: RetentionDays) => Promise<boolean>
   /** "Je data downloaden"; absent until the export exists. */
   download?: (() => void) | undefined
