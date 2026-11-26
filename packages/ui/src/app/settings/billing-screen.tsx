@@ -586,8 +586,8 @@ function ExtraSeats() {
       )}
     >
       <span className="min-w-0 font-medium text-base text-ink">
-        {seats.full ? "Alle plekken zijn bezet" : "Extra plekken"} · {seats.included} in je abonnement
-        {seats.extra > 0 ? ` + ${seats.extra} extra` : ""}
+        {seats.full ? "Alle plekken zijn bezet" : "Plekken"} · {seats.included} in je abonnement
+        {seats.extra > 0 ? ` (+ ${seats.extra} extra)` : ""}
       </span>
       <div className="flex items-center gap-1.5">
         <Gate perm="billing" arg={3}>

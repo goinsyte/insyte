@@ -7,7 +7,7 @@ import { Step, Track } from "./Steps.ts"
  * What the console reads and sends (M4.1). `advance` takes one member per step: the shared head (`account` and `verify`
  * carry nothing; the server checks the facts), `role`, and the admin track's `organization` (founds the workspace),
  * `plan` (starts the trial), `store` ("later", or "connected" once Shopify gave the workspace a store), `sync` (once
- * the store's first import is in), `analysis` (the first analysis read and its choices made, M6.5 and M15), `offline`
+ * the store's first import is in, or "later": on without it), `analysis` (the first analysis read and its choices made, M6.5 and M15), `offline`
  * (the offline plan agreed, M15) and `ready` (ends onboarding).
  */
 
@@ -39,8 +39,9 @@ export const AdvanceInput = Schema.Union([
   Schema.Struct({ step: Schema.Literal("plan"), plan: PlanId, cycle: BillingCycle }),
   // Left for the Start checklist, or connected: the server checks the workspace has the store (M6.2).
   Schema.Struct({ step: Schema.Literal("store"), choice: Schema.Literals(["later", "connected"]) }),
-  // The first import is in (M6.3): the server checks it.
-  Schema.Struct({ step: Schema.Literal("sync") }),
+  // The first import is in (M6.3): the server checks it. "later" goes on without it (still importing, or failed), as
+  // skipping the store does: the analysis and the offline plan need the import, so they are skipped too.
+  Schema.Struct({ step: Schema.Literal("sync"), choice: Schema.optional(Schema.Literals(["later"])) }),
   // The first analysis read and its choices kept (`FirstAnalysis.prepare`, M6.5).
   Schema.Struct({ step: Schema.Literal("analysis") }),
   // The offline plan agreed (`FirstAnalysis.agreeOffline`, M15 step 5).

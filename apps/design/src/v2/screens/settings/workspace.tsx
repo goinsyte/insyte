@@ -523,7 +523,7 @@ export function BillingScreen() {
 
       <SettingsSection
         id="plekken"
-        title={`Extra plekken · ${current.seats} in je abonnement`}
+        title={`Plekken · ${current.seats} in je abonnement${extra > 0 ? ` (+ ${extra} extra)` : ""}`}
         description="Een extra plek gaat naar rato op je volgende factuur en stopt wanneer je hem opzegt."
       >
         <SettingRow

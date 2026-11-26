@@ -16,6 +16,9 @@ interface Step {
   pending?: boolean
   pendingLabel?: string
   onPrimary?: () => void
+  optional?: boolean
+  onSkip?: () => void
+  skipLabel?: string
   content: null
 }
 
@@ -24,6 +27,7 @@ let OnboardingShell: FunctionComponent<{
   steps: Array<Step>
   stepIndex: number
   onBack: () => void
+  canGoBack?: boolean
   onChangeRole: () => void
   onExit: () => void
 }>
@@ -34,12 +38,16 @@ beforeAll(async () => {
     .OnboardingShell
 })
 
-const shell = (step: Partial<Step>) =>
+const shell = (step: Partial<Step>, at: { stepIndex?: number; canGoBack?: boolean } = {}) =>
   renderToStaticMarkup(
     createElement(OnboardingShell, {
       persona: "admin",
-      steps: [{ id: "offline", title: "Terwijl je offline bent.", primaryLabel: "Afronden", content: null, ...step }],
-      stepIndex: 0,
+      steps: [
+        { id: "plan", title: "Kies een abonnement om te proberen.", content: null },
+        { id: "offline", title: "Terwijl je offline bent.", primaryLabel: "Afronden", content: null, ...step }
+      ],
+      stepIndex: at.stepIndex ?? 1,
+      ...(at.canGoBack === undefined ? {} : { canGoBack: at.canGoBack }),
       onBack: () => undefined,
       onChangeRole: () => undefined,
       onExit: () => undefined
@@ -62,5 +70,27 @@ describe("the onboarding shell's primary", () => {
     expect(button).toContain("aria-busy=\"false\"")
     expect(button).not.toMatch(/ disabled=""/)
     expect(button).toContain("Afronden")
+  })
+})
+
+const buttons = (html: string) => [...html.matchAll(/<button[^>]*>(.*?)<\/button>/gs)].map((m) => m[0])
+const back = (html: string) => buttons(html).find((b) => b.includes("Terug")) ?? ""
+const named = (html: string, name: string) => buttons(html).filter((b) => b.replace(/<[^>]+>/g, "").trim() === name)
+
+describe("the onboarding shell's other buttons", () => {
+  it("offers one quieter way on, with its own label, beside the primary", () => {
+    const html = shell({ primaryLabel: "Verder", skipLabel: "Nu overslaan", onSkip: () => undefined })
+    expect(named(html, "Nu overslaan")).toHaveLength(1)
+    expect(named(html, "Overslaan")).toHaveLength(0)
+    expect(primary(html)).toContain("Verder")
+  })
+
+  it("offers no way on but the primary on a step that has none", () => {
+    expect(named(shell({}), "Overslaan")).toHaveLength(0)
+  })
+
+  it("hides Terug where the host says the step before is done", () => {
+    expect(back(shell({}))).not.toMatch(/ disabled=""/)
+    expect(back(shell({}, { canGoBack: false }))).toMatch(/ disabled=""/)
   })
 })

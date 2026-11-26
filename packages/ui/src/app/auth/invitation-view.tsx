@@ -319,7 +319,13 @@ function Body({
     )
   }
 
-  if (state === "existing") return <SignInState source={source} role={role} until={until} onSignedIn={onSignedIn} />
+  if (state === "existing") {
+    // Signed in already, as the address it was sent to: nothing to sign in to, only to accept.
+    const signedIn = source.signedInAs?.email.toLowerCase()
+    return signedIn !== undefined && signedIn === inv.email?.toLowerCase()
+      ? <AcceptState source={source} role={role} until={until} onAccept={onSignedIn} />
+      : <SignInState source={source} role={role} until={until} onSignedIn={onSignedIn} />
+  }
   if (state === "sso") return <SsoState source={source} role={role} until={until} onContinue={onJoinSso} />
 
   // new, link, supplier, affiliate: make the account here.
@@ -705,6 +711,32 @@ function SignInState(
           {busy ? "Inloggen" : "Inloggen en accepteren"}
         </button>
       </form>
+    </>
+  )
+}
+
+function AcceptState(
+  { source, role, until, onAccept }: {
+    source: InvitationSource
+    role: string
+    until: string
+    onAccept: () => Promise<void>
+  }
+) {
+  const inv = source.inv
+  const { busy, run } = useBusy()
+  return (
+    <>
+      <Heading title={`Uitnodiging voor ${inv.workspace}`} sub={<InviterLine inv={inv} until={until} />} />
+      <Inviter inv={inv} />
+      <RoleCard source={source} role={role} />
+      <p className="text-ink-2 text-sm leading-normal">
+        Je bent ingelogd als <span className="font-medium text-ink">{source.signedInAs?.email}</span>.
+      </p>
+      <button type="button" disabled={busy} onClick={() => run(onAccept)} className={PRIMARY}>
+        {busy ? <Loader className="size-4 animate-spin" strokeWidth={2} /> : null}
+        {busy ? "Bezig met accepteren" : "Accepteren"}
+      </button>
     </>
   )
 }
