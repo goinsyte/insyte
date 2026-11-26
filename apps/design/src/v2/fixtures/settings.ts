@@ -898,11 +898,8 @@ export const REGIONAL = {
 }
 export const REGIONAL_OPTIONS = {
   language: [
-    { value: "nl-NL", label: "Nederlands" },
-    { value: "en-US", label: "English (United States)" },
-    { value: "en-GB", label: "English (United Kingdom)" },
-    { value: "de-DE", label: "Deutsch" },
-    { value: "fr-FR", label: "Français" }
+    // Insyte speaks Dutch only.
+    { value: "nl-NL", label: "Nederlands" }
   ],
   currency: [
     { value: "EUR", label: "EUR · euro" },

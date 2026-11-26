@@ -23,6 +23,8 @@ const CURRENCIES = [
   { value: "USD", label: "USD · Amerikaanse dollar" },
   { value: "GBP", label: "GBP · Brits pond" }
 ]
+/** One fixed day, so the server's page and the browser's write the same example whatever the hour. */
+const EXAMPLE_DATE = new Date("2026-11-23T12:00:00Z")
 const DATE_FORMATS: ReadonlyArray<Notation["dateFormat"]> = ["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"]
 const TIME_FORMATS = [{ value: "24h", label: "24-uurs" }, { value: "12h", label: "12-uurs" }]
 const WEEK_STARTS = [
@@ -53,11 +55,10 @@ export function RegionalPage() {
   const languages = LANGUAGES.some((l) => l.value === form.language)
     ? LANGUAGES
     : [...LANGUAGES, { value: form.language, label: OTHER_LANGUAGES[form.language] ?? form.language }]
-  // Each date notation read as today's date written in it, as the console writes dates.
-  const today = new Date()
+  // Each date notation read as an example date written in it, as the console writes dates.
   const dateFormats = DATE_FORMATS.map((f) => ({
     value: f,
-    label: formatDate(today, { day: "numeric", month: "short", year: "numeric" }, { dateFormat: f, timeFormat: "24h" })
+    label: formatDate(EXAMPLE_DATE, undefined, { dateFormat: f, timeFormat: "24h" })
   }))
 
   const save = async () => {
@@ -73,7 +74,7 @@ export function RegionalPage() {
     <>
       <SettingCard title="Taal en notatie">
         <div className="flex flex-col">
-          <FieldRow label="Taal" hint="Insyte is er nu in het Nederlands.">
+          <FieldRow label="Taal" hint="Insyte is er alleen in het Nederlands.">
             <SelectInput value={form.language} onChange={(v) => set("language", v)} options={languages} />
           </FieldRow>
           <FieldRow

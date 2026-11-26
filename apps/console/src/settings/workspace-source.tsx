@@ -67,13 +67,15 @@ const moneyOf = (currency: string) => {
   }
 }
 
-/** The server's field names as Account names its fields, for a refusal the page marks at the field. */
+/**
+ * The server's field names as Account names its fields, for a refusal the page marks at the field. Land is a list the
+ * page cannot get wrong; a refusal of it is said as a toast.
+ */
 const PAGE_FIELD: Record<string, string> = {
   name: "workspace",
   legalEntity: "legalEntity",
   vatNumber: "vat",
   billingEmail: "billingEmail",
-  country: "country",
   delayHours: "delayHours",
   disputeAmountMinor: "disputeAmount"
 }

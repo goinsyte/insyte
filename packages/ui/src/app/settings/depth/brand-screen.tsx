@@ -29,8 +29,8 @@ const FONT_STACK = {
  * because a brand colour on a button is text on a colour, and it has to read. A colour under 4.5:1
  * is saved (widgets/05 §7.3: contrast only warns) but never drawn under white text: mails and the
  * portal keep Insyte's own button colour for it (`buttonColorOf`), and the page says so and shows it. The name, website
- * and support address are what the returns portal shows; a mail's sender and where an answer goes are E-mail en
- * domein's, and the card says so.
+ * and support address are what the returns portal shows, beside where the website's chat sits; a mail's sender and
+ * where an answer goes are E-mail en domein's, and the card says so.
  */
 export function BrandPage() {
   const s = useSection("brand", "Huisstijl", (a, b) => {
@@ -165,8 +165,8 @@ export function BrandPage() {
             </div>
           </SettingCard>
           <SettingCard
-            title="Contact op het retourportaal"
-            subtitle="Hoe de klant je winkel op het retourportaal herkent en bereikt."
+            title="Retourportaal en chat"
+            subtitle="Hoe de klant je winkel op het retourportaal herkent en bereikt, en waar de chat op je website staat."
           >
             <div className="flex flex-col">
               <FieldRow label="Afzendernaam" hint="Boven het retourportaal, als er geen logo is.">

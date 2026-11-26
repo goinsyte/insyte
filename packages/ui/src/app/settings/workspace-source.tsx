@@ -40,9 +40,9 @@ export function accountErrors(
   const out: Record<string, string> = {}
   const name = account.workspace.trim()
   if (name === "") out["workspace"] = "Geef de werkruimte een naam."
-  else if (name.length > 80) out["workspace"] = `Hoogstens 80 tekens; dit zijn er ${name.length}.`
+  else if (name.length > 80) out["workspace"] = `Hooguit 80 tekens; dit zijn er ${name.length}.`
   const legal = account.legalEntity.trim()
-  if (legal.length > 200) out["legalEntity"] = `Hoogstens 200 tekens; dit zijn er ${legal.length}.`
+  if (legal.length > 200) out["legalEntity"] = `Hooguit 200 tekens; dit zijn er ${legal.length}.`
   const email = account.billingEmail.trim()
   if (email !== "" && (email.length > 254 || !EMAIL.test(email))) {
     out["billingEmail"] = "Een e-mailadres als facturen@jouwbedrijf.nl."
@@ -50,7 +50,7 @@ export function accountErrors(
   const hours = Number(alerts.delayHours)
   if (alerts.delayHours.trim() === "" || !Number.isInteger(hours) || hours < 1) {
     out["delayHours"] = "Vul een aantal uren in, 1 of meer."
-  } else if (hours > 720) out["delayHours"] = "Hoogstens 720 uur, dat is 30 dagen."
+  } else if (hours > 720) out["delayHours"] = "Hooguit 720 uur, dat is 30 dagen."
   const amount = Number(alerts.disputeAmount)
   if (alerts.disputeAmount.trim() === "" || !(amount >= 0)) out["disputeAmount"] = "Vul een bedrag in, 0 of meer."
   return out

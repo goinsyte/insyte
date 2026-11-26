@@ -54,11 +54,10 @@ const alertText = (alerts: AlertFields) => ({
 
 /** A field the server refused that the page did not catch itself, said at the field. */
 const SERVER_SAYS: Record<string, string> = {
-  workspace: "Geef de werkruimte een naam van hoogstens 80 tekens.",
-  legalEntity: "Hoogstens 200 tekens.",
+  workspace: "Geef de werkruimte een naam van hooguit 80 tekens.",
+  legalEntity: "Hooguit 200 tekens.",
   vat: "Dat btw-nummer klopt niet. Begin met de landcode, zoals NL123456789B01.",
   billingEmail: "Een e-mailadres als facturen@jouwbedrijf.nl.",
-  country: "Kies een land uit de lijst.",
   delayHours: "Een late bestelling is 1 tot en met 720 uur oud.",
   disputeAmount: "Een bedrag van 0 of meer."
 }
@@ -120,22 +119,33 @@ export function AccountSettingsPage() {
         <div className="flex flex-col">
           <FieldRow label="Naam werkruimte">
             <Wrong message={fe.message("workspace")}>
-              <TextInput control={fe.control("workspace")} value={form.workspace} onChange={set("workspace")} />
+              <TextInput
+                label="Naam werkruimte"
+                control={fe.control("workspace")}
+                value={form.workspace}
+                onChange={set("workspace")}
+              />
             </Wrong>
           </FieldRow>
           <FieldRow label="Rechtspersoon">
             <Wrong message={fe.message("legalEntity")}>
-              <TextInput control={fe.control("legalEntity")} value={form.legalEntity} onChange={set("legalEntity")} />
+              <TextInput
+                label="Rechtspersoon"
+                control={fe.control("legalEntity")}
+                value={form.legalEntity}
+                onChange={set("legalEntity")}
+              />
             </Wrong>
           </FieldRow>
           <FieldRow label="Btw-nummer">
             <Wrong message={fe.message("vat")}>
-              <TextInput control={fe.control("vat")} value={form.vat} onChange={set("vat")} />
+              <TextInput label="Btw-nummer" control={fe.control("vat")} value={form.vat} onChange={set("vat")} />
             </Wrong>
           </FieldRow>
           <FieldRow label="Factuur-e-mail">
             <Wrong message={fe.message("billingEmail")}>
               <TextInput
+                label="Factuur-e-mail"
                 control={fe.control("billingEmail")}
                 type="email"
                 value={form.billingEmail}
@@ -158,6 +168,7 @@ export function AccountSettingsPage() {
           <FieldRow label="Late bestelling">
             <Wrong message={fe.message("delayHours")}>
               <NumberInput
+                label="Late bestelling"
                 control={fe.control("delayHours")}
                 value={alertForm.delayHours}
                 onChange={(v) => setAlertForm((f) => ({ ...f, delayHours: v }))}
@@ -168,6 +179,7 @@ export function AccountSettingsPage() {
           <FieldRow label="Groot geschil">
             <Wrong message={fe.message("disputeAmount")}>
               <NumberInput
+                label="Groot geschil"
                 control={fe.control("disputeAmount")}
                 value={alertForm.disputeAmount}
                 onChange={(v) => setAlertForm((f) => ({ ...f, disputeAmount: v }))}
@@ -279,8 +291,10 @@ function NumberInput({
   onChange,
   unit,
   prefix,
+  label,
   control
 }: {
+  label: string
   value: string
   onChange: (v: string) => void
   unit?: string
@@ -298,6 +312,7 @@ function NumberInput({
         null}
       <input
         {...control}
+        aria-label={label}
         inputMode="numeric"
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}

@@ -112,7 +112,7 @@ describe("Account", () => {
     })
     expect(accountErrors(account, { ...alerts, delayHours: "0" })).toHaveProperty("delayHours")
     expect(accountErrors(account, { ...alerts, delayHours: "721" })).toEqual({
-      delayHours: "Hoogstens 720 uur, dat is 30 dagen."
+      delayHours: "Hooguit 720 uur, dat is 30 dagen."
     })
     expect(Object.keys(accountErrors({ ...account, workspace: " ", legalEntity: "x".repeat(201) }, alerts))).toEqual([
       "workspace",
@@ -315,8 +315,6 @@ describe("Regio", () => {
     ])
     const dates = options.filter((o) => o.value.includes("YYYY"))
     expect(dates.map((o) => o.value)).toEqual(["DD MMM YYYY", "MMM DD, YYYY", "YYYY-MM-DD"])
-    expect(dates[0]!.label).toMatch(/^\d{1,2} [a-z]{3} \d{4}$/)
-    expect(dates[1]!.label).toMatch(/^[a-z]{3} \d{1,2}, \d{4}$/)
-    expect(dates[2]!.label).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(dates.map((o) => o.label)).toEqual(["23 nov 2026", "nov 23, 2026", "2026-11-23"])
   })
 })

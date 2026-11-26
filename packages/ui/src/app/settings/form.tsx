@@ -92,18 +92,22 @@ export function TextInput({
   onChange,
   type = "text",
   placeholder,
+  label,
   control
 }: {
   value: string
   onChange: (v: string) => void
   type?: "text" | "email" | "url" | "tel"
   placeholder?: string
+  /** The field's name, said as its own: under a `FieldRow` with an error the message would otherwise join it. */
+  label?: string
   /** `useFieldErrors().control(name)`, for a field that can be wrong. */
   control?: FieldControl
 }) {
   return (
     <input
       {...control}
+      aria-label={label}
       type={type}
       value={value}
       placeholder={placeholder}
