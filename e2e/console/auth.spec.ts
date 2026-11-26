@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
 import { createHmac } from "node:crypto"
-import { admit, guarded, newContext, onPreview, previewRequest } from "./access.ts"
+import { admit, guarded, newContext, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * Step 1's journey (15, "Done when"): register → the mail → verify → onboarding; signing in before verifying and with
@@ -225,13 +225,13 @@ test("@auth an account with two-factor on is asked for the code after the passwo
 
   // Enrolment's screen is the security settings page (M3); here the signed-in browser enrols through the API.
   const origin = new URL(page.url()).origin
-  const enabled = await page.request.post("/api/auth/two-factor/enable", {
+  const enabled = await pageRequest(page).post("/api/auth/two-factor/enable", {
     data: { password },
     ...onPreview({ origin })
   })
   expect(enabled.status()).toBe(200)
   const { totpURI } = await enabled.json() as { totpURI: string }
-  const confirmed = await page.request.post("/api/auth/two-factor/verify-totp", {
+  const confirmed = await pageRequest(page).post("/api/auth/two-factor/verify-totp", {
     data: { code: totp(totpURI) },
     ...onPreview({ origin })
   })
@@ -283,7 +283,7 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await expect(page.getByRole("heading", { name: "Koppel Shopify." })).toBeVisible()
 
   // The store, connected and imported, as Shopify's way back would leave it.
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
   await page.goto("/onboarding?connected=shopify")
   await hydrated(page)
   await expect(page.getByRole("heading", { name: "Alles wordt opgehaald." })).toBeVisible()
