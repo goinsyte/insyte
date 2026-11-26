@@ -99,6 +99,10 @@ export interface SuppliersSource {
   save?: ((input: SupplierInput, row?: SupplierRow) => void) | undefined
   /** A row's values for "Bewerken". */
   inputOf?: ((row: SupplierRow) => SupplierInput) | undefined
+  /** The supplier whose dialog the page opens with (the address's `?supplier=`, a search hit's); absent, none. */
+  opened?: string | undefined
+  /** The page's dialog closed: the host lets go of `opened`, so the same supplier opens again from a search. */
+  onClosed?: (() => void) | undefined
   /** The first day's page, when there are no suppliers. */
   Empty: ComponentType<{ onCreate?: (() => void) | undefined }>
   Closing?: ComponentType<{ empty: boolean; onInvite: () => void }> | undefined

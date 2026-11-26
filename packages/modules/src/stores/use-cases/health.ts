@@ -78,7 +78,10 @@ const count = (value: unknown) => {
   return Number.isFinite(n) ? n : 0
 }
 
-/** A step as stored: the backfill's give-up writes one without a time, which is the incident's own. */
+/**
+ * A step as stored: the backfill's give-up writes one without a time, which is the incident's own, and failed unless
+ * Shopify refused it.
+ */
 const triedOf = (raw: unknown, openedAt: number): ReadonlyArray<Tried> =>
   Array.isArray(raw)
     ? raw.flatMap((t: Record<string, unknown>) => {
@@ -89,7 +92,7 @@ const triedOf = (raw: unknown, openedAt: number): ReadonlyArray<Tried> =>
         {
           at: time(t["at"]) ?? openedAt,
           step: s,
-          outcome: s === "backfill" ? "failed" : outcome,
+          outcome: s === "backfill" && outcome !== "refused" ? "failed" : outcome,
           since: time(t["since"]),
           reason: typeof t["reason"] === "string" ? t["reason"] : null
         } satisfies Tried

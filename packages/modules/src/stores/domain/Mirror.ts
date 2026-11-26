@@ -44,7 +44,7 @@ export const fromMinor = (minor: number, currency: string): string => {
 
 /* ─── The queries (API 2026-10): one selection per object, for the import's pages and single reads ─── */
 
-const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
+const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags isGiftCard createdAt updatedAt
   featuredMedia { preview { image { url } } }`
 const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id tracked }"
 /**
@@ -267,6 +267,8 @@ export interface ProductRow {
   readonly product_type: string | null
   readonly tags: ReadonlyArray<string>
   readonly images: ReadonlyArray<string>
+  /** Shopify's gift card: sold, never stocked, so no stock rule looks at it (its variants are untracked). */
+  readonly is_gift_card: boolean
   readonly shopify_created_at: string | null
   readonly external_updated_at: string
   readonly raw: unknown
@@ -436,6 +438,7 @@ const ProductLine = Schema.Struct({
   vendor: Str,
   productType: Str,
   tags: Schema.Array(Schema.String),
+  isGiftCard: Schema.optional(Schema.Boolean),
   createdAt: Str,
   updatedAt: Schema.String,
   featuredMedia: Schema.optional(Schema.NullOr(Schema.Struct({
@@ -637,6 +640,7 @@ export const addLine = (batch: MirrorBatch, line: unknown, storeCurrency: string
         product_type: p.productType === "" ? null : p.productType,
         tags: p.tags,
         images: p.featuredMedia?.preview?.image ? [p.featuredMedia.preview.image.url] : [],
+        is_gift_card: p.isGiftCard ?? false,
         shopify_created_at: p.createdAt,
         external_updated_at: p.updatedAt,
         raw: line

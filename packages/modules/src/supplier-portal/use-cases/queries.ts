@@ -1,6 +1,7 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { levelOf, LOW_STOCK } from "../../products/domain/Products.ts"
 import { PendingEvents } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -123,7 +124,7 @@ export const orderRows = (
               order by f.created_at desc limit 1) as leg_state,
              coalesce((select jsonb_agg(jsonb_build_object(
                  'id', l.id, 'productId', l.product_id, 'variantId', l.variant_id, 'sku', l.sku, 'title', l.title,
-                 'variantTitle', l.variant_title, 'quantity', l.quantity, 'unitCostMinor', l.unit_cost_minor,
+                 'variantTitle', nullif(l.variant_title, 'Default Title'), 'quantity', l.quantity, 'unitCostMinor', l.unit_cost_minor,
                  'image', l.image) order by l.id)
                from supplier_lines_v l where l.order_id = o.id), '[]'::jsonb) as lines
       from supplier_orders_v o join supplier_self_v s on s.id = o.supplier_id
@@ -149,9 +150,14 @@ interface ProductRowSql {
   readonly reporting: StockReporting
 }
 
-/** Sold out at none; low under 60 units or with a variant at none (`lib/catalog.ts`'s rule). */
-export const stockOf = (units: number, lowest: number | null): StockState =>
-  units <= 0 ? "out" : units < 60 || (lowest !== null && lowest <= 0) ? "low" : "in_stock"
+/**
+ * The console's rule (`levelOf`, `LOW_STOCK`), so the brand and its supplier read the same stock alike: sold out at
+ * none, low where a variant is at or under the threshold, else in stock.
+ */
+export const stockOf = (units: number, lowest: number | null): StockState => {
+  const level = levelOf(units, lowest ?? units, LOW_STOCK)
+  return level === "available" ? "in_stock" : level ?? "out"
+}
 
 /** A variant's count: what the supplier reported, else what the store holds over its locations. */
 export const availableSql = (sql: SqlClient.SqlClient, variant: string) =>

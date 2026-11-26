@@ -108,7 +108,30 @@ const nest = (shop: string, id: string, query = "", updated = true): Record<stri
     const children = childrenOf(id, connection)
     if (children.length > 0) node[connection] = pageOf(children, firstOf(query, connection) ?? 250, null)
   }
+  if (shop.startsWith("gift-") && id === GIFT_CARD) return giftCard(node, updated)
   return updated && shop.startsWith("upd-") ? { ...node, ...RECORDED_UPDATES[id] } : node
+}
+
+/**
+ * A `gift-*` shop's canvas bag is a gift card whose inventory item says tracked, with nothing in stock. The import
+ * reads it as a mirror made before Insyte asked for `isGiftCard` did; a later read (a webhook's, the sweep's) says
+ * what it is.
+ */
+const GIFT_CARD = "gid://shopify/Product/3"
+const giftCard = (node: Record<string, unknown>, said: boolean): Record<string, unknown> => {
+  const variants = node["variants"] as { edges: ReadonlyArray<{ node: Record<string, unknown> }> } | undefined
+  return {
+    ...node,
+    ...(said ? { isGiftCard: true } : {}),
+    ...(variants === undefined ? {} : {
+      variants: {
+        ...variants,
+        edges: variants.edges.map((e) => ({
+          node: { ...e.node, inventoryItem: { ...(e.node["inventoryItem"] as object), tracked: true } }
+        }))
+      }
+    })
+  }
 }
 
 /** The root connections a page is read from, and their node's type. */
@@ -128,7 +151,14 @@ const rootPage = (shop: string, field: string, query: string, variables: Record<
   const ids = importing && shop.startsWith("empty-")
     ? []
     : parsed.filter((l) => String(l["id"]).split("/")[3] === ROOTS[field] && l["__parentId"] === undefined)
-  const nodes = ids.map((l) => nest(shop, String(l["id"]), query, !importing))
+  const filter = String(variables["q"] ?? "")
+  const since = /updated_at:>='([^']+)'/.exec(filter)?.[1]
+  const nodes = ids.map((l) => nest(shop, String(l["id"]), query, !importing)).filter((n) =>
+    // Shopify's own filters where a read names them: the gift cards; a `gift-*` shop's changes since the watermark.
+    filter.includes("gift_card:true")
+      ? n?.["isGiftCard"] === true
+      : !(shop.startsWith("gift-") && since !== undefined && String(n?.["updatedAt"] ?? "") < since)
+  )
   return { [field]: pageOf(nodes, firstOf(query, field) ?? 50, variables["after"]) }
 }
 
@@ -159,6 +189,36 @@ const troubleFor = (shop: string, query: string, variables: Record<string, unkno
       asked.set(shop, 1)
       return new ShopifyRefused({ status: 502, reason: "Bad Gateway" })
     }
+  }
+  return undefined
+}
+
+/**
+ * Protected customer data the app is not approved for, as Shopify refuses it (`ACCESS_DENIED`, with no scope a store
+ * could grant): a `private-*` shop withholds its customers from the import on, a `lapsed-*` shop only a customer's own
+ * read (the approval withdrawn after the import).
+ */
+const withheldFor = (shop: string, query: string, variables: Record<string, unknown>) => {
+  // A customer's own read (a webhook's), not the import's further page of one's children.
+  const one = String(variables["id"] ?? "").includes("/Customer/") && !FOLLOW_UP.test(query)
+  const page = query.includes("customers(first:")
+  if (!(shop.startsWith("private-") && (one || page)) && !(shop.startsWith("lapsed-") && one)) return undefined
+  return new ShopifyRefused({
+    status: 403,
+    reason: "This app is not approved to access the Customer object. See https://shopify.dev/docs/apps/launch/" +
+      "protected-customer-data for more details."
+  })
+}
+
+/**
+ * A token Shopify no longer takes (401), on the import's page reads: a `stale-*` shop refuses the first one, as it does
+ * a token held from before a reconnect; a `locked-*` shop refuses every one.
+ */
+const unauthorized = new Set<string>()
+const unauthorizedFor = (shop: string) => {
+  if (shop.startsWith("locked-") || (shop.startsWith("stale-") && !unauthorized.has(shop))) {
+    unauthorized.add(shop)
+    return new ShopifyRefused({ status: 401, reason: "[API] Invalid API key or access token (unrecognized login)" })
   }
   return undefined
 }
@@ -713,7 +773,9 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
     if (root !== undefined && (query.includes("sortKey: ID") || root === "inventoryItems")) {
       pageReads.set(shop, [...recordedPageReads(shop), `${root}:${String(variables["after"] ?? "start")}`])
     }
-    const trouble = troubleFor(shop, query, variables)
+    const importing = root !== undefined && (query.includes("sortKey: ID") || root === "inventoryItems")
+    const trouble = (importing ? unauthorizedFor(shop) : undefined) ?? withheldFor(shop, query, variables) ??
+      troubleFor(shop, query, variables)
     if (trouble !== undefined) return Effect.fail(trouble)
     const data = recordedQuery(shop, query, variables)
     // A `lost-*` shop makes its first draft or product, and the answer never arrives: a gateway error, tried again.

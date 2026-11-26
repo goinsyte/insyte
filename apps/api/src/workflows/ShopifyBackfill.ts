@@ -27,8 +27,9 @@ import { withStepDb } from "../platform/StepDb.ts"
  * reads Shopify's pages from the checkpointed cursor for up to thirty seconds (`readPages`), so 20,000 orders at two a
  * page are a few hundred steps, far inside a Workflow's 10,000. A throttle too long to wait out in a step is slept on
  * here (a sleep is not a step, and spends no retries). After every step the workspace's tabs get the counts
- * (`job.progress`). A refused token stops at once (the operator must reconnect); anything else retries with backoff,
- * and when the retries are spent the store asks for the operator (`giveUp`).
+ * (`job.progress`). A refusal no retry changes (a token Shopify no longer accepts, a 401 or a 403) gives up at once,
+ * inside its step, with why (`readPages`); anything else, a 429 or a 5xx among them, retries with backoff, and when
+ * the retries are spent the store asks for the operator (`giveUp`).
  */
 
 export interface BackfillParams {
@@ -68,7 +69,8 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
       await progress("done", done.counts)
       return done.counts
     } catch (error) {
-      await step.do("give up", RETRY, () => exec(giveUp(ctx, String(error))))
+      // Refused, the step already gave up with Shopify's reason.
+      if (!(error instanceof Refused)) await step.do("give up", RETRY, () => exec(giveUp(ctx, String(error))))
       throw error
     }
   }
@@ -85,12 +87,16 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
     for (let n = 0;; n++) {
       if (++this.#steps > MAX_STEPS) throw new Error(`the import took more than ${MAX_STEPS} steps`)
       const read = await step.do(`page ${resource} ${n}`, RETRY, () => exec(readPages(ctx, resource)))
+      if (read.refused !== null) throw new Refused(read.refused)
       await progress(label, read.counts)
       if (read.done) return
       if (read.waitMs > 0) await step.sleep(`wait ${resource} ${n}`, read.waitMs)
     }
   }
 }
+
+/** The import stopped because Shopify refused it: the step that read the refusal gave the import up already. */
+class Refused extends NonRetryableError {}
 
 /**
  * One step's effect in the store's workspace, over a connection of its own; a refused token is not retried. Shopify's

@@ -1,4 +1,8 @@
+import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
+import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import worker from "../src/Local.ts"
+import type { IngestMessage } from "../src/platform/Ingest.ts"
 import { ok, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
@@ -15,7 +19,7 @@ interface Mirror {
   orders: Array<{ number: string; status: string; paymentStatus: string; customerName: string }>
   products: Array<{ title: string; status: string }>
   customers: Array<{ name: string; email: string | null }>
-  inbound: Array<{ topic: string; processed: boolean }>
+  inbound: Array<{ id: string; topic: string; processed: boolean; error: string | null }>
   gdpr: Array<{ kind: string; completed: boolean }>
 }
 
@@ -99,6 +103,32 @@ describe("Shopify's webhooks", () => {
     expect((await hook(fresh.shop, "fulfillments/update", { id: 9, order_id: 1 })).status).toBe(200)
     const mirror = await settled(fresh)
     expect(mirror.orders.find((o) => o.number === "#1001")).toMatchObject({ status: "shipped" })
+  })
+
+  it("does not retry a delivery Shopify refuses for good, and keeps why on its row", async () => {
+    // A `lapsed-*` shop withholds its customers since the import (protected customer data): a customer's read is a 403.
+    const lapsed = await importedStore("lapsed", "lapsed")
+    expect((await hook(lapsed.shop, "customers/update", { id: 1 })).status).toBe(200)
+    let row: Mirror["inbound"][number] | undefined
+    for (let i = 0; i < 100 && (row?.error ?? null) === null; i++) {
+      row = (await mirrorOf(lapsed)).inbound[0]
+      if ((row?.error ?? null) === null) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(row).toMatchObject({
+      topic: "customers/update",
+      processed: false,
+      error: expect.stringContaining("ShopifyRefused")
+    })
+    // The consumer again, by hand: the delivery is acked, not sent back to the queue.
+    const ctx = createExecutionContext()
+    const id = `lapsed-${run}`
+    const batch = createMessageBatch<IngestMessage>("insyte-ingest", [
+      { id, timestamp: new Date(), attempts: 1, body: { inboundEventId: row!.id, workspaceId: lapsed.workspace } }
+    ])
+    await worker.queue(batch, env, ctx)
+    const result = await getQueueResult(batch, ctx)
+    expect(result.retryMessages).toEqual([])
+    expect(result.explicitAcks).toEqual([id])
   })
 
   it("archives a deleted product, and answers the privacy topics", async () => {

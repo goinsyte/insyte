@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
 import { levelOf, LOW_STOCK, VARIANT_UNITS } from "../../products/domain/Products.ts"
+import { likePattern, prefixPattern, SearchHit } from "../../shared/domain/Search.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { type ListInput, SupplierDetail, SupplierList, SupplierRow } from "../domain/Suppliers.ts"
 
@@ -195,6 +196,39 @@ export const get = Effect.fn("Suppliers.get")(function*(id: string) {
         products: products.map(({ lowest, ...p }) => ({ ...p, stock: levelOf(p.available, lowest, LOW_STOCK) })),
         delayedOrders
       })
+    })
+  )
+})
+
+/**
+ * Up to `limit` suppliers for `Search.records`, by name or contact address, a name that begins with the text first;
+ * nothing for a role without the area. The hit opens the supplier on Leveranciers.
+ */
+export const search = Effect.fn("Suppliers.search")(function*(q: string, limit: number) {
+  const allowed = yield* Policy.require("suppliers", 1).pipe(
+    Effect.as(true),
+    Effect.catchTag("Forbidden", () => Effect.succeed(false))
+  )
+  const text = q.trim()
+  if (!allowed || text === "") return [] as Array<SearchHit>
+  const db = yield* Db
+  const pattern = likePattern(text)
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const rows = yield* sql<{ id: string; name: string; contactEmail: string | null }>`
+        select s.id, s.name, s.contact_email from suppliers s
+        where s.deleted_at is null and (s.name ilike ${pattern} or s.contact_email ilike ${pattern})
+        order by (s.name ilike ${prefixPattern(text)}) desc, lower(s.name), s.id
+        limit ${limit}`
+      return rows.map((r) =>
+        new SearchHit({
+          kind: "supplier",
+          id: r.id,
+          title: r.name,
+          subtitle: r.contactEmail,
+          href: `/suppliers?supplier=${encodeURIComponent(r.id)}`
+        })
+      )
     })
   )
 })

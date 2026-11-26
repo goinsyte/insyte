@@ -8,7 +8,7 @@ import {
 	CommandShortcut,
 } from "../../components/command";
 import { useNavigate } from "@tanstack/react-router";
-import { CornerDownLeft, Inbox, MessagesSquare, ShoppingBag, Sparkles, Ticket, User } from "../../icons";
+import { Box, Building, CornerDownLeft, Inbox, MessagesSquare, ShoppingBag, Sparkles, Ticket, User } from "../../icons";
 import type { Persona } from "../lib/types/persona";
 import { useEffect, useState } from "react";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
@@ -52,6 +52,9 @@ export function CommandPalette({
 	const found = useRecordSearch(query);
 	const orderHits = found?.orders ?? orders.map((o) => ({ id: o.id, number: o.number, customer: o.customer_name }));
 	const customerHits = found?.customers ?? [...made, ...customers];
+	// Products and suppliers only through a host's search: the frame holds neither list.
+	const productHits = found?.products ?? [];
+	const supplierHits = found?.suppliers ?? [];
 	const ticketHits = found?.tickets ?? tickets.map((t) => ({ id: t.id, number: t.number, title: t.title }));
 	const threadHits =
 		found?.threads ??
@@ -137,6 +140,24 @@ export function CommandPalette({
 									<User className="size-4" />
 									<span>{c.name}</span>
 									<span className="truncate text-ink-3">{c.email}</span>
+								</CommandItem>
+							))}
+						</CommandGroup>
+						<CommandGroup heading="Producten">
+							{productHits.map((p) => (
+								<CommandItem key={p.id} value={`${p.id} ${p.title} ${p.vendor}`} keywords={keywords} onSelect={() => go("/products/$productId", { productId: p.id })}>
+									<Box className="size-4" />
+									<span className="truncate">{p.title}</span>
+									<span className="shrink-0 text-ink-3">{p.vendor}</span>
+								</CommandItem>
+							))}
+						</CommandGroup>
+						<CommandGroup heading="Leveranciers">
+							{supplierHits.map((s) => (
+								<CommandItem key={s.id} value={`${s.id} ${s.name} ${s.email}`} keywords={keywords} onSelect={() => go("/suppliers", undefined, { supplier: s.id })}>
+									<Building className="size-4" />
+									<span className="truncate">{s.name}</span>
+									<span className="shrink-0 text-ink-3">{s.email}</span>
 								</CommandItem>
 							))}
 						</CommandGroup>
