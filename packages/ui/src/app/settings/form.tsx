@@ -91,20 +91,28 @@ export function TextInput({
   value,
   onChange,
   type = "text",
-  placeholder
+  placeholder,
+  label,
+  control
 }: {
   value: string
   onChange: (v: string) => void
   type?: "text" | "email" | "url" | "tel"
   placeholder?: string
+  /** The field's name, said as its own: under a `FieldRow` with an error the message would otherwise join it. */
+  label?: string
+  /** `useFieldErrors().control(name)`, for a field that can be wrong. */
+  control?: FieldControl
 }) {
   return (
     <input
+      {...control}
+      aria-label={label}
       type={type}
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className={INPUT_CLASS}
+      className={cn(INPUT_CLASS, INVALID_CLASS)}
     />
   )
 }
@@ -275,6 +283,9 @@ type Held = { proceed: () => void; reset: () => void }
  * Unsaved changes, said once at the foot of the page the moment there are any, with both ways out.
  * It replaces a Save button that sat disabled at the bottom of every form, saying nothing.
  *
+ * In a column it sits at the foot (`mt-auto`), so a short page has it at the bottom of the sheet rather than straight
+ * under the last field; on a long one it stays in view, `sticky` at the bottom of the window.
+ *
  * It floats the way the command palette does — paper lifted off the sheet, the shortcut beside the
  * action it runs — because it is the same kind of thing: a command that is waiting for you. `⌘S`
  * (Ctrl+S off a Mac) saves from anywhere on the page. Leaving the page while it is up does not lose
@@ -418,7 +429,7 @@ export function UnsavedBar({
                   transition: { duration: 0.16, ease: [0.4, 0, 1, 1] }
                 }}
               transition={{ type: "spring", stiffness: 520, damping: 38 }}
-              className="pointer-events-none sticky bottom-4 z-20 flex justify-center self-stretch"
+              className="pointer-events-none sticky bottom-4 z-20 mt-auto flex justify-center self-stretch"
             >
               <div
                 ref={body}

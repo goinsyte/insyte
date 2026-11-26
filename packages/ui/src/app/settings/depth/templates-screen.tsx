@@ -1,7 +1,7 @@
 import { Link2 } from "../../../icons"
-import type { TemplateLinks } from "../../lib/settings-depth"
+import { linkErrors, type TemplateLinks } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
-import { FieldRow, UnsavedBar } from "../form"
+import { FieldRow, INVALID_CLASS, UnsavedBar, useFieldErrors } from "../form"
 import { SettingCard } from "../setting-card"
 import { useSection, WELL } from "./kit"
 import { useSettingsDepthSource } from "./source"
@@ -36,8 +36,6 @@ const FIELDS: ReadonlyArray<
   }
 ]
 
-const bad = (v: string) => v.trim() !== "" && !/^https:\/\/[^\s.]+\.[^\s]+$/.test(v.trim())
-
 /**
  * Sjablonen (`/settings/templates`, PLAN 43): the fixed links reply templates and the customer
  * agent put in, set once. An empty link drops the sentence that carries it rather than sending a
@@ -51,7 +49,11 @@ export function TemplatesPage() {
     (a, b) => FIELDS.filter((f) => a[f.key] !== b[f.key]).map((f) => [f.label, a[f.key], b[f.key]])
   )
   const usage = useSettingsDepthSource().linkUsage
-  const invalid = FIELDS.some((f) => bad(s.draft[f.key]))
+  // Under a wrong link the bar stays, so ⌘S, Negeren and the hold on leaving do too; saving goes to the link instead.
+  const fe = useFieldErrors(linkErrors(s.draft), {
+    draftKey: JSON.stringify(s.draft),
+    say: () => "Een link begint met https:// en heeft een domein."
+  })
   return (
     <>
       <SettingCard
@@ -70,22 +72,20 @@ export function TemplatesPage() {
               >
                 <span className="flex flex-col gap-1.5">
                   <input
+                    {...fe.control(f.key)}
                     value={s.draft[f.key]}
                     disabled={!s.canEdit}
                     onChange={(e) => s.setDraft({ ...s.draft, [f.key]: e.target.value })}
                     placeholder="https://"
                     inputMode="url"
-                    aria-invalid={bad(s.draft[f.key])}
                     aria-label={f.label}
-                    className={cn(WELL, "aria-[invalid=true]:bg-signal-red-bg")}
+                    className={cn(WELL, INVALID_CLASS)}
                   />
                   <span className="flex items-center gap-2 text-xs">
                     <code className="rounded bg-ink/6 px-1.5 py-0.5 font-sans text-ink-2">{f.variable}</code>
-                    {bad(s.draft[f.key])
-                      ? <span className="text-signal-red">Een link begint met https:// en heeft een domein.</span>
-                      : !s.draft[f.key]
+                    {fe.message(f.key) ?? (!s.draft[f.key]
                       ? <span className="text-ink-3">{f.empty}</span>
-                      : null}
+                      : null)}
                   </span>
                 </span>
               </FieldRow>
@@ -125,9 +125,9 @@ export function TemplatesPage() {
         </div>
       </SettingCard>
       <UnsavedBar
-        visible={s.dirty && s.canEdit && !invalid}
+        visible={s.dirty && s.canEdit}
         onDiscard={s.discard}
-        onSave={() => s.save("Vaste links opgeslagen", "Sjablonen gebruiken vanaf nu deze links.")}
+        onSave={fe.guard(() => s.save("Vaste links opgeslagen", "Sjablonen gebruiken vanaf nu deze links."))}
       />
     </>
   )

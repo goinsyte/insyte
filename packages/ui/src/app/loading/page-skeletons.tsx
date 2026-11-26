@@ -484,7 +484,7 @@ function AnalyticsSkeleton() {
     as `SettingCard` heads them and `FieldRow` lays them out (label at 200px, the control up to 380px beside it). */
 function SettingsSkeleton({ title }: { title?: string | undefined }) {
 	return (
-		<div className="relative isolate flex min-h-full min-w-0 shrink-0 flex-col bg-paper px-3 py-3 sm:px-5 sm:py-5">
+		<div className="relative isolate flex min-h-full min-w-0 flex-1 shrink-0 flex-col bg-paper px-3 py-3 sm:px-5 sm:py-5">
 			<div
 				aria-hidden
 				className="pointer-events-none absolute inset-0 -z-10 bg-dot-grid-ink [mask-image:radial-gradient(ellipse_at_center,transparent_35%,black_85%)]"

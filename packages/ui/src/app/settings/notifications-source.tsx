@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react"
 import type { Note, NotifyPrefs } from "../lib/notifications"
+import type { SaveOutcome } from "./form"
 
 /**
  * What Instellingen → Meldingen reads and does, from whoever hosts it (as `returns/source.tsx` is for the returns
@@ -39,10 +40,11 @@ export interface SlackHere {
 export interface NotificationSettingsSource {
   saved: NotifyPrefs
   /**
-   * Saves the page whole; the host says what it did (with its Undo) or why it did not. Resolves whether it saved: a
-   * page that did not keeps what was typed.
+   * Saves the page whole; the host says what it did (with its Undo) or why it did not. Resolves whether it saved, or
+   * the fields the server refused (`quiet`), which the page marks: a page that did not save keeps what was typed. Once
+   * saved, `saved` is the answer at once, so the bar goes with the save rather than with the next read.
    */
-  save: (next: NotifyPrefs, said: { label: string; detail?: string | undefined }) => Promise<boolean>
+  save: (next: NotifyPrefs, said: { label: string; detail?: string | undefined }) => Promise<SaveOutcome>
   /** The member's notes, for "{shown} van {all} in de app"; absent until they are in. */
   notes: ReadonlyArray<Note> | undefined
   /** Where e-mail and the digest go. */

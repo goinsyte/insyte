@@ -173,6 +173,16 @@ export function vatErrors(v: Pick<Vat, "oss" | "ossNumber">): Record<string, str
 const HTTPS = /^https:\/\/[^\s.]+\.[^\s]+$/;
 const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i;
 
+/** Each fixed link empty (its sentence drops out) or a link as the server keeps it. */
+export function linkErrors(l: TemplateLinks): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const key of ["review", "unsubscribe", "restock"] as const) {
+		const link = l[key].trim();
+		if (link !== "" && (link.length > 500 || !HTTPS.test(link))) out[key] = "Een link begint met https:// en heeft een domein.";
+	}
+	return out;
+}
+
 export function brandErrors(b: Pick<Brand, "color" | "sender" | "website" | "support">): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!isHex(b.color)) out["color"] = `Een kleur als ${BRAND_DEFAULT_COLOR}.`;

@@ -940,8 +940,8 @@ export function BrandScreen() {
 
       <SettingsSection
         id="afzender"
-        title="Afzender"
-        description="Wie de mail stuurt en waar een antwoord heen gaat."
+        title="Retourportaal en chat"
+        description="Hoe de klant je winkel op het retourportaal herkent en bereikt, en waar de chat op je website staat."
         footer={
           <SaveBar
             disabled={!edit}
@@ -949,7 +949,11 @@ export function BrandScreen() {
             onReset={sender.reset}
             onSave={() => {
               sender.commit()
-              toast({ title: "Afzender opgeslagen", body: "Nieuwe mails gebruiken hem meteen.", tone: "good" })
+              toast({
+                title: "Retourportaal en chat opgeslagen",
+                body: "Het retourportaal en de chat gebruiken het meteen.",
+                tone: "good"
+              })
             }}
           />
         }
@@ -976,7 +980,11 @@ export function BrandScreen() {
               />
             )}
           </Field>
-          <Field label="Supportadres" hint="Staat onder elke mail en in het retourportaal." className="sm:col-span-2">
+          <Field
+            label="Supportadres"
+            hint="Staat onderaan het retourportaal, met de website."
+            className="sm:col-span-2"
+          >
             {(c) => (
               <Input
                 {...c}
@@ -1000,6 +1008,13 @@ export function BrandScreen() {
             />
           }
         />
+        <p className="py-3 text-xs text-ink-3">
+          Van welk adres mails gaan en waar een antwoord landt, stel je in bij{" "}
+          <Link to={paths.settings("e-mail-en-domein")} className="text-ink-2 underline hover:text-ink">
+            E-mail en domein
+          </Link>
+          .
+        </p>
       </SettingsSection>
 
       <PageSection id="voorbeeld" title="Voorbeeld" meta="Een retourmail, met je huisstijl">
@@ -1017,7 +1032,11 @@ export function BrandScreen() {
           >
             Label downloaden
           </span>
-          <p className="text-xs text-ink-3">{d.sender} · {d.support} · {d.website.replace(/^https:\/\//, "")}</p>
+          <p className="text-xs text-ink-3">
+            {[d.sender, d.support, d.website.replace(/^https:\/\//, "")].map((x) => x.trim()).filter(Boolean).join(
+              " · "
+            )}
+          </p>
         </div>
       </PageSection>
     </SettingsPage>
