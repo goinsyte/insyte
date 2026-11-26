@@ -1,6 +1,7 @@
 import { useState } from "react"
+import { toast } from "sonner"
 import { Switch } from "../../../components/switch"
-import { Shield, Trash2 } from "../../../icons"
+import { Loader, Shield, Trash2 } from "../../../icons"
 import { ConfirmDialog } from "../../common/confirm-dialog"
 import { formatRelative } from "../../lib/format"
 import type { Privacy } from "../../lib/settings-depth"
@@ -68,7 +69,15 @@ export function PrivacyPage() {
     ? "Tel eerst de opgeslagen termijnen"
     : undefined
 
-  const count = () => privacy.count(s.draft.classes)
+  const count = () =>
+    void privacy.count(s.draft.classes).then((n) => {
+      if (n === undefined) return
+      toast.success("Geteld", {
+        description: n === 0
+          ? "Bij deze termijnen gaat er niets weg."
+          : `Bij deze termijnen ${n === 1 ? "gaat 1 item" : `gaan ${n.toLocaleString("nl-NL")} items`} weg.`
+      })
+    })
   const setErasing = (on: boolean) =>
     privacy.setErasing(
       on,
@@ -158,9 +167,11 @@ export function PrivacyPage() {
               type="button"
               onClick={count}
               disabled={privacy.counting}
-              className="field flex h-8 items-center rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover"
+              aria-busy={privacy.counting}
+              className="field flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover disabled:opacity-60"
             >
-              Nu tellen
+              {privacy.counting ? <Loader className="size-3.5 animate-spin" strokeWidth={1.75} /> : null}
+              {privacy.counting ? "Tellen…" : "Nu tellen"}
             </button>
             {live.erasing ?
               (

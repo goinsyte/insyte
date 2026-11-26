@@ -1,4 +1,6 @@
+import { localIso } from "@insyte/domain/LocalTime"
 import { createContext, type ReactNode, useContext } from "react"
+import { formatCurrency, formatDateTime, minorDigitsOf, ZONE } from "../lib/format"
 import type { Order } from "../lib/types/domain"
 import type { EndpointState } from "../lib/webhooks-core"
 
@@ -46,23 +48,44 @@ export const FULFILMENT_LABEL: Record<Order["fulfillment_status"], string> = {
   returned: "Retour"
 }
 
-/** The order columns Exporteren offers, as the file names and writes them (the server writes the same). */
+/** An amount as the `;` file writes it for Dutch Excel: a decimal comma, the currency's own decimals ("24,95"). */
+const fileAmount = (value: number, currency: string) => {
+  const digits = minorDigitsOf(currency)
+  return value.toFixed(digits).replace(".", ",")
+}
+
+/**
+ * The order columns Exporteren offers, as the file names and writes them (the server writes the same: amounts with a
+ * decimal comma, "Geplaatst" on the workspace's clock with its offset), and, where it reads differently, as the
+ * preview shows them: an amount with its currency, a time in the workspace's notation.
+ */
 export const EXPORT_COLUMNS: ReadonlyArray<{
   id: OrderColumn
   label: string
   read: (o: Order) => string | number
+  show?: (o: Order) => string
 }> = [
   { id: "number", label: "Bestelling", read: (o) => o.number },
   { id: "customer", label: "Klant", read: (o) => o.customer_name },
   { id: "email", label: "E-mail", read: (o) => o.customer_email },
-  { id: "total", label: "Totaal", read: (o) => o.total },
+  {
+    id: "total",
+    label: "Totaal",
+    read: (o) => fileAmount(o.total, o.currency),
+    show: (o) => formatCurrency(o.total, o.currency)
+  },
   { id: "currency", label: "Valuta", read: (o) => o.currency },
   { id: "status", label: "Status", read: (o) => STATUS_LABEL[o.status] ?? o.status },
   { id: "payment", label: "Betaling", read: (o) => PAYMENT_LABEL[o.payment_status] },
   { id: "fulfillment", label: "Afhandeling", read: (o) => FULFILMENT_LABEL[o.fulfillment_status] },
   { id: "items", label: "Artikelen", read: (o) => o.line_count ?? o.line_items.length },
   { id: "tracking", label: "Track & trace", read: (o) => o.tracking_number ?? "" },
-  { id: "placed", label: "Geplaatst", read: (o) => o.created_at }
+  {
+    id: "placed",
+    label: "Geplaatst",
+    read: (o) => localIso(new Date(o.created_at), ZONE),
+    show: (o) => formatDateTime(o.created_at)
+  }
 ]
 
 /** The overview's figures. */
