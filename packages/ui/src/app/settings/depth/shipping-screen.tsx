@@ -65,9 +65,7 @@ export function ShippingPage() {
               <span />
               <span>Wat de klant leest</span>
               <span>Waar</span>
-              <span className="text-right" title="Hoeveel bestellingen nu deze status hebben">
-                Bestellingen nu
-              </span>
+              <span className="text-right">Bestellingen nu</span>
             </div>
             {s.draft.map((x, i) => (
               <div
@@ -161,7 +159,7 @@ export function ShippingPage() {
               <span className="text-ink-3 text-xs">De klantagent op “waar is mijn pakket?”</span>
               <p>
                 Je bestelling #12218 is nu:{" "}
-                {active ? midSentence(filled(active.label)) : ""}. De laatste scan was vanochtend om 06:14.
+                {active ? filled(midSentence(active.label)) : ""}. De laatste scan was vanochtend om 06:14.
               </p>
             </div>
           </div>

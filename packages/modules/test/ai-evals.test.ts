@@ -84,8 +84,11 @@ describe("the reply draft's order facts (M17 step 20.1b)", () => {
     )!
     const input = withOrder.input as Parameters<typeof replyPrompt.render>[0]
     const [first, ...rest] = input.orders
-    const draft = (parcel: string) => replyPrompt.fake({ ...input, orders: [{ ...first!, parcel }, ...rest] }).text
+    const draft = (parcel: string, carrier = first!.carrier) =>
+      replyPrompt.fake({ ...input, orders: [{ ...first!, carrier, parcel }, ...rest] }).text
     expect(draft("Onderweg met PostNL")).toContain(`staat op "onderweg met PostNL"`)
     expect(draft("DHL heeft je pakket")).toContain(`staat op "DHL heeft je pakket"`)
+    // "{vervoerder} heeft je pakket" filled in with a carrier that has one capital.
+    expect(draft("Budbee heeft je pakket", "Budbee")).toContain(`staat op "Budbee heeft je pakket"`)
   })
 })

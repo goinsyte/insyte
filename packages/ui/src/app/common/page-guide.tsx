@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
@@ -58,6 +58,21 @@ function markAutoShown() {
 	} catch {
 		/* No storage, no auto-open next time either: the check above fails closed. */
 	}
+}
+
+/** A step's words; while they fade out under the next step's, a screen reader no longer reads them. */
+function StepWords({ title, body }: { title: string; body: string }) {
+	const leaving = !useIsPresent();
+	return (
+		<>
+			<h2 aria-hidden={leaving || undefined} className="text-balance font-medium text-ink text-lg leading-snug">
+				{title}
+			</h2>
+			<p aria-hidden={leaving || undefined} className="text-pretty text-ink-2 text-sm leading-normal">
+				{body}
+			</p>
+		</>
+	);
 }
 
 export function PageGuide({ id, title, steps }: { id: string; title: string; steps: ReadonlyArray<GuideStep> }) {
@@ -150,10 +165,7 @@ export function PageGuide({ id, title, steps }: { id: string; title: string; ste
 										transition={{ duration: reduce ? 0.1 : 0.22, ease: EASE }}
 										className="flex flex-col gap-1.5"
 									>
-										<h2 className="text-balance font-medium text-ink text-lg leading-snug">
-											{current.title}
-										</h2>
-										<p className="text-pretty text-ink-2 text-sm leading-normal">{current.body}</p>
+										<StepWords title={current.title} body={current.body} />
 									</motion.div>
 								</AnimatePresence>
 							</div>

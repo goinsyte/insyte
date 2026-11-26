@@ -122,7 +122,7 @@ export function ReturnSettingsPage() {
 									<StatusPill tone={r.kind === "not_returnable" ? "warning" : "neutral"} label={RULE_LABEL[r.kind]} />
 									<button
 										type="button"
-										aria-label={`Regel voor ${r.target.by === "tag" ? `label “${r.target.tag}”` : r.target.label} verwijderen`}
+										aria-label={`Regel “${RULE_LABEL[r.kind]}” voor ${r.target.by === "tag" ? `label “${r.target.tag}”` : r.target.label} verwijderen`}
 										onClick={() => {
 											const before = draft.rules;
 											set("rules", draft.rules.filter((x) => x.id !== r.id));
@@ -292,7 +292,7 @@ export function ReturnSettingsPage() {
 				<div className="flex flex-col">
 					<FieldRow label="Retourportaal">
 						<span className="flex h-9 items-center gap-2.5">
-							<Switch checked={draft.portal.on} onCheckedChange={(on) => set("portal", { ...draft.portal, on })} aria-label="Retourportaal aan" />
+							<Switch checked={draft.portal.on} onCheckedChange={(on) => set("portal", { ...draft.portal, on })} aria-label="Retourportaal" />
 							<span aria-hidden className="text-ink-2 text-sm">{draft.portal.on ? "Aan" : "Uit"}</span>
 						</span>
 					</FieldRow>

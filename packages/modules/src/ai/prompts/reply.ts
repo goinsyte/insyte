@@ -88,7 +88,7 @@ const first = (c: ReplyContext): string => {
   const order = c.orders[0]
   const facts = order === undefined
     ? ""
-    : ` Je bestelling ${order.number} staat op "${midSentence(order.parcel ?? order.status)}"${
+    : ` Je bestelling ${order.number} staat op "${midSentence(order.parcel ?? order.status, order.carrier)}"${
       order.trackingNumber === null ? "" : `, met trackingnummer ${order.trackingNumber}`
     }.`
   const known = c.knowledge[0] === undefined ? "" : ` ${firstSentence(c.knowledge[0].text)}`

@@ -582,7 +582,10 @@ function AddressDialog({ open, onClose, onAdd }: {
 }
 
 const say = (label: string) => label.replaceAll("{vervoerder}", "PostNL")
-/** The phrase inside the agent's sentence: only an ordinary first word loses its capital ("onderweg met PostNL"). */
+/**
+ * The phrase inside the agent's sentence, decided on the template: only an ordinary first word loses its capital
+ * ("onderweg met PostNL"); "{vervoerder} heeft…" keeps the carrier's. Keep in step with `@insyte/domain/Sentence`.
+ */
 const midSentence = (phrase: string) =>
   /^\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/u.test(phrase) ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase
 
@@ -691,7 +694,7 @@ export function ShippingScreen() {
             <p className="text-xs text-ink-3">De klantagent op “waar is mijn pakket?”</p>
             <p className="text-sm text-ink">
               Je bestelling #12218 is nu:{" "}
-              {shown === undefined ? "" : midSentence(say(shown.label))}. De laatste scan was vanochtend om 06:14.
+              {shown === undefined ? "" : say(midSentence(shown.label))}. De laatste scan was vanochtend om 06:14.
             </p>
           </div>
         </div>
