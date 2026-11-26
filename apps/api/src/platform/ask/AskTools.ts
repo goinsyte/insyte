@@ -498,11 +498,15 @@ const LOOKUP_EXPLAINS: Readonly<Record<string, ExplainRef["key"]["_tag"]>> = {
   roas: "roas"
 }
 
-const METRIC_LABEL: Readonly<Record<string, { label: string; fmt: "money" | "integer" | "percent" | "number" }>> = {
+const METRIC_LABEL: Readonly<
+  Record<string, { label: string; fmt: "money" | "integer" | "percent" | "number"; about?: string }>
+> = {
   omzet: { label: "Omzet", fmt: "money" },
   bestellingen: { label: "Betaalde bestellingen", fmt: "integer" },
   gemiddelde_bestelling: { label: "Gemiddelde bestelling", fmt: "money" },
   terugbetaald: { label: "Terugbetaald", fmt: "money" },
+  // As /v1 and MCP describe it (`AnalyticsTools.ts`).
+  terugbetaald_omzet: { label: "Terugbetaald op omzet", fmt: "money", about: "refunded on the orders omzet counts" },
   chargebacks: { label: "Onder geschil", fmt: "money" },
   advertentiekosten: { label: "Advertentiekosten", fmt: "money" },
   overige_kosten: { label: "Overige kosten", fmt: "money" },
@@ -515,7 +519,9 @@ const METRIC_LABEL: Readonly<Record<string, { label: string; fmt: "money" | "int
 const getFigures: AskTool<AnalyticsService | Base> = {
   name: "get_figures",
   description: "Month figures as Kosten and the sheets read them. Input: {\"metrics\": comma-separated ids from " +
-    `${Object.keys(METRIC_LABEL).join(", ")}, "month"?: "YYYY-MM" (default this month)}.`,
+    `${
+      Object.entries(METRIC_LABEL).map(([id, m]) => (m.about === undefined ? id : `${id} (${m.about})`)).join(", ")
+    }, "month"?: "YYYY-MM" (default this month)}.`,
   step: "Ik reken de maandcijfers na",
   run: (input) =>
     Effect.gen(function*() {

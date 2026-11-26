@@ -123,6 +123,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "return.resolved": none,
   "return.requested": none,
   "return.label_requested": none,
+  "return.mail": none,
   "quality_check.submitted": none,
   // A chargeback's note to the team (M13 step 3) is the notifications' business.
   "chargeback.opened": none,

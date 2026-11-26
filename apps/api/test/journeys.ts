@@ -92,7 +92,8 @@ export const consume = async (outboxIds: Array<string>) => {
 export const relay = async (workspace: string) => {
   for (let attempt = 0; attempt < 50; attempt++) {
     const events = await outboxOf(workspace)
-    const pending = events.filter((e) => e.relayedAt === null && !e.cancelled && e.due)
+    // A dead-lettered event is never relayed, so it is not waited for.
+    const pending = events.filter((e) => e.relayedAt === null && !e.cancelled && e.due && e.deadLetteredAt === null)
     if (pending.length === 0) return
     await consume(pending.map((e) => e.id))
     await new Promise((resolve) => setTimeout(resolve, 100))

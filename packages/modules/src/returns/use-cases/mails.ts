@@ -3,6 +3,8 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import type { Mail, ReturnMailFacts } from "../../shared/domain/Mailer.ts"
+import { FIRST_RETRY_SECONDS } from "../../shared/domain/MailRetry.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Senders from "../../shared/use-cases/Senders.ts"
 import type { Resolution } from "../domain/Rules.ts"
 import type { StoredResolution } from "../domain/Shopify.ts"
@@ -50,6 +52,7 @@ const NOT_SENT: Record<ShopperMail, string> = {
 const withoutAddresses = (reason: string) => reason.replace(/[^\s<>"'`]+@[^\s<>"'`]+/g, "<email>").slice(0, 300)
 
 interface Facts {
+  readonly workspaceId: string
   readonly number: string
   readonly type: "return" | "claim"
   readonly status: string
@@ -89,22 +92,31 @@ const due = (mail: ShopperMail, r: Facts, label: StoredLabel | null, shopify: St
   }
 }
 
+/** What became of one return's shopper mail: gone, or nothing to send, or handed to a `return.mail` of its own. */
+export type ShopperMailOutcome =
+  | { readonly outcome: "done" }
+  | { readonly outcome: "retry"; readonly outboxId: string; readonly afterSeconds: number }
+
 /**
  * One mail about one return to its shopper; nothing where there is no address, or it went before. Refused for this
  * recipient or these contents (`refusedForRecipient`: an address that bounces, a payload the provider will not take),
- * trying again changes nothing: the history says it did not go and the event's other sinks (Shopify's write of the
- * decision) still commit. Anything else (the provider busy or out, Insyte's key or sending domain refused, a template
- * that did not render) fails, so the relay tries the event again and, past its tries, sets it aside where it is seen.
+ * trying again changes nothing: the history says it did not go. Anything else (the provider busy or out, Insyte's key
+ * or sending domain refused, a template that did not render) does not hold up the event that asked for it, whose other
+ * sinks (Shopify's write of the decision) commit: the mail stays in line (`return_mails.sent_at` null) and is handed to
+ * a `return.mail` event of its own, from the same sender, so the same mail goes once. That event (`retry`) fails while
+ * the mail does not go, so the relay tries it again on its own and, past its tries, sets it aside where it is seen.
  * The log has the provider's reason, never the address.
  */
 export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
   sql: SqlClient.SqlClient,
   returnId: string,
   mail: ShopperMail,
-  via: "portal" | "team" = "portal"
+  via: "portal" | "team" = "portal",
+  retry?: { readonly from: string | null | undefined }
 ) {
+  const done: ShopperMailOutcome = { outcome: "done" }
   const [r] = yield* sql<Facts>`
-    select r.number, r.type, r.status, r.source, r.customer_name, r.customer_email, r.country,
+    select r.workspace_id, r.number, r.type, r.status, r.source, r.customer_name, r.customer_email, r.country,
            o.number as order_number, r.requested_resolution, r.exchange_to, r.keep_item, r.rejected_reason,
            r.label::text as label, r.resolution, r.resolution_minor, r.currency,
            r.resolution_shopify::text as shopify, ro.number as replacement_number,
@@ -114,14 +126,20 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
     left join orders ro on ro.id = r.replacement_order_id
     left join return_settings rs on rs.workspace_id = r.workspace_id
     where r.id = ${returnId}`
-  if (r === undefined || r.customerEmail === null || r.customerEmail === "") return
+  if (r === undefined || r.customerEmail === null || r.customerEmail === "") return done
   const label = r.label === null ? null : JSON.parse(r.label) as StoredLabel
   const shopify = r.shopify === null ? null : JSON.parse(r.shopify) as StoredResolution
-  if (!due(mail, r, label, shopify)) return
-  const [claimed] = yield* sql`
-    insert into return_mails (workspace_id, return_id, kind) values (app_workspace_id(), ${returnId}, ${mail})
-    on conflict do nothing returning kind`
-  if (claimed === undefined) return
+  if (!due(mail, r, label, shopify)) return done
+  // Once per return and kind: the first try claims it, in line until it went; a try again takes the one in line.
+  const [claimed] = retry === undefined
+    ? yield* sql`
+        insert into return_mails (workspace_id, return_id, kind, sent_at)
+        values (app_workspace_id(), ${returnId}, ${mail}, null)
+        on conflict do nothing returning kind`
+    : yield* sql`
+        select kind from return_mails where return_id = ${returnId} and kind = ${mail} and sent_at is null
+        for update`
+  if (claimed === undefined) return done
 
   // The variant as the screens show it: not Shopify's one variant ("Default Title"), nor one named as its product.
   const items = yield* sql<{ title: string; variantTitle: string | null; qty: number }>`
@@ -169,25 +187,46 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
     }
   })()
   const attachments = mail === "label" ? yield* labelPdf(sql, r.number, label!.fileId!) : undefined
-  const { error } = yield* Senders.trySendToCustomer(sql, {
+  const { error, from } = yield* Senders.trySendToCustomer(sql, {
     kind: KIND[mail],
     to: r.customerEmail,
     sender: r.shop,
     reference: returnId,
     returnMail: { ...facts, ...extra },
     ...(attachments === undefined ? {} : { attachments })
-  })
+  }, retry === undefined ? undefined : { from: retry.from })
   if (error !== null) {
     const refused = error.refusedForRecipient === true
     yield* Effect.logWarning(
-      refused ? "a return's shopper mail was refused for its recipient" : "a return's shopper mail did not go",
+      refused
+        ? "a return's shopper mail was refused for its recipient"
+        : retry === undefined
+        ? "a return's shopper mail did not go; tried again on its own"
+        : "a return's shopper mail did not go again",
       { returnId, kind: KIND[mail], retryable: error.retryable === true, reason: withoutAddresses(error.reason) }
     )
-    if (!refused) return yield* error
+    if (!refused && retry !== undefined) return yield* error
+    if (!refused) {
+      // In line on an event of its own, a minute on, from the sender this try used.
+      const afterSeconds = FIRST_RETRY_SECONDS
+      const outboxId = yield* Outbox.write(sql, r.workspaceId, {
+        type: "return.mail",
+        workspaceId: r.workspaceId,
+        userId: "system",
+        returnId,
+        mail,
+        via,
+        from
+      }, { afterSeconds })
+      return { outcome: "retry", outboxId, afterSeconds } satisfies ShopperMailOutcome
+    }
+  } else {
+    yield* sql`update return_mails set sent_at = now() where return_id = ${returnId} and kind = ${mail}`
   }
   yield* sql`insert into return_events (id, workspace_id, return_id, actor, name, kind, text)
              values (${mintId("rev")}, app_workspace_id(), ${returnId}, 'insyte', null,
                      ${error === null ? "email_sent" : "note"}, ${error === null ? SENT[mail] : NOT_SENT[mail]})`
+  return done
 })
 
 /** The label's PDF from the files bucket, to go with its mail. */

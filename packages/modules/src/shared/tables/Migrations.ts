@@ -93,8 +93,10 @@ import affiliates from "./migrations/0108_affiliates.ts"
 import reliability from "./migrations/0109_reliability.ts"
 import ticketFromChat from "./migrations/0110_ticket_from_chat.ts"
 import giftCards from "./migrations/0111_gift_cards.ts"
+import returnMailRetry from "./migrations/0112_return_mail_retry.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
+import supplierVariantsTracked from "./migrations/contract/0113_supplier_variants_tracked.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -197,5 +199,7 @@ export const Migrations = {
   "0108_affiliates": affiliates,
   "0109_reliability": reliability,
   "0110_ticket_from_chat": ticketFromChat,
-  "0111_gift_cards": giftCards
+  "0111_gift_cards": giftCards,
+  "0112_return_mail_retry": returnMailRetry,
+  "0113_supplier_variants_tracked": supplierVariantsTracked
 }

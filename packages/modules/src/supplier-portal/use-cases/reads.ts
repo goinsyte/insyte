@@ -146,7 +146,7 @@ export const productDetail = (sql: SqlClient.SqlClient, productId: string) =>
     const variants = yield* sql<
       { id: string; title: string; sku: string | null; available: number; reportedAt: Date | null }
     >`
-      select v.id, v.title, v.sku, ${availableSql(sql, "v.id")} as available,
+      select v.id, v.title, v.sku, ${availableSql(sql, "v")} as available,
              (select max(il.reported_at) from inventory_levels il where il.variant_id = v.id and il.source = 'supplier')
                as reported_at
       from supplier_variants_v v where v.product_id = ${productId} order by v.position, v.id`

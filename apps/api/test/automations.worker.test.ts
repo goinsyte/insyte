@@ -226,6 +226,36 @@ describe("automations", () => {
     expect(kept.automation!.automation.name).toBe("Mijn VIP-label")
   })
 
+  it("names an untitled flow when it is published, and a save sent before that does not put the placeholder back", async () => {
+    const { automation } = ok(await rpc("Automations.create", {}, people.owner))
+    const id = automation!.automation.id
+    const nodes = [
+      { id: "t", variantId: "trigger.order_placed", config: {} },
+      { id: "a", variantId: "action.tag_customer", config: { tag: "vip" } }
+    ]
+    ok(await rpc("Automations.saveDraft", { id, name: "Naamloze automatisering", nodes }, people.owner))
+    const published = ok(await rpc("Automations.publish", { id, note: "" }, people.owner))
+    const named = published.automation!.automation.name
+    expect(named).not.toBe("Naamloze automatisering")
+
+    // The canvas's autosave, sent with the name it had before the publish, lands after it: its steps are kept, the
+    // name publishing gave stays.
+    const later = [...nodes, { id: "w", variantId: "delay.wait", config: { minutes: 60 } }]
+    const stale = ok(
+      await rpc("Automations.saveDraft", { id, name: "Naamloze automatisering", nodes: later }, people.owner)
+    )
+    expect(stale.automation.name).toBe(named)
+    expect(ok(await rpc("Automations.get", { id }, people.owner)).automation.nodes.map((n) => n.id)).toEqual([
+      "t",
+      "a",
+      "w"
+    ])
+
+    // A name the person gives still takes.
+    const renamed = ok(await rpc("Automations.saveDraft", { id, name: "VIP-label", nodes: later }, people.owner))
+    expect(renamed.automation.name).toBe("VIP-label")
+  })
+
   it("pauses and turns on a published flow, and a draft has nothing to turn on", async () => {
     const { automation } = ok(await rpc("Automations.create", { templateId: "tpl_vip" }, people.owner))
     const id = automation!.automation.id

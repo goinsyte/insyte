@@ -305,7 +305,7 @@ describe("Shopify's returns", () => {
     expect((await mailed("klant1@example.com", own!.id, 1)).map((m) => m.kind)).toEqual(["return.rejected"])
   })
 
-  it("still says the decision to Shopify when the shopper's mail is refused, and tries again while the provider is busy or Insyte's key is refused", async () => {
+  it("says the decision to Shopify whatever the shopper's mail does: refused, the provider out, or Insyte's key refused", async () => {
     const store = await importedStore("res-hrefused")
     await hook(store.shop, "returns/request", request(7201, 2, 102, "SIZE_TOO_SMALL"))
     await hook(store.shop, "returns/request", request(7202, 3, 103, "DEFECTIVE"))
@@ -319,6 +319,9 @@ describe("Shopify's returns", () => {
       (await outboxOf(store.workspace)).find((e) =>
         e.event === type && (e.payload["returnIds"] as Array<string>).includes(id)
       )!
+    /** The return's mail tried again on its own. */
+    const mailAgainOf = async (id: string) =>
+      (await outboxOf(store.workspace)).find((e) => e.event === "return.mail" && e.payload["returnId"] === id)
     await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
 
     // The address refuses the mail for good: Shopify still hears the approval, the event is relayed, and the history
@@ -335,34 +338,50 @@ describe("Shopify's returns", () => {
     expect(history).not.toContain("Goedkeuring gemaild aan de klant")
     await call(`http://api.test/api/__dev/mail/refuse?reference=${refused.id}&off=1`, { method: "POST" })
 
-    // The provider busy: the event waits for a try again, Shopify's write with it, and both go once it takes mail.
+    // The provider busy: Shopify hears the rejection at once and the event is relayed; the mail waits on an event of
+    // its own, tried again while the provider is out, and goes once it takes mail again.
     await call(`http://api.test/api/__dev/mail/refuse?reference=${busy.id}&busy=1`, { method: "POST" })
     ok(await rpc("Returns.reject", { ids: [busy.id], reason: "Buiten de termijn" }, store.cookie))
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect(await decisionOf(busy.id, "return.rejected")).toMatchObject({ relayedAt: null, due: false })
+    expect(await written(writes, busy.id)).toMatchObject({ outcome: "sent" })
+    expect(await decisionOf(busy.id, "return.rejected")).toMatchObject({ relayedAt: expect.any(String) })
     expect(await mailsAbout("klant2@example.com", busy.id)).toEqual([])
+    expect(await mailAgainOf(busy.id)).toMatchObject({ relayedAt: null, due: false, deadLetteredAt: null })
+    for (let i = 0; i < 2; i++) {
+      await pastUndo(store.workspace)
+      await relay(store.workspace)
+    }
+    expect(await mailsAbout("klant2@example.com", busy.id)).toEqual([])
+    expect(await mailAgainOf(busy.id)).toMatchObject({ relayedAt: null, deadLetteredAt: null })
     await call(`http://api.test/api/__dev/mail/refuse?reference=${busy.id}&busy=1&off=1`, { method: "POST" })
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect(await decisionOf(busy.id, "return.rejected")).toMatchObject({ relayedAt: expect.any(String) })
-    expect(await written(writes, busy.id)).toMatchObject({ outcome: "sent" })
+    expect(await mailAgainOf(busy.id)).toMatchObject({ relayedAt: expect.any(String) })
     expect((await mailed("klant2@example.com", busy.id, 1)).map((m) => m.kind)).toEqual(["return.rejected"])
+    expect(ok(await rpc("Returns.get", { id: busy.id }, store.cookie)).events.map((e) => e.text)).toContain(
+      "Afwijzing gemaild aan de klant"
+    )
 
-    // Insyte's own key refused (a 401): not this shopper's mail, so not given up on. The event fails as before.
+    // Insyte's own key refused (a 401), past every try the relay gives an event: only the mail is set aside, where
+    // it is seen; Shopify's write went at once and its event is relayed.
     await call(`http://api.test/api/__dev/mail/refuse?reference=${setup.id}&setup=1`, { method: "POST" })
     ok(await rpc("Returns.reject", { ids: [setup.id], reason: "Buiten de termijn" }, store.cookie))
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect(await decisionOf(setup.id, "return.rejected")).toMatchObject({ relayedAt: null, due: false })
+    expect(await written(writes, setup.id)).toMatchObject({ outcome: "sent" })
+    expect(await decisionOf(setup.id, "return.rejected")).toMatchObject({ relayedAt: expect.any(String) })
+    for (let i = 0; i < 8; i++) {
+      await pastUndo(store.workspace)
+      await relay(store.workspace)
+    }
+    expect(await mailAgainOf(setup.id)).toMatchObject({ relayedAt: null, deadLetteredAt: expect.any(String) })
+    expect(await decisionOf(setup.id, "return.rejected")).toMatchObject({ relayedAt: expect.any(String) })
+    expect(await mailsAbout("klant1@example.com", setup.id)).toEqual([])
     expect(ok(await rpc("Returns.get", { id: setup.id }, store.cookie)).events.map((e) => e.text)).not.toContain(
       "Afwijzing niet gemaild: de mail werd geweigerd"
     )
     await call(`http://api.test/api/__dev/mail/refuse?reference=${setup.id}&setup=1&off=1`, { method: "POST" })
-    await pastUndo(store.workspace)
-    await relay(store.workspace)
-    expect(await decisionOf(setup.id, "return.rejected")).toMatchObject({ relayedAt: expect.any(String) })
-    expect((await mailed("klant1@example.com", setup.id, 1)).map((m) => m.kind)).toEqual(["return.rejected"])
   })
 })
 

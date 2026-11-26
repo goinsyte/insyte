@@ -212,9 +212,13 @@ export const saveDraft = Effect.fn("Automations.saveDraft")(function*(input: typ
     Effect.gen(function*() {
       yield* lock(sql, input.id)
       const nodes = yield* withApprovers(sql, input.nodes)
+      // Never the placeholder over a name: publishing names an untitled flow after its steps, and a save the canvas
+      // sent before it heard of that (one in flight while the publish held the row) still carries "Naamloze".
       const [saved] = yield* sql<{ draftSavedAt: Date }>`
         update automations set draft_nodes = ${JSON.stringify(nodes)}::jsonb, draft_saved_at = now(),
-                               name = coalesce(${input.name?.trim() ?? null}, name),
+                               name = case when ${input.name?.trim() ?? null}::text = ${UNTITLED}::text
+                                             and btrim(name) not in ('', ${UNTITLED}) then name
+                                           else coalesce(${input.name?.trim() ?? null}, name) end,
                                description = coalesce(${input.description ?? null}, description)
         where id = ${input.id} returning draft_saved_at`
       const settings = yield* settingsOf(sql, input.id)

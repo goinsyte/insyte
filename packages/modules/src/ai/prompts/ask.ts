@@ -94,7 +94,7 @@ const history = (input: StepInput) =>
 
 export const askPrompt = definePrompt<StepInput, AskStep>({
   id: "ask_step",
-  version: "1.3.0",
+  version: "1.4.0",
   purpose: "ask",
   effort: "medium",
   maxTokens: MAX_TOKENS,
