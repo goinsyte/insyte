@@ -203,7 +203,7 @@ export function WorkflowInspector({
 
         {into === undefined ? null : (
           <div className="flex flex-col gap-1.5">
-            <span className="text-ink-3 text-xs">Velden van het record. Klik er een om het in te voegen.</span>
+            <span className="text-ink-3 text-xs">Velden van het record. Klik op een veld om het in te voegen.</span>
             <div className="flex flex-wrap gap-1">
               {fields.map((k) => (
                 <button

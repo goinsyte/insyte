@@ -283,7 +283,7 @@ describe("the automation engine", () => {
     ).secret
     const orderId = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows[0]!.id
     await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
-    for (let i = 0; i < 30; i++) {
+    const startByHand = async (i: number): Promise<Response> => {
       const started = await call(`http://api.public.test/v1/automations/${id}/runs`, {
         method: "POST",
         headers: {
@@ -293,8 +293,12 @@ describe("the automation engine", () => {
         },
         body: JSON.stringify({ order_id: orderId })
       })
-      expect(started.status).toBe(200)
+      // More than a key's 10 a second: wait as the door says, then ask again.
+      if (started.status !== 429) return started
+      await new Promise((resolve) => setTimeout(resolve, Number(started.headers.get("retry-after") ?? "1") * 1000))
+      return startByHand(i)
     }
+    for (let i = 0; i < 30; i++) expect((await startByHand(i)).status).toBe(200)
 
     // The sweep delays #1003: its run is written skipped, and one frame-to-be says so, with its id.
     const before = new Set((await outboxOf(store.workspace)).map((e) => e.id))

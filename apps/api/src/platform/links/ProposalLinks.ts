@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { Forbidden, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
@@ -7,6 +7,7 @@ import { assemblePack } from "@insyte/modules/chargebacks/use-cases/pack"
 import { send as postChatMessage } from "@insyte/modules/chats/use-cases/commands"
 import { forward as forwardLegs } from "@insyte/modules/forwarding/use-cases/commands"
 import { reply as replyThread } from "@insyte/modules/inbox/use-cases/commands"
+import { RefundOverBalance, RefundOverLimit } from "@insyte/modules/orders/domain/Refunds"
 import { cancel as cancelOrders, setNote, tag as tagOrders } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
 import { refund as refundOrder } from "@insyte/modules/orders/use-cases/refund"
@@ -60,24 +61,24 @@ type AgentAsked = Exclude<
 >
 
 /** A refund refused for its amount, not its record's state: why, with the amounts the command named. */
-const refusalOf = (e: { readonly _tag: string }): ProposalRefusal | undefined => {
-  const x = e as unknown as Readonly<Record<string, unknown>>
-  switch (e._tag) {
-    case "RefundOverLimit":
-      return {
-        reason: "over_limit",
-        limitMinor: Number(x["limitMinor"]),
-        currency: String(x["currency"]),
-        roleMinor: Number(x["roleMinor"]),
-        roleCurrency: String(x["roleCurrency"])
-      }
-    case "RefundOverBalance":
-      return { reason: "over_balance", balanceMinor: Number(x["balanceMinor"]), currency: String(x["currency"]) }
-    case "Conflict":
-      return x["reason"] === "no_fx_rate" ? { reason: "no_fx_rate" } : undefined
-    default:
-      return undefined
+const refusalOf = (e: unknown): ProposalRefusal | undefined => {
+  if (e instanceof RefundOverLimit) {
+    return {
+      reason: "over_limit",
+      limitMinor: e.limitMinor,
+      currency: e.currency,
+      roleMinor: e.roleMinor,
+      roleCurrency: e.roleCurrency
+    }
   }
+  if (e instanceof RefundOverBalance) {
+    return {
+      reason: "over_balance",
+      balanceMinor: e.balanceMinor,
+      ...(e.currency === undefined ? {} : { currency: e.currency })
+    }
+  }
+  return e instanceof Conflict && e.reason === "no_fx_rate" ? { reason: "no_fx_rate" } : undefined
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
-import { figureKey, figureRequests, MONTH_NAMES } from "@insyte/domain/sheets"
+import { beforeFirst, figureKey, figureRequests, MONTH_NAMES } from "@insyte/domain/sheets"
 import type { AnalyticsFigures, FigureAnswer } from "@insyte/modules/analytics/domain/Analytics"
 import type { SheetDetail, SheetList, SheetRow } from "@insyte/modules/sheets/domain/Sheets"
 import type { TemplateId } from "@insyte/ui/app/lib/sheet-templates"
@@ -106,8 +106,10 @@ const WAITS: Record<string, string> = {
 }
 
 /** The engine's answer for one figure: its number, or the error and why, in a sentence. */
-const valueOf = (f: FigureAnswer, months: ReadonlyArray<string>): number | SheetError => {
+const valueOf = (f: FigureAnswer, months: ReadonlyArray<string>): number | SheetError | null => {
   if (f.value !== null) return f.value
+  // A month before the first order is empty, not an error: a store weeks old fills its profit sheet as it goes.
+  if (f.error === "no_month" && beforeFirst(f.resolved, months)) return null
   switch (f.error) {
     case "unknown_metric":
       return { error: "#NAAM?", why: `Insyte kent het cijfer “${f.metric}” niet. Kies er een via Koppelen aan Insyte.` }

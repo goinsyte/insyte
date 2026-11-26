@@ -25,6 +25,9 @@ describe("a refused refund in a run's history", () => {
       nbsp(explain("action.refund", { _tag: "RefundOverBalance", balanceMinor: 1250, currency: "JPY" }).explanation)
     )
       .toBe("Het bedrag is meer dan er nog op de bestelling openstaat (JP¥ 1.250); er is niets terugbetaald.")
+    // A refusal that names no currency names no amount, rather than one in a currency guessed at.
+    expect(explain("action.refund", { _tag: "RefundOverBalance", balanceMinor: 1250 }).explanation)
+      .toBe("Het bedrag is meer dan er nog op de bestelling openstaat; er is niets terugbetaald.")
   })
 
   it("says a missing rate, not a changed record", () => {

@@ -299,7 +299,8 @@ export const support = (
       resolveA,
       resolveB
     },
-    drivers: [...byDay.slice(1), byDay[0]!].map((d): Driver => ({
+    // A day without a ticket done has no hours: left out, not shown as 0 u, faster than any.
+    drivers: [...byDay.slice(1), byDay[0]!].filter((d) => d.done).map((d): Driver => ({
       dim: "weekday",
       key: String(d.w),
       name: null,

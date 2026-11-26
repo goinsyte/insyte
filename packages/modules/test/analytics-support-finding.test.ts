@@ -36,5 +36,7 @@ describe("Analyse's support finding", () => {
     const found = support([cell(6, 2, 2, 10), cell(0, 1, 0, 0), cell(2, 3, 3, 4), cell(3, 1, 0, 0)], [])
     expect(found?.figures).toMatchObject({ weekend: 10, weekday: 4, weekendTickets: 3, tickets: 7 })
     expect(found?.tone).toBe("bad")
+    // Sunday and Wednesday had nothing done: no hours to show, rather than 0 u.
+    expect(found?.drivers.map((d) => [d.key, d.a])).toEqual([["2", 4], ["6", 10]])
   })
 })

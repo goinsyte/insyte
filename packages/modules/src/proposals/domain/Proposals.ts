@@ -186,7 +186,12 @@ export const ProposalRefusal = Schema.Union([
     roleCurrency: Schema.String
   }),
   Schema.Struct({ reason: Schema.Literal("no_fx_rate") }),
-  Schema.Struct({ reason: Schema.Literal("over_balance"), balanceMinor: Schema.Int, currency: Schema.String })
+  /** The currency as the refund's own refusal carries it: optional there, so optional here. */
+  Schema.Struct({
+    reason: Schema.Literal("over_balance"),
+    balanceMinor: Schema.Int,
+    currency: Schema.optional(Schema.String)
+  })
 ])
 export type ProposalRefusal = typeof ProposalRefusal.Type
 

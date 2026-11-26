@@ -46,13 +46,16 @@ export function monthRowsTo(current: string, count = 5): MonthRows {
   })
 }
 
-/** A figure for a month, empty where Insyte has none. */
-const figure = (metric: string, m: string) => `=ALS.FOUT(INSYTE("${metric}"; "${m}"); "")`
+/** A figure for a month: empty before the store's first order (`beforeFirst`), an error where it cannot be read. */
+const figure = (metric: string, m: string) => `=INSYTE("${metric}"; "${m}")`
 
 /**
- * A month Insyte has no figures for (before the first order) reads as an empty cell, not #N/B, and a ratio without a
- * denominator as empty, not #DEEL/0!, so the template is whole for a store that is weeks old. Net profit takes the
- * refunds off: revenue counts an order as paid, whatever was paid back on it since.
+ * A month before the store's first order reads as an empty cell (the figures answer it so), and a ratio without a
+ * denominator as empty, not #DEEL/0!, so the template is whole for a store that is weeks old. A figure that cannot be
+ * read stays an error, and so does every cell that sums it, so a total is never short without saying so. Revenue
+ * counts an order at its total and leaves a wholly refunded one out (`@insyte/domain/Revenue`), so net profit takes
+ * off only what was refunded on the orders it counts (`terugbetaald_omzet`), the partial refunds. Kosten's net profit
+ * takes no refunds off, so the two differ by those.
  */
 export function profitTab(id: string, months: MonthRows = MONTH_ROWS): Tab {
   const n = months.length
@@ -65,7 +68,7 @@ export function profitTab(id: string, months: MonthRows = MONTH_ROWS): Tab {
       [
         "Maand",
         "Omzet",
-        "Terugbetaald",
+        "Terugbetaald op omzet",
         "Bestellingen",
         "Advertenties",
         "ROAS",
@@ -78,13 +81,13 @@ export function profitTab(id: string, months: MonthRows = MONTH_ROWS): Tab {
         return [
           label,
           [figure("omzet", m), "money"],
-          [figure("terugbetaald", m), "money"],
+          [figure("terugbetaald_omzet", m), "money"],
           [figure("bestellingen", m), "integer"],
           [figure("advertentiekosten", m), "money"],
-          [`=ALS.FOUT(B${r}/E${r}; "")`, "number"],
+          [`=ALS(E${r}=0; ""; B${r}/E${r})`, "number"],
           [figure("overige_kosten", m), "money"],
           [`=ALS(AANTAL(B${r})=0; ""; B${r}-C${r}-E${r}-G${r})`, "money"],
-          [`=ALS.FOUT(H${r}/B${r}; "")`, "percent"]
+          [`=ALS(B${r}=0; ""; H${r}/B${r})`, "percent"]
         ] as const
       }),
       [
@@ -93,16 +96,19 @@ export function profitTab(id: string, months: MonthRows = MONTH_ROWS): Tab {
         [`=SOM(C2:C${last})`, "money", true],
         [`=SOM(D2:D${last})`, "integer", true],
         [`=SOM(E2:E${last})`, "money", true],
-        [`=ALS.FOUT(B${total}/E${total}; "")`, "number", true],
+        [`=ALS(E${total}=0; ""; B${total}/E${total})`, "number", true],
         [`=SOM(G2:G${last})`, "money", true],
         [`=SOM(H2:H${last})`, "money", true],
-        [`=ALS.FOUT(H${total}/B${total}; "")`, "percent", true]
+        [`=ALS(B${total}=0; ""; H${total}/B${total})`, "percent", true]
       ],
       [],
       ["Doel nettomarge", ["25%", "percent"]],
-      [`Haalt ${months[n - 1]?.[0] ?? "de laatste maand"} het doel?`, `=ALS(I${last}>=B${total + 2}; "ja"; "nee")`]
+      [
+        `Haalt ${months[n - 1]?.[0] ?? "de laatste maand"} het doel?`,
+        `=ALS(AANTAL(I${last})=0; ""; ALS(I${last}>=B${total + 2}; "ja"; "nee"))`
+      ]
     ],
-    { A: 150, B: 120, C: 120, E: 120, G: 130, H: 120 }
+    { A: 150, B: 120, C: 160, E: 120, G: 130, H: 120 }
   )
 }
 

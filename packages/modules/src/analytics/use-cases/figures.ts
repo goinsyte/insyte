@@ -14,16 +14,18 @@ import {
 } from "../domain/Analytics.ts"
 import { CostFigures, type CostMonth } from "../domain/Ports.ts"
 import { monthsOf } from "./analytics.ts"
-import { context, daysIn, disputesBy, ordersBy, type OrdersCell } from "./reads.ts"
+import { context, countedRefunded, daysIn, disputesBy, ordersBy, type OrdersCell } from "./reads.ts"
 
 /*
  * `Analytics.figures` (M14 step 4): what a sheet's INSYTE() cells read, in one batch per screen. Each figure is read
  * over the whole calendar month, the month under way up to today, inside the reader's stores and in the workspace's
  * currency: the sales from the same counted rows and reads as Analyse's six (`ordersBy`, §0.1); what is under dispute
  * from the dispute facts (opened in the month, whatever came of it); the costs, net profit, margin, ROAS and the ad
- * lines per platform from Kosten's own months (`Costs.figures`, through `CostFigures`), so a sheet and Kosten agree to
- * the cent. The sheet is Data's (`data≥1`); a figure needs Analyse · Bekijken, and a role without it gets every
- * figure refused, not the call. ROAS without ad spend has no number and says so (`no_ads`).
+ * lines per platform from Kosten's own months (`Costs.figures`, through `CostFigures`), so these figures and Kosten
+ * agree to the cent. Kosten's net profit does not take refunds off; the profit template's own Nettowinst does, with
+ * `terugbetaald_omzet` (what was refunded on the orders revenue counts), so the two differ by those refunds. The sheet
+ * is Data's (`data≥1`); a figure needs Analyse · Bekijken, and a role without it gets every figure refused, not the
+ * call. ROAS without ad spend has no number and says so (`no_ads`).
  *
  * Not kept yet, so answered as such rather than as zero: revenue by marketing channel (an order's `channel` is the
  * Shopify source, not the ad that brought it; widgets/02 Part C gap 8).
@@ -178,6 +180,18 @@ export const figuresIn = Effect.fn("Analytics.figuresIn")(function*(
           unconverted: month.unconverted
         }))
       }
+      continue
+    }
+    if (id === "terugbetaald_omzet") {
+      const r = yield* countedRefunded(sql, span(resolved))
+      figures.push(answer(request, {
+        resolved,
+        value: r.refunded / 100,
+        error: null,
+        waitsFor: null,
+        rows: r.orders,
+        unconverted: r.unconverted
+      }))
       continue
     }
     if (id === "chargebacks") {

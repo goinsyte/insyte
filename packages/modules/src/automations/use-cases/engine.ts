@@ -592,16 +592,20 @@ const TERMINAL = new Set([
   "AlreadyRefunded"
 ])
 
-/** An amount a refusal names, in minor units of its currency: "€ 100,00". */
-const moneyOf = (minor: unknown, currency: unknown) => {
-  const code = typeof currency === "string" && currency !== "" ? currency : "EUR"
-  const digits = minorDigits(code)
-  return new Intl.NumberFormat("nl-NL", {
+/**
+ * An amount a refusal names, in minor units of its currency, as " (€ 100,00)"; nothing where the refusal names no
+ * currency, rather than a guess at one.
+ */
+const amountOf = (minor: unknown, currency: unknown) => {
+  if (typeof currency !== "string" || currency === "" || typeof minor !== "number") return ""
+  const digits = minorDigits(currency)
+  const shown = new Intl.NumberFormat("nl-NL", {
     style: "currency",
-    currency: code,
+    currency,
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
-  }).format(Number(minor) / 10 ** digits)
+  }).format(minor / 10 ** digits)
+  return ` (${shown})`
 }
 
 /** A slice's typed refusal as the run's explanation; terminal, as trying again gives the same answer. */
@@ -624,13 +628,13 @@ export const explain = (variantId: string, error: unknown): StepFailed => {
     : tag === "Conflict"
     ? "Het record veranderde intussen; de stap is niet uitgevoerd."
     : tag === "RefundOverLimit"
-    ? `Het bedrag is meer dan de flow per bestelling mag terugbetalen (${
-      moneyOf(field("limitMinor"), field("currency"))
-    }); er is niets terugbetaald.`
+    ? `Het bedrag is meer dan de flow per bestelling mag terugbetalen${
+      amountOf(field("limitMinor"), field("currency"))
+    }; er is niets terugbetaald.`
     : tag === "RefundOverBalance"
-    ? `Het bedrag is meer dan er nog op de bestelling openstaat (${
-      moneyOf(field("balanceMinor"), field("currency"))
-    }); er is niets terugbetaald.`
+    ? `Het bedrag is meer dan er nog op de bestelling openstaat${
+      amountOf(field("balanceMinor"), field("currency"))
+    }; er is niets terugbetaald.`
     : tag === "AlreadyRefunded"
     ? "De bestelling is al volledig terugbetaald, of nog niet betaald; er is niets terugbetaald."
     : "De stap lukte niet; Insyte probeert het opnieuw."
