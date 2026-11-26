@@ -671,7 +671,7 @@ function AppCard({
 					<button
 						type="button"
 						onClick={onInstall}
-						className="flex h-7 items-center justify-center rounded-md bg-ink px-3 font-medium text-sm text-mesh-ink leading-[1.2] tracking-[-0.1px] transition-colors hover:bg-abyss active:scale-[0.98]"
+						className="flex h-7 items-center justify-center rounded-md bg-abyss px-3 font-medium text-sm text-mesh-ink leading-[1.2] tracking-[-0.1px] transition-colors hover:bg-abyss-2 active:scale-[0.98]"
 					>
 						Installeren
 					</button>

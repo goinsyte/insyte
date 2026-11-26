@@ -122,7 +122,7 @@ export function LivePage() {
               kind="live"
               count="0 bezoekers"
               title="Live staat nog niet aan"
-              body="Zet de Live-pixel aan voor je winkel bij Instellingen → Winkels. Daarna zie je hier wie er op je winkel is, waar ze vandaan komen en wie er afrekent."
+              body="Open Instellingen → Winkels, klik bij je winkel op ⋯ en kies Live aanzetten. Daarna zie je hier wie er op je winkel is, waar ze vandaan komen en wie er afrekent."
               action={{ label: "Naar Winkels", onClick: toStores }}
             />
           )

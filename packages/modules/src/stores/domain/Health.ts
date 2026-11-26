@@ -71,7 +71,9 @@ export class Incident extends Schema.Class<Incident>("stores/Incident")({
   facts: IncidentFacts,
   tried: Schema.Array(Tried),
   /** The person on call who was told, by name. */
-  notified: Schema.NullOr(Schema.String)
+  notified: Schema.NullOr(Schema.String),
+  /** Whether the one told is the member reading it, who reads "jou" rather than their own name. */
+  notifiedYou: Schema.Boolean
 }) {}
 
 /** A connection as a whole: fine, Insyte is handling something, it needs the operator, importing, or let go. */
@@ -366,6 +368,35 @@ export const findingSentence = (kind: IncidentKind, facts: IncidentFacts, now = 
       return facts.since === undefined
         ? "Synchroniseren met Shopify lukt niet."
         : `Insyte heeft sinds ${when(facts.since, now)} niet met Shopify gesynchroniseerd.`
+  }
+}
+
+/**
+ * What was wrong, once it is over: the finding in the past tense, so a resolved incident does not read as one that is
+ * still going on ("Er kwamen sinds 03:12 geen webhooks van Shopify binnen.").
+ */
+export const resolvedFindingSentence = (kind: IncidentKind, facts: IncidentFacts, now = Date.now()): string => {
+  switch (kind) {
+    case "webhook_gap":
+      return facts.since === undefined
+        ? "Er kwamen geen webhooks van Shopify binnen."
+        : `Er kwamen sinds ${when(facts.since, now)} geen webhooks van Shopify binnen.`
+    case "token_expiring":
+      return "De toegang tot Shopify zou bijna verlopen."
+    case "token_expired":
+      return "Shopify gaf Insyte geen toegang meer."
+    case "scope_missing": {
+      const what = (facts.missing ?? []).map((s) => RESOURCE[s] ?? s)
+      return what.length === 0
+        ? "Insyte miste rechten in Shopify."
+        : `Insyte mocht de ${listed(what)} niet lezen.`
+    }
+    case "rate_limited":
+      return "De limiet van Shopify voor verzoeken was bijna bereikt."
+    case "sync_failed":
+      return facts.since === undefined
+        ? "Synchroniseren met Shopify lukte niet."
+        : `Insyte had sinds ${when(facts.since, now)} niet met Shopify gesynchroniseerd.`
   }
 }
 

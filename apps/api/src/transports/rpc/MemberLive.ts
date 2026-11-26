@@ -8,7 +8,8 @@ import { Effect, Layer } from "effect"
  * `CurrentPrincipal` from the person's memberships: the session's workspace (pinned on its first request), else the
  * newest. Read per call, so a role changed a moment ago applies now. A tab that names another workspace than that one
  * (another tab switched, or the person left it) is refused before anything is done, so it never writes into the
- * workspace the session moved to.
+ * workspace the session moved to. A call also marks the member active (Team's "Laatst actief"), at most once in five
+ * minutes and without ever failing the call.
  */
 export const MemberLive = Layer.effect(
   Member,
@@ -24,7 +25,10 @@ export const MemberLive = Layer.effect(
           ) {
             return Effect.fail(new WorkspaceMismatch())
           }
-          return Effect.provideService(effect, CurrentPrincipal, active.principal)
+          return Effect.andThen(
+            workspaces.markActive(active),
+            Effect.provideService(effect, CurrentPrincipal, active.principal)
+          )
         })
       )
   )

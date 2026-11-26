@@ -10,7 +10,13 @@ import { useRolesSource } from "./source";
 
 const BLANK = "__leeg";
 
-/** A new custom role: a name, and the role it starts as (or nothing). It opens in the editor. */
+/** The longest name a role takes; the server refuses a longer one. */
+const LABEL_MAX = 60;
+
+/**
+ * A new custom role: a name, and the role it starts as (or nothing). It opens in the editor. The dialog
+ * stays open until the role is made, so a refusal (said by the host) leaves the name and choice as typed.
+ */
 export function NewRoleDialog({
 	open,
 	onOpenChange,
@@ -20,24 +26,31 @@ export function NewRoleDialog({
 	open: boolean;
 	onOpenChange: (v: boolean) => void;
 	initialFrom?: string;
-	onCreate: (label: string, from: string | null) => void;
+	/** Resolves `true` once the role is made. */
+	onCreate: (label: string, from: string | null) => Promise<boolean>;
 }) {
 	const roles = useRolesSource().roles;
 	const [name, setName] = useState("");
 	const [from, setFrom] = useState(initialFrom ?? "service");
+	const [busy, setBusy] = useState(false);
 	useEffect(() => {
 		if (!open) return;
 		setName("");
 		setFrom(initialFrom ?? "service");
+		setBusy(false);
 	}, [open, initialFrom]);
 	const label = name.trim();
-	const taken = roles.some((r) => r.label.toLowerCase() === label.toLowerCase());
+	const taken = !busy && roles.some((r) => r.label.toLowerCase() === label.toLowerCase());
 	const options = [BLANK, ...roles.filter((r) => r.id !== "owner").map((r) => r.id)];
 
 	function submit() {
-		if (!label || taken) return;
-		onCreate(label, from === BLANK ? null : from);
-		onOpenChange(false);
+		if (!label || taken || busy) return;
+		setBusy(true);
+		void onCreate(label, from === BLANK ? null : from).then((made) => {
+			// Made, it stays busy while it closes: the new role is in the list by now, and is not "taken".
+			if (made) onOpenChange(false);
+			else setBusy(false);
+		});
 	}
 
 	return (
@@ -54,8 +67,8 @@ export function NewRoleDialog({
 						submit();
 					}}
 				>
-					<Field label="Naam">
-						<TextField value={name} onChange={setName} placeholder="Retourbalie" />
+					<Field label="Naam" hint={name.length >= LABEL_MAX - 10 ? `${name.length} van ${LABEL_MAX} tekens` : undefined}>
+						<TextField value={name} onChange={setName} placeholder="Retourbalie" maxLength={LABEL_MAX} />
 					</Field>
 					{taken ? <p className="-mt-2 text-signal-red text-sm">Er is al een rol met deze naam.</p> : null}
 					<Field label="Begin vanuit">
@@ -65,7 +78,7 @@ export function NewRoleDialog({
 						<button type="button" onClick={() => onOpenChange(false)} className={GHOST_BTN}>
 							Annuleren
 						</button>
-						<button type="submit" disabled={!label || taken} className={PRIMARY_BTN}>
+						<button type="submit" disabled={!label || taken || busy} className={PRIMARY_BTN}>
 							Rol maken
 						</button>
 					</DialogFooter>

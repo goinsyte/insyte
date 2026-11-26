@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
+import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
@@ -293,6 +294,7 @@ interface IncidentRow {
   readonly facts: IncidentFacts
   readonly tried: unknown
   readonly notified: string | null
+  readonly notifiedYou: boolean
 }
 
 const storesIn = (sql: SqlClient.SqlClient) =>
@@ -311,13 +313,15 @@ export const read = Effect.fn("Connections.health")(function*() {
   yield* Policy.require("data", 1).pipe(
     Effect.catchTag("Forbidden", (e) => Policy.require("integrations", 1).pipe(Effect.mapError(() => e)))
   )
+  const { id: reader } = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const stores = yield* storesIn(sql)
       const ids = stores.map((s) => s.connectionId)
       const incidents = ids.length === 0 ? [] : yield* sql<IncidentRow>`
-        select i.id, i.connection_id, i.kind, i.opened_at, i.resolved_at, i.facts, i.tried, u.name as notified
+        select i.id, i.connection_id, i.kind, i.opened_at, i.resolved_at, i.facts, i.tried, u.name as notified,
+               coalesce(i.notified_member_id = ${reader}, false) as notified_you
         from connection_incidents i
         left join members m on m.id = i.notified_member_id
         left join auth."user" u on u.id = m.user_id
@@ -346,7 +350,8 @@ export const read = Effect.fn("Connections.health")(function*() {
                 resolvedAt: i.resolvedAt?.getTime() ?? null,
                 facts: i.facts,
                 tried: triedOf(i.tried, i.openedAt.getTime()),
-                notified: i.notified
+                notified: i.notified,
+                notifiedYou: i.notifiedYou
               })
             )
           })

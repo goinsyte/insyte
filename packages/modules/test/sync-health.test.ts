@@ -7,6 +7,7 @@ import {
   type Observed,
   type OpenIncident,
   remedySentence,
+  resolvedFindingSentence,
   stateOf,
   triedSentence,
   triedSummary,
@@ -226,6 +227,27 @@ describe("the words", () => {
     expect(findingSentence("webhook_gap", { since: NOW - DAY }, NOW)).toBe(
       "Er komen sinds 12 nov 03:00 geen webhooks van Shopify binnen."
     )
+  })
+
+  it("says a resolved finding in the past tense, so it does not read as still going on", () => {
+    expect(resolvedFindingSentence("sync_failed", {}, NOW)).toBe("Synchroniseren met Shopify lukte niet.")
+    expect(resolvedFindingSentence("webhook_gap", { since: NOW - HOUR }, NOW)).toBe(
+      "Er kwamen sinds 02:00 geen webhooks van Shopify binnen."
+    )
+    expect(resolvedFindingSentence("scope_missing", { missing: ["read_orders"] }, NOW)).toBe(
+      "Insyte mocht de bestellingen niet lezen."
+    )
+    const kinds = [
+      "webhook_gap",
+      "token_expiring",
+      "token_expired",
+      "scope_missing",
+      "rate_limited",
+      "sync_failed"
+    ] as const
+    for (const kind of kinds) {
+      expect(resolvedFindingSentence(kind, {}, NOW)).not.toBe(findingSentence(kind, {}, NOW))
+    }
   })
 
   it("puts a connection in a word: broken over warning over importing", () => {

@@ -85,6 +85,7 @@ export function InviteLinkSection() {
 				<div className="grid gap-4 sm:grid-cols-[200px_minmax(0,380px)] sm:items-center">
 					<span className="font-medium text-base text-ink">Rol bij deelnemen</span>
 					<SelectField
+						label="Rol bij deelnemen"
 						value={link.roleId}
 						onChange={(roleId) => void source.setLink({ roleId })}
 						options={roles.map((r) => r.id)}

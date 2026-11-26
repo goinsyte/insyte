@@ -11,7 +11,7 @@ import type { Notation } from "./domain/Settings.ts"
 import { switchTo } from "./use-cases/choose.ts"
 import { found } from "./use-cases/found.ts"
 import { list } from "./use-cases/list.ts"
-import { current, type Membership, memberships } from "./use-cases/memberships.ts"
+import { current, markActive, type Membership, memberships } from "./use-cases/memberships.ts"
 import { notationOf } from "./use-cases/regional.ts"
 import { completeOnboarding, startTrial } from "./use-cases/setup.ts"
 
@@ -28,6 +28,8 @@ export class Workspaces extends Context.Service<Workspaces, {
   readonly memberships: Effect.Effect<ReadonlyArray<Membership>, never, Db | CurrentUser>
   /** `memberships`, the session pinned to the first when it named none or one it no longer holds. */
   readonly current: Effect.Effect<ReadonlyArray<Membership>, never, Db | CurrentUser>
+  /** The member is active now, written at most once in five minutes (Team's "Laatst actief"). Never fails. */
+  readonly markActive: (membership: Membership) => Effect.Effect<void, never, Db>
   readonly list: Effect.Effect<ReadonlyArray<WorkspaceSummary>, never, Db | CurrentUser>
   /** The session `sessionId` (the request's own) acts in the target membership from now on. */
   readonly switchTo: (
@@ -40,6 +42,7 @@ export class Workspaces extends Context.Service<Workspaces, {
   static readonly layer = Layer.succeed(Workspaces, {
     memberships: Effect.orDie(memberships()),
     current: Effect.orDie(current()),
+    markActive,
     list: list().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     switchTo: (sessionId, workspaceId) =>
       switchTo(sessionId, workspaceId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
