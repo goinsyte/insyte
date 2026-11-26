@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { foldName, roleForCell } from "../src/app/team/csv-roles.ts"
+import { foldName, roleForCell, storesForCell } from "../src/app/team/csv-roles.ts"
 
 // The workspace's roles as Team's source has them: the owner first, then the system roles and a custom one.
 const ROLES = [
@@ -40,5 +40,27 @@ describe("the role a CSV row names", () => {
       reason: "Eigenaar kun je niet uitnodigen, kies een andere rol"
     })
     expect(roleForCell(ROLES, "owner")).toMatchObject({ ok: false })
+  })
+})
+
+describe("the stores a CSV row names", () => {
+  const ONE = [{ id: "store_1", name: "Northwind EU" }]
+  const TWO = [...ONE, { id: "store_2", name: "Northwind US" }]
+
+  it("grants every store, later ones too, only when the cell names none", () => {
+    expect(storesForCell(TWO, "")).toEqual({ ok: true, stores: "all" })
+    expect(storesForCell(TWO, " | ")).toEqual({ ok: true, stores: "all" })
+  })
+
+  it("grants just the stores named, even when that is every store there is now", () => {
+    expect(storesForCell(ONE, "northwind eu")).toEqual({ ok: true, stores: ["store_1"] })
+    expect(storesForCell(TWO, "Northwind US|Northwind EU|northwind us")).toEqual({
+      ok: true,
+      stores: ["store_2", "store_1"]
+    })
+  })
+
+  it("stops a row that names a store the workspace lacks", () => {
+    expect(storesForCell(TWO, "Northwind EU|Magazijn")).toEqual({ ok: false, reason: "Onbekende winkel: Magazijn" })
   })
 })

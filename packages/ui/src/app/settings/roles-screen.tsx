@@ -33,19 +33,21 @@ export function RolesView({ roleId, verzoek }: { roleId?: string | undefined; ve
 	const [comparing, setComparing] = useState<string[] | null>(null);
 	const open = roleId ? roles.find((r) => r.id === roleId) : undefined;
 
+	/** Resolves `true` once the role is made (the new-role dialog stays open until then). */
 	function create(label: string, from: string | null, rename = false) {
-		void source.create(label, from).then((id) => {
-			if (id === undefined) return;
+		return source.create(label, from).then((id) => {
+			if (id === undefined) return false;
 			void navigate({ to: "/settings/roles", search: { role: id, nieuw: rename ? "1" : undefined } });
 			undoable(`${label} gemaakt`, () => {
 				void source.remove(id, null);
 				void navigate({ to: "/settings/roles", search: {} });
 			});
+			return true;
 		});
 	}
 
 	function duplicate(r: RoleDef) {
-		create(`Kopie van ${r.label}`, r.id, true);
+		void create(`Kopie van ${r.label}`, r.id, true);
 	}
 
 	/** Nobody holds it: it goes at once, with Undo. Somebody does: they are moved first. */
@@ -72,7 +74,7 @@ export function RolesView({ roleId, verzoek }: { roleId?: string | undefined; ve
 				<RoleList onNew={(from) => setCreating({ from })} onDuplicate={duplicate} onDelete={remove} onCompare={(ids) => setComparing(ids)} highlight={verzoek} />
 			)}
 
-			<NewRoleDialog open={creating !== null} onOpenChange={(v) => !v && setCreating(null)} initialFrom={creating?.from} onCreate={create} />
+			<NewRoleDialog open={creating !== null} onOpenChange={(v) => !v && setCreating(null)} initialFrom={creating?.from} onCreate={(label, from) => create(label, from)} />
 			<DeleteRoleDialog
 				role={deleting}
 				onClose={() => setDeleting(null)}

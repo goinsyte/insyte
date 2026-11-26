@@ -103,7 +103,8 @@ Segmented.namesItself = true;
 
 export const GHOST_BTN =
 	"flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-50";
+/* Disabled, it gives up the abyss fill as well: half an abyss button still read as one you could press. */
 export const PRIMARY_BTN =
-	"flex h-9 items-center justify-center gap-1.5 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50";
+	"flex h-9 items-center justify-center gap-1.5 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:bg-ink/8 disabled:text-ink-3 disabled:shadow-none";
 export const WELL_BTN =
 	"field flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 font-medium text-sm text-ink transition-colors hover:field-hover disabled:pointer-events-none disabled:opacity-50";

@@ -134,11 +134,13 @@ export function TextField({
 	onChange,
 	placeholder,
 	type = "text",
+	maxLength,
 }: {
 	value: string;
 	onChange: (v: string) => void;
 	placeholder?: string;
 	type?: string;
+	maxLength?: number;
 }) {
 	return (
 		<input
@@ -146,6 +148,7 @@ export function TextField({
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder={placeholder}
+			maxLength={maxLength}
 			className={cn(FIELD_BASE, "h-11")}
 		/>
 	);
@@ -180,11 +183,14 @@ export function SelectField<T extends string>({
 	onChange,
 	options,
 	renderLabel,
+	label: name,
 }: {
 	value: T;
 	onChange: (v: T) => void;
 	options: ReadonlyArray<T>;
 	renderLabel?: (v: T) => string;
+	/** Its name, where no `Field` around it gives one (a label beside it rather than around it). */
+	label?: string;
 }) {
 	const label = renderLabel ? renderLabel(value) : String(value);
 	return (
@@ -192,6 +198,7 @@ export function SelectField<T extends string>({
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
+					aria-label={name === undefined ? undefined : `${name}: ${label}`}
 					className={cn(
 						FIELD_BASE,
 						"flex h-11 items-center justify-between text-left font-medium",

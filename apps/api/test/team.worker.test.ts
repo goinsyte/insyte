@@ -38,6 +38,16 @@ describe("the team on the server", () => {
     expect(team.link).toMatchObject({ enabled: false, token: null, roleId: "view", days: 7 })
   })
 
+  it("marks a member active when they call, writing it at most once in five minutes", async () => {
+    const before = Date.now()
+    const first = ok(await rpc("Team.get", undefined, owner.cookie)).members[0]!.lastActiveAt
+    expect(first).not.toBeNull()
+    expect(first!).toBeGreaterThan(before - 6 * 60_000)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Called again right away: not written again.
+    expect(ok(await rpc("Team.get", undefined, owner.cookie)).members[0]!.lastActiveAt).toBe(first)
+  })
+
   it("refuses a person without a workspace", async () => {
     const loner = await person("loner")
     expect(failure(await rpc("Team.get", undefined, loner.cookie))).toMatchObject({ _tag: "NoWorkspace" })

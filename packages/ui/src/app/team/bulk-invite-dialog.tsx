@@ -1,9 +1,9 @@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/dialog";
-import { CheckCircle2, Download, Upload, XCircle } from "../../icons";
+import { AlertTriangle, CheckCircle2, Download, Upload, XCircle } from "../../icons";
 import { useMemo, useRef, useState } from "react";
 import { Field, SelectField } from "../common/form-dialog";
 import { GHOST_BTN, PRIMARY_BTN, WELL_BTN } from "./bits";
-import { roleForCell } from "./csv-roles";
+import { roleForCell, storesForCell } from "./csv-roles";
 import { useAddressCheck, useSendInvites } from "./invite-dialog";
 import { roleLabel, storeAccessLabel } from "./role-text";
 import { useSourceInviteRoles, useTeamSource } from "./source";
@@ -44,22 +44,15 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 			if (i === 0 && !email.includes("@") && /mail/.test(email)) continue;
 			// Named as Rollen names it, case and accents aside; a name that is no role (or the owner's) stops the row.
 			const role = roleForCell(source.roles, cells[1] ?? "");
-			const storeNames = (cells[2] ?? "").split("|").map((s) => s.trim()).filter(Boolean);
-			const storeIds = storeNames.map((n) => shops.find((s) => s.name.toLowerCase() === n.toLowerCase())?.id);
+			const stores = storesForCell(shops, cells[2] ?? "");
 			const v = check(email, seen);
 			seen.push(email);
-			const problem = !v.ok
-				? v.reason
-				: role?.ok === false
-					? role.reason
-					: storeIds.includes(undefined)
-						? `Onbekende winkel: ${storeNames[storeIds.indexOf(undefined)]}`
-						: undefined;
+			const problem = !v.ok ? v.reason : role?.ok === false ? role.reason : !stores.ok ? stores.reason : undefined;
 			out.push({
 				line: i + 1,
 				email,
 				roleId: role?.ok ? role.id : fallbackRole,
-				stores: storeIds.length === 0 || storeIds.length === shops.length ? "all" : (storeIds as string[]),
+				stores: stores.ok ? stores.stores : "all",
 				problem,
 			});
 		}
@@ -69,6 +62,8 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 	const ready = rows.filter((r) => !r.problem);
 	const sendable = ready.slice(0, seats.free);
 	const short = ready.length - sendable.length;
+	// The rows that are ready but past the seats left: they stay behind, and say so on their line.
+	const behind = new Set(ready.slice(sendable.length));
 
 	function reset() {
 		setText("");
@@ -190,6 +185,11 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 														<XCircle className="size-3.5 shrink-0" strokeWidth={1.75} />
 														{r.problem}
 													</span>
+												) : behind.has(r) ? (
+													<span className="inline-flex items-center gap-1.5 font-medium text-signal-amber">
+														<AlertTriangle className="size-3.5 shrink-0" strokeWidth={1.75} />
+														Blijft liggen: geen plek vrij
+													</span>
 												) : (
 													<span className="inline-flex items-center gap-1.5 text-ink-2">
 														<CheckCircle2 className="size-3.5 shrink-0 text-signal-green" strokeWidth={1.75} />
@@ -205,11 +205,12 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 					</section>
 				) : null}
 
-				<DialogFooter className="sm:justify-between">
+				{/* Held at the foot while a long preview scrolls under it. */}
+				<DialogFooter className="sticky bottom-0 z-10 sm:justify-between">
 					<p className={cn("text-sm tabular-nums", short > 0 ? "font-medium text-signal-amber" : "text-ink-2")}>
 						{short > 0 ? (
 							<>
-								Nog {counted(seats.free, "plek", "plekken")} vrij, {short} blijven liggen.{" "}
+								Nog {counted(seats.free, "plek", "plekken")} vrij, {short} {short === 1 ? "blijft" : "blijven"} liggen.{" "}
 								<button
 									type="button"
 									onClick={() => {
@@ -226,7 +227,14 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 						)}
 					</p>
 					<div className="flex gap-2">
-						<button type="button" onClick={() => onOpenChange(false)} className={GHOST_BTN}>
+						<button
+							type="button"
+							onClick={() => {
+								reset();
+								onOpenChange(false);
+							}}
+							className={GHOST_BTN}
+						>
 							Annuleren
 						</button>
 						<button
