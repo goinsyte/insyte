@@ -7,6 +7,7 @@ import { Glyph } from "../common/glyph";
 import { NoteLead, NoteSentence, useNow } from "../notifications/note-parts";
 import { DAY_GROUPS, dayGroup, type Note, noteTime, stateOf } from "../lib/notifications";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
+import { typing } from "../lib/typing";
 import { cn } from "../lib/utils";
 import { useHasPage, useHeardNotes, useNotifications, usePersonaSelection, useShellData } from "./state";
 
@@ -53,13 +54,12 @@ export function NotificationsInbox() {
 	// A snoozed notification comes back on its own, wherever the operator is.
 	useEffect(() => wake(now), [now, wake]);
 
-	// `g` then `n` goes to the notifications page from anywhere, as long as nothing is being typed.
+	// `g` then `n` goes to the notifications page from anywhere, as long as nothing is being typed or moved through.
 	useEffect(() => {
 		let g = 0;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.metaKey || e.ctrlKey || e.altKey) return;
-			const t = e.target as HTMLElement | null;
-			if (t?.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
+			if (typing(e.target)) return;
 			const k = e.key.toLowerCase();
 			if (k === "g") g = Date.now();
 			else if (k === "n" && Date.now() - g < 900 && inbox) {

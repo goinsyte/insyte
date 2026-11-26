@@ -340,6 +340,16 @@ const REFUSED: Record<NonNullable<IncidentFacts["refused"]>, (facts: IncidentFac
   data: () => "Shopify geeft Insyte geen toegang tot een deel van de winkelgegevens"
 }
 
+/** The same refusal once it is over, after "De eerste import stopte: ". */
+const WAS_REFUSED: Record<NonNullable<IncidentFacts["refused"]>, (facts: IncidentFacts) => string> = {
+  token: () => "Shopify accepteerde de toegang van Insyte niet meer",
+  scope: (facts) => {
+    const what = (facts.missing ?? []).map((s) => RESOURCE[s] ?? s)
+    return what.length === 0 ? "Insyte miste rechten in Shopify" : `Insyte mocht de ${listed(what)} niet lezen`
+  },
+  data: () => "Shopify gaf Insyte geen toegang tot een deel van de winkelgegevens"
+}
+
 /** What is wrong, in one sentence: "Er komen sinds 03:12 geen webhooks van Shopify binnen." */
 export const findingSentence = (kind: IncidentKind, facts: IncidentFacts, now = Date.now()): string => {
   switch (kind) {
@@ -394,6 +404,7 @@ export const resolvedFindingSentence = (kind: IncidentKind, facts: IncidentFacts
     case "rate_limited":
       return "De limiet van Shopify voor verzoeken was bijna bereikt."
     case "sync_failed":
+      if (facts.refused !== undefined) return `De eerste import stopte: ${WAS_REFUSED[facts.refused](facts)}.`
       return facts.since === undefined
         ? "Synchroniseren met Shopify lukte niet."
         : `Insyte had sinds ${when(facts.since, now)} niet met Shopify gesynchroniseerd.`

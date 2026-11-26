@@ -10,7 +10,7 @@ import { env } from "cloudflare:workers"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
-import { failure, join, ok, outboxOf, pastUndo, quiet, relay, run } from "./journeys.ts"
+import { failure, join, ok, outboxOf, pastUndo, quiet, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -25,7 +25,9 @@ import { call, rpc } from "./support.ts"
  *
  * Each test runs the agent's task itself and waits for it (`turn`), as the agent sink's tests do. A shopper writes
  * through the widget's own path without its rate limits (`__dev/webchat/shopper`), so a test may send a burst; what the
- * agent said is read as the inbox shows it, a reply still waiting out its undo window included.
+ * agent said is read as the inbox shows it, a reply still waiting out its undo window included. That path leaves the
+ * message's event in the outbox rather than on the queue, so no turn runs but the test's: the Worker's own consumer
+ * runs one only for what the test relays, and `quiet` waits for those.
  */
 
 type Action = {
@@ -79,8 +81,8 @@ const deliver = async (task: AgentTask) => {
 const workspaces = new Set<string>()
 
 /*
- * A shopper's message also kicks its event onto the real queue, whose consumer runs the agent's turn again a second
- * later (seen already, it does nothing) and logs it: the last tests' turns would log after the file has ended.
+ * The shoppers' events are relayed at the end, and the Worker's own consumer runs the agent's turn on each (seen
+ * already, or left to a newer message's, it does nothing) and logs it: waited for, so nothing logs after the file.
  */
 afterAll(() => quiet(workspaces), 60_000)
 
@@ -527,13 +529,13 @@ describe("the customer agent's fences", () => {
     expect(said[0]).toContain("Hier kijkt een collega")
     expect((await s.threadOf(spent.threadId)).thread.handover).toMatchObject({ reason: "budget" })
     expect(await s.rowsOf(spent.threadId)).toMatchObject([{ outcome: "proposed", refuseReason: "budget", model: null }])
-    await relay(s.workspace)
+    await quiet([s.workspace])
 
     // A member held to another store counts none of this store's chats, and its test chat reads no chapter of it.
     const email = `chat-${run}-held@invited.test`
     ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: ["sto_elsewhere"] }] }, s.cookie))
     await pastUndo(s.workspace)
-    await relay(s.workspace)
+    await quiet([s.workspace])
     const held = await join(email)
     expect(ok(await rpc("ChannelAgent.today", undefined, s.cookie)).conversations).toBeGreaterThan(0)
     expect(ok(await rpc("ChannelAgent.today", undefined, held))).toMatchObject({
@@ -640,7 +642,7 @@ describe("the customer agent, after review", () => {
     const email = `chat-${run}-editor@invited.test`
     ok(await rpc("Invitations.send", { rows: [{ email, roleId: role.id, stores: "all" }] }, s.cookie))
     await pastUndo(s.workspace)
-    await relay(s.workspace)
+    await quiet([s.workspace])
     const editor = await join(email)
     for (
       const patch of [
@@ -928,22 +930,16 @@ describe("the customer agent's day, after review", () => {
     async () => {
       const s = await chatStore("chat-day")
       const settings = { handover: { ...SETTINGS.handover, afterMessages: null } }
-      // The Worker's own queue consumer runs the agent's turn on a message too, whenever its batch goes. Off while the
-      // shopper's message is moved a minute back, that turn stays silent, so whichever turn answers, it answers the
-      // message as written a minute ago, and the reply's own time is now.
-      await s.configure({ ...settings, on: false })
+      // The shopper's message moved a minute back before its turn: the turn answers it as written a minute ago, and
+      // the reply's own time is now.
+      await s.configure(settings)
       const slow = await s.say("Kan ik een sale-artikel nog retourneren?")
       expect(
         (await call(`http://api.test/api/__dev/webchat/earlier?workspace=${s.workspace}&seconds=60`, {
           method: "POST"
         })).status
       ).toBe(200)
-      await s.configure(settings)
       await s.turn(slow)
-      // The consumer's turn may have claimed the message first ("seen" here): its reply is logged once it went.
-      for (let i = 0; i < 50 && (await s.rowsOf(slow.threadId)).length === 0; i++) {
-        await new Promise((r) => setTimeout(r, 100))
-      }
       expect(await s.rowsOf(slow.threadId)).toMatchObject([{ decision: "run", outcome: "done" }])
       const day = ok(await rpc("ChannelAgent.today", undefined, s.cookie))
       expect(day.avgSeconds).toBeGreaterThanOrEqual(60)
@@ -1160,7 +1156,7 @@ describe("the customer agent, tuned", () => {
       const email = `chat-${run}-tuned-held@invited.test`
       ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: ["sto_elsewhere"] }] }, s.cookie))
       await pastUndo(s.workspace)
-      await relay(s.workspace)
+      await quiet([s.workspace])
       const held = await join(email)
       expect(failure(await rpc("Threads.discardDraft", { threadId: other.threadId, draftId: o!.id }, held)))
         .toMatchObject({ _tag: "NotFound" })

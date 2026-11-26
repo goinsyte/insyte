@@ -6,6 +6,7 @@ import { agentPrincipal } from "@insyte/modules/agent/Agent"
 import type { WidgetKeys } from "@insyte/modules/inbox/domain/Ports"
 import * as Widget from "@insyte/modules/inbox/use-cases/chat/widget"
 import { ChatChannel } from "@insyte/modules/shared/domain/ChatChannel"
+import { Relay } from "@insyte/modules/shared/domain/Outbox"
 import { Effect, Layer, Option, Schema } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
@@ -168,11 +169,19 @@ const ChatEarlier = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
+/** The relay's kick, left out: the events stay in the outbox, due, for the test's own relay. */
+const UNKICKED = Relay.of({ kick: () => Effect.void, kickEach: () => Effect.void })
+
 /**
  * `POST /api/__dev/webchat/shopper` `{ storeId, token?, text }`: a shopper's message as the widget sends it (a session
  * on one of the store's origins, the chat's own checks, the thread and its `chat.received`), without the widget's rate
  * limits, so a test writes a burst on one conversation or many conversations in a minute. `{ token, threadId,
  * messageId }`, or the widget's status. Locally and on a preview only.
+ *
+ * Its `chat.received` is written but not kicked onto the queue: the test is the queue here, and runs the message's
+ * turn itself when it says so. Kicked, the Worker's own consumer would run that turn too, a second later, and claim the
+ * message first whenever the test is slower than that, under settings the test has changed meanwhile or beside the
+ * test's own turn on the next message. The event waits in the outbox until the test relays it.
  */
 const ShopperSays = HttpRouter.add(
   "POST",
@@ -193,7 +202,9 @@ const ShopperSays = HttpRouter.add(
       return HttpServerResponse.jsonUnsafe({ error: { status: opened.status } }, { status: opened.status })
     }
     const token = opened === null ? m.token! : opened.body.token
-    const said = yield* Widget.post({ storeId: m.storeId, origin, token, text: m.text, take: unlimited })
+    const said = yield* Widget.post({ storeId: m.storeId, origin, token, text: m.text, take: unlimited }).pipe(
+      Effect.provideService(Relay, UNKICKED)
+    )
     if (said.status !== 200) {
       return HttpServerResponse.jsonUnsafe({ error: { status: said.status } }, { status: said.status })
     }
