@@ -275,9 +275,9 @@ function SubPanelLink({
 	const queueCounts = useQueueCounts();
 	const live =
 		item.liveCount === "needs-you"
-			? queueCounts.needsYou
+			? queueCounts?.needsYou
 			: item.liveCount === "drawn"
-				? queueCounts.drawn
+				? queueCounts?.drawn
 				: undefined;
 	const count = live ?? item.count;
 	const canOpen = useCanOpen();

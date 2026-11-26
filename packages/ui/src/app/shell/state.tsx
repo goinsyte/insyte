@@ -62,15 +62,17 @@ export const usePersonaChrome = (persona: Persona): PersonaChrome => {
 	if (partner === undefined || chrome.partner === undefined) return chrome;
 	return { ...chrome, partner: { ...chrome.partner, name: partner.name }, menu: partner.menu };
 };
-/** What waits on the person and what has a proposal ready: the host's own figures, or counted from its queue. */
-export const useQueueCounts = (): { needsYou: number; drawn: number } => {
+/**
+ * What waits on the person and what has a proposal ready: a host that counts on the server gives its figures, and
+ * none (`undefined`) until they are read; any other host's are counted from its queue.
+ */
+export const useQueueCounts = (): { needsYou: number; drawn: number } | undefined => {
 	const source = useShellSource();
-	return (
-		source.queueCounts ?? {
-			needsYou: source.workspace.queue.filter(isNeedsYou).length,
-			drawn: source.workspace.queue.filter(isDrawn).length,
-		}
-	);
+	if (source.serverCounts === true) return source.queueCounts;
+	return {
+		needsYou: source.workspace.queue.filter(isNeedsYou).length,
+		drawn: source.workspace.queue.filter(isDrawn).length,
+	};
 };
 export const usePanelFor = () => useShellSource().panelFor;
 export const useServerCounts = () => useShellSource().serverCounts === true;

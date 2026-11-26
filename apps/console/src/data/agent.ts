@@ -6,6 +6,7 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { INBOX } from "./inbox.ts"
 
 /*
  * Insyte AI (M15 step 6): Zelfstandigheid with its history, the month's AI budgets, and Wat Insyte deed, primed by
@@ -33,9 +34,9 @@ export const budgetsAtom = Atom.serializable(
   { key: "ai-budgets", schema: AsyncResult.Schema({ success: AiBudgets, error: errors }), skipInitialRun: true }
 )
 
-/** Klantagent's settings, with the autonomy rule they narrow. */
+/** Klantagent's settings, with the autonomy rule they narrow; read again when a website chat is connected or not. */
 export const channelAgentAtom = Atom.serializable(
-  ConsoleClient.query("ChannelAgent.get", undefined, { reactivityKeys: [...CUSTOMER_AGENT, ...AUTONOMY] }),
+  ConsoleClient.query("ChannelAgent.get", undefined, { reactivityKeys: [...CUSTOMER_AGENT, ...AUTONOMY, ...INBOX] }),
   {
     key: "customer-agent",
     schema: AsyncResult.Schema({ success: ChannelAgentView, error: errors }),

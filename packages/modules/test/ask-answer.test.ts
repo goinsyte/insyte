@@ -107,6 +107,31 @@ describe("the answer's words", () => {
     ])).toBe("Omzet (€ 568,65), zie #1 en verder.")
   })
 
+  it("keeps quotes against what they quote, opening and closing", () => {
+    expect(plain([
+      { kind: "text", value: "Klant schreef „" },
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "” en daarna \"" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "\" als" },
+      { kind: "text", value: "\"bedrag\"" },
+      { kind: "record", value: "r1" }
+    ])).toBe("Klant schreef „#1” en daarna \"€ 568,65\" als \"bedrag\" #1")
+  })
+
+  it("joins a dash or a slash to the chip before it, and spaces a word that starts with ’s", () => {
+    expect(plain([
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "-2 kost" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "/maand, ook" },
+      { kind: "figure", value: "f1" },
+      { kind: "text", value: "’s avonds. Of " },
+      { kind: "record", value: "r1" },
+      { kind: "text", value: "’." }
+    ])).toBe("#1-2 kost € 568,65/maand, ook € 568,65 ’s avonds. Of #1’.")
+  })
+
   it("keeps the words and their spaces as their own tokens, and leaves out what no tool gave", () => {
     expect(tokensOf(
       [{ kind: "text", value: "Zie" }, { kind: "record", value: "r9" }, { kind: "figure", value: "f1" }],

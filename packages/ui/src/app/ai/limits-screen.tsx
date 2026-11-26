@@ -67,11 +67,11 @@ export function LimitsPage() {
 				</Notice>
 			) : state === "warn" ? (
 				<Notice tone="amber">
-					<span className="font-medium">{Math.round((budget.used / (draft.limit ?? 1)) * 100)}% van het budget voor {month} is op.</span> Bij 100% stopt Insyte met zelf handelen tot de maand omslaat.
+					<span className="font-medium">{Math.round((budget.used / (draft.limit ?? 1)) * 100)}% van het budget voor {month} is op.</span> Bij 100% stopt Insyte met zelf handelen tot de maand omslaat of je de limiet verhoogt.
 				</Notice>
 			) : null}
 
-			<SettingCard title={`Werkruimte · ${month}`} icon={Wallet} subtitle="Bij 80% krijgen de eigenaar en wie de limieten mag instellen een melding. Is het budget op, dan stopt Insyte AI tot de maand omslaat: wat Insyte zelf zou doen komt als voorstel, de klantagent geeft nieuwe gesprekken aan je team en Vraag Insyte antwoordt niet.">
+			<SettingCard title={`Werkruimte · ${month}`} icon={Wallet} subtitle="Bij 80% krijgen de eigenaar en wie de limieten mag instellen een melding. Is het budget op, dan komt wat Insyte zelf zou doen als voorstel, geeft de klantagent nieuwe gesprekken aan je team en antwoordt Vraag Insyte niet, tot de maand omslaat of je de limiet verhoogt.">
 				<div className="flex flex-col gap-1">
 					<FieldRow label="Maandbudget" hint="Voor alles wat Insyte AI doet, van iedereen samen en op de achtergrond. In hele euro's, ook als je winkel in een andere valuta verkoopt. Leeg is geen limiet.">
 						<EuroField text={texts[WORKSPACE] ?? ""} error={errorOf(read(WORKSPACE, saved.limit))} disabled={readOnly} onChange={type(WORKSPACE)} label="Maandbudget in euro" />
@@ -90,7 +90,7 @@ export function LimitsPage() {
 				</div>
 			</SettingCard>
 
-			<SettingCard title="Per persoon" icon={Users} subtitle="Wat iemand zelf met Insyte AI doet, zoals Vraag Insyte en concepten. Bij 80% krijgen die persoon en de eigenaar een melding. Is het op, dan doet Insyte AI niets meer voor die persoon tot de maand omslaat. Leeg is geen limiet.">
+			<SettingCard title="Per persoon" icon={Users} subtitle="Wat iemand zelf met Insyte AI doet, zoals Vraag Insyte en concepten. Bij 80% krijgen die persoon en de eigenaar een melding. Is het op, dan doet Insyte AI niets meer voor die persoon tot de maand omslaat of je de limiet verhoogt. Leeg is geen limiet.">
 				<BandedList>
 					{people.map((p) => {
 						const limit = draft.people[p.memberId] ?? null;

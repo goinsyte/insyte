@@ -93,7 +93,8 @@ export interface ShellSource {
 	workspace: Pick<WorkspaceState, "tickets" | "orders" | "chargebacks" | "queue" | "members" | "integrations" | "createdCustomers">;
 	/**
 	 * The queue's figures, from a host that counts them on the server (the console holds no queue in `workspace`):
-	 * what waits on the person, and what has a proposal ready. Absent, they are counted from `workspace.queue`.
+	 * what waits on the person, and what has a proposal ready. With `serverCounts`, absent is not read yet; without, they
+	 * are counted from `workspace.queue`.
 	 */
 	queueCounts?: { needsYou: number; drawn: number } | undefined;
 	returns: Pick<ReturnsState, "records">;

@@ -48,7 +48,8 @@ export function GlobalTopbar({
 	onOpenNav: () => void;
 }) {
 	const openMarketplace = useMarketplaceModalStore((s) => s.openModal);
-	const { drawn } = useQueueCounts();
+	// Unknown until the host has read it: the button keeps its place and says nothing yet.
+	const drawn = useQueueCounts()?.drawn;
 	const chrome = usePersonaChrome(persona);
 	const admin = persona === "admin";
 	// Vraag Insyte is drawn where the host has it.
@@ -113,14 +114,16 @@ export function GlobalTopbar({
 			{/* At phone width the count is the whole message; the noun returns with the room for it. */}
 			<Link
 				to="/dashboard"
-				aria-label={drawn === 0 ? "Geen voorstellen" : `${drawn} ${drawn === 1 ? "voorstel" : "voorstellen"} klaar`}
+				aria-label={drawn === undefined ? "Voorstellen" : drawn === 0 ? "Geen voorstellen" : `${drawn} ${drawn === 1 ? "voorstel" : "voorstellen"} klaar`}
 				className={cn(
 					"flex h-[30px] shrink-0 items-center gap-1 rounded-md px-2.5 font-medium text-base tabular-nums leading-none transition-colors sm:px-3.5",
 					// Nothing drawn is not a call to action, so it does not wear the primary fill.
-					drawn === 0 ? "text-ink-3 hover:bg-ink/6 hover:text-ink-2" : "bg-abyss text-mesh-ink hover:bg-abyss-2",
+					drawn === undefined || drawn === 0 ? "text-ink-3 hover:bg-ink/6 hover:text-ink-2" : "bg-abyss text-mesh-ink hover:bg-abyss-2",
 				)}
 			>
-				{drawn === 0 ? (
+				{drawn === undefined ? (
+					<span aria-hidden className="invisible hidden sm:inline">Geen voorstellen</span>
+				) : drawn === 0 ? (
 					<span className="hidden sm:inline">Geen voorstellen</span>
 				) : (
 					<>
