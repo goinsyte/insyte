@@ -105,5 +105,32 @@ describe("Start's queue", () => {
       rows: [],
       counts: { needsYou: 0, drawn: 0, all: 0 }
     })
+    expect(ok(await rpc("Shell.frame", undefined, lone.cookie)).queue).toEqual([])
+  })
+
+  it("counts the queue in the frame, by store, as Start counts it, without a read of its own", async () => {
+    const store = await importedStore("q-frame")
+    const email = `q-frame-service-${run}@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "service", stores: "all" }] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const service = await join(email)
+    ok(await rpc("Stores.disconnect", { id: store.storeId }, store.cookie))
+    await relay(store.workspace)
+    await refresh(store.workspace)
+
+    const start = ok(await rpc("Queue.list", { tab: "needs_you" }, store.cookie))
+    expect(start.rows.find((r) => r.kind === "store_disconnected")).toBeDefined()
+    const frame = ok(await rpc("Shell.frame", undefined, store.cookie)).queue
+    expect(frame.find((c) => c.storeId === store.storeId)?.needsYou).toBeGreaterThanOrEqual(1)
+    const sum = (rows: typeof frame) => rows.reduce((n, c) => n + c.needsYou, 0)
+    expect({ needsYou: sum(frame), drawn: frame.reduce((n, c) => n + c.drawn, 0) }).toEqual({
+      needsYou: start.counts.needsYou,
+      drawn: start.counts.drawn
+    })
+    // What the person may not open is not in their figures either: Klantenservice holds no Instellingen.
+    const theirs = ok(await rpc("Shell.frame", undefined, service)).queue
+    expect(sum(theirs)).toBe(ok(await rpc("Queue.list", { tab: "needs_you" }, service)).counts.needsYou)
+    expect(sum(theirs)).toBe(sum(frame) - 1)
   })
 })

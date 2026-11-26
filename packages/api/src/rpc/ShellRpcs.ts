@@ -2,6 +2,7 @@ import { RoleSnapshot } from "@insyte/domain/Principal"
 import { Teammate } from "@insyte/modules/members/domain/Team"
 import { NoteCounts } from "@insyte/modules/notifications/domain/Notifications"
 import { Prefs } from "@insyte/modules/prefs/domain/Prefs"
+import { QueueStoreCounts } from "@insyte/modules/queue/domain/Queue"
 import { SearchHit, SearchKind } from "@insyte/modules/shared/domain/Search"
 import { StoreFilter } from "@insyte/modules/shared/domain/Stores"
 import { HealthLine } from "@insyte/modules/stores/domain/Health"
@@ -39,6 +40,11 @@ export class Frame extends Schema.Class<Frame>("shell/Frame")({
   teammates: Schema.Array(Teammate),
   /** Proposals ready to review (M15); `null` until Insyte drafts them, so the top bar shows no button. */
   proposals: Schema.NullOr(Schema.Int),
+  /**
+   * Start's queue by store, for the panel's "Wacht op jou" and "Voorstellen klaar" and the top bar's proposals: the
+   * frame picks the store in view (that store's and the storeless rows, or all), so a store switch reads nothing.
+   */
+  queue: Schema.Array(QueueStoreCounts),
   /** Every store connection's state in one line (M17 step 6): what the shell says about the sync. */
   health: HealthLine,
   /** The stores the member reaches (`storeScope`), for the top bar's store switch; a disconnected one last. */

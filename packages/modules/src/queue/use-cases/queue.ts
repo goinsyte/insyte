@@ -426,6 +426,27 @@ export const list = Effect.fn("Queue.list")(function*(input: typeof ListInput.Ty
   )
 })
 
+/**
+ * The frame's figures (the panel's "Wacht op jou" and "Voorstellen klaar", the top bar's proposals): one aggregate over
+ * the open rows the person may open, by store, without reading a row or its plate.
+ */
+export const countsByStore = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function*() {
+    const scope = yield* visible(sql)
+    return yield* sql<{ storeId: string | null; needsYou: number; drawn: number }>`
+      select q.store_id,
+             count(*) filter (where q.signal in ('red', 'amber'))::int as needs_you,
+             count(*) filter (where ${sql.literal(DRAWN)})::int as drawn
+      from queue_items q
+      where q.resolved_at is null and q.state = 'open' and ${scope}
+      group by q.store_id`
+  })
+
+export const counts = Effect.fn("Queue.counts")(function*() {
+  const db = yield* Db
+  return yield* db.scoped(countsByStore)
+})
+
 const one = Effect.fn("Queue.one")(function*(sql: SqlClient.SqlClient, id: string, lock: boolean) {
   const scope = yield* visible(sql)
   const [row] = yield* sql<Row & { decidedBy: string | null }>`

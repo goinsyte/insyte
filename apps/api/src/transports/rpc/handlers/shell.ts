@@ -11,6 +11,7 @@ import { NotificationsService } from "@insyte/modules/notifications/Notification
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
+import { QueueService } from "@insyte/modules/queue/Queue"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import type { SearchKind } from "@insyte/modules/shared/domain/Search"
 import { inStore } from "@insyte/modules/shared/use-cases/StoreScope"
@@ -120,6 +121,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const chargebacks = yield* ChargebacksService
   const stores = yield* StoresService
   const returns = yield* ReturnsService
+  const queue = yield* QueueService
   // Each kind through its own slice, which answers nothing where the role may not look (support level, stores, a DM).
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
@@ -190,14 +192,15 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       Effect.gen(function*() {
         const principal = yield* CurrentPrincipal
         const user = yield* CurrentUser
-        const [memberships, notation, mine, counts, teammates, health, reachable] = yield* Effect.all([
+        const [memberships, notation, mine, counts, teammates, health, reachable, queued] = yield* Effect.all([
           workspaces.memberships,
           workspaces.notation,
           prefs.get,
           notes.counts,
           members.directory,
           stores.healthLine,
-          stores.reachable
+          stores.reachable,
+          queue.counts
         ], { concurrency: 1 })
         const workspace = memberships.find((m) => m.workspaceId === principal.workspaceId)
         return new Frame({
@@ -209,6 +212,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
           notes: counts,
           teammates,
           proposals: null,
+          queue: queued,
           health,
           stores: reachable
         })
