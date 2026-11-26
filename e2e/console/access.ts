@@ -1,5 +1,6 @@
 import type {
   APIRequestContext,
+  APIResponse,
   Browser,
   BrowserContext,
   BrowserContextOptions,
@@ -53,22 +54,50 @@ export const guarded = (handler: (route: Route) => Promise<unknown>) => async (r
 /** The calls of an API request context that send a request. */
 const SENDS: ReadonlySet<PropertyKey> = new Set(["delete", "fetch", "get", "head", "patch", "post", "put"])
 
+/** A call as an error may name it: the method and the path, no query string (an address, a token). */
+const callOf = (method: string, url: string) => `${method.toUpperCase()} ${new URL(url, "http://e2e.invalid").pathname}`
+
 /**
  * What a failed call may say: its method, its path and why, in a word. Playwright's own error lists, in its call log,
  * every header the request sent and the response's `set-cookie` (the session cookie, the Access token), so only the
  * first line's status (a `failOnStatusCode` refusal) or a network error's code is kept, else the error's name.
  */
-const failedCall = (method: string, url: string, error: unknown): Error => {
+const failedCall = (call: string, error: unknown): Error => {
   const first = error instanceof Error ? (error.message.split("\n")[0] ?? "") : ""
   const why = /^[\w.]+: (\d{3})\b/.exec(first)?.[1] ?? /\b(E[A-Z]{3,})\b/.exec(first)?.[1] ??
     (error instanceof Error ? error.name : "Error")
-  return new Error(`${method.toUpperCase()} ${new URL(url, "http://e2e.invalid").pathname} failed (${why})`)
+  return new Error(`${call} failed (${why})`)
 }
 
 /**
+ * A response whose `json()` cannot put its body in a log: on a body that is not JSON (Access's sign-in page, a 500's
+ * page) the parser's error quotes the start of the text, and a captured mail's body carries its sign-in and invitation
+ * links. Rethrown naming the call and the status only. `text()` and `body()` are the journey's to print, or not.
+ */
+const sealedResponse = (response: APIResponse, call: string): APIResponse =>
+  new Proxy(response, {
+    get(target, key) {
+      const value: unknown = Reflect.get(target, key, target)
+      if (typeof value !== "function") return value
+      if (key !== "json") return value.bind(target)
+      const json = async () => {
+        try {
+          return await value.call(target)
+        } catch {
+          const failed = new Error(`${call}: the body is not JSON (${target.status()})`)
+          Error.captureStackTrace(failed, json)
+          throw failed
+        }
+      }
+      return json
+    }
+  })
+
+/**
  * An API request context whose failed calls cannot put a request's headers in a log, as `guarded` does for routes: a
- * call that throws is rethrown as an error naming only the method, the path and why. Every API context the journeys
- * use goes through this (`previewRequest`, `pageRequest`, `plainRequest`; `bun run e2e:requests` holds them to it).
+ * call that throws is rethrown as an error naming only the method, the path and why, and its response's `json()` the
+ * same (`sealedResponse`). Every API context the journeys use goes through this (`previewRequest`, `pageRequest`,
+ * `plainRequest`; `bun run e2e:requests` holds them to it).
  */
 function sealed(api: APIRequestContext): APIRequestContext {
   return new Proxy(api, {
@@ -77,13 +106,13 @@ function sealed(api: APIRequestContext): APIRequestContext {
       if (typeof value !== "function") return value
       if (!SENDS.has(key)) return value.bind(target)
       const send = async (urlOrRequest: string | Request, options?: { method?: string }) => {
+        const call = typeof urlOrRequest === "string"
+          ? callOf(key === "fetch" ? (options?.method ?? "GET") : String(key), urlOrRequest)
+          : callOf(options?.method ?? urlOrRequest.method(), urlOrRequest.url())
         try {
-          return await value.call(target, urlOrRequest, options)
+          return sealedResponse(await value.call(target, urlOrRequest, options), call)
         } catch (error) {
-          const [method, url] = typeof urlOrRequest === "string"
-            ? [key === "fetch" ? (options?.method ?? "GET") : String(key), urlOrRequest]
-            : [options?.method ?? urlOrRequest.method(), urlOrRequest.url()]
-          const failed = failedCall(method, url, error)
+          const failed = failedCall(call, error)
           // The stack starts at the journey's own line, which the report then shows, not this one.
           Error.captureStackTrace(failed, send)
           // No `cause`: the cause is the error with the headers, and a reporter would print it.

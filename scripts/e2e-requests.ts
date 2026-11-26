@@ -12,7 +12,8 @@ import { checkE2eRequests } from "./lib/e2e-requests-rules.ts"
 
 const DIR = "e2e/console"
 
-const files = readdirSync(DIR)
+// The whole tree, as Playwright's `testDir` is.
+const files = readdirSync(DIR, { recursive: true, encoding: "utf8" })
   .filter((name) => name.endsWith(".ts"))
   .map((name) => ({ path: join(DIR, name), source: readFileSync(join(DIR, name), "utf8") }))
 

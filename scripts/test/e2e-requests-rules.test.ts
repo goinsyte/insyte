@@ -39,6 +39,26 @@ const c = context.request
 const api = await playwright.request.newContext({ maxRedirects: 0 })`)).toHaveLength(3)
   })
 
+  it("fails the same context destructured or indexed", () => {
+    expect(spec(`${FIXTURE}
+const { request } = page
+const { request: api } = context
+await page["request"].get("/x")
+await context['request'].get("/x")`)).toHaveLength(4)
+  })
+
+  it("passes a test that destructures the sealed fixture, and founder.ts's test from a folder below", () => {
+    expect(spec(
+      `import { test } from "../founder.ts"
+test("x", async ({ page, request }) => { const { mails } = await (await request.get("/m")).json() })`,
+      "e2e/console/admin/x.spec.ts"
+    )).toEqual([])
+  })
+
+  it("holds an access.ts in a folder below to the rules: only the top one seals", () => {
+    expect(spec(`await page.request.get("/x")`, "e2e/console/admin/access.ts")).toHaveLength(1)
+  })
+
   it("names the line", () => {
     expect(spec(`\n\nawait page.request.get("/x")`)[0]).toMatch(/^e2e\/console\/x\.spec\.ts:3: /)
   })

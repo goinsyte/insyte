@@ -5,7 +5,7 @@
    * reaches into the page (`page.evaluate`, `waitForFunction`: `window`, `document`). In `check`.
    */
   "extends": "../../tsconfig.base.json",
-  "include": ["*.ts"],
+  "include": ["**/*.ts"],
   "compilerOptions": {
     "noEmit": true,
     // `warm-up.ts` reads the expect timeout from `playwright.console.config.ts`, at the repo's root.

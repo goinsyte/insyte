@@ -12,7 +12,7 @@ export interface E2eFile {
 }
 
 /** The file that seals the contexts, and so the one that may reach them. */
-const SEALER = "access.ts"
+const SEALER = "e2e/console/access.ts"
 
 /** Comments blanked (newlines kept, so a line number stays right): a comment may name what the code may not use. */
 const code = (source: string) =>
@@ -26,6 +26,12 @@ const RULES: ReadonlyArray<{ readonly pattern: RegExp; readonly why: string }> =
   {
     // `page.request`, `context.request`, `playwright.request`: an unsealed context. `route.request()` is a call.
     pattern: /\.request\b(?!\s*\()/g,
+    why: "an API context that is not sealed: use pageRequest(page), the request fixture or plainRequest (access.ts)"
+  },
+  {
+    // The same, as `page["request"]` or `const { request } = context`. A test's own `async ({ request }) =>` is the
+    // fixture, and is not followed by `=`.
+    pattern: /\[\s*["'`]request["'`]\s*\]|\{[^{}()]*\brequest\b[^{}()]*\}\s*=(?![=>])/g,
     why: "an API context that is not sealed: use pageRequest(page), the request fixture or plainRequest (access.ts)"
   },
   {
@@ -44,10 +50,10 @@ const TAKES_REQUEST = /\(\s*\{[^(){}]*\brequest\b[^(){}]*\}/
 const DEFINES_REQUEST = /\brequest:\s*async\b/
 const SEALS_REQUEST = /\brequest:\s*async\b[^]*?\bpreviewRequest\(/
 /** The journeys' shared `test`, whose `request` fixture is `previewRequest`'s. */
-const SHARED_TEST = /import\s*\{[^}]*\btest\b[^}]*\}\s*from\s*"\.\/founder\.ts"/
+const SHARED_TEST = /import\s*\{[^}]*\btest\b[^}]*\}\s*from\s*"(?:\.\.?\/)+founder\.ts"/
 
 export const checkE2eRequests = (files: ReadonlyArray<E2eFile>): Array<string> =>
-  files.filter((f) => !f.path.endsWith(`/${SEALER}`) && f.path !== SEALER).flatMap(({ path, source }) => {
+  files.filter((f) => f.path !== SEALER).flatMap(({ path, source }) => {
     const text = code(source)
     const found = RULES.flatMap(({ pattern, why }) =>
       [...text.matchAll(pattern)].map((m) => `${path}:${lineOf(text, m.index)}: ${why}`)
