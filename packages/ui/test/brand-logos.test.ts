@@ -10,6 +10,8 @@ import { initials } from "../src/app/lib/format.ts"
  */
 
 const LOGOS = new URL("../../../apps/console/public/logos/", import.meta.url).pathname
+// The record of where each file came from, beside `public/` rather than in it, so it is not served.
+const RECORD = new URL("../../../apps/console/logos-BRON.md", import.meta.url).pathname
 const source = readFileSync(new URL("../src/app/marketplace/brand-logos.tsx", import.meta.url), "utf8")
 const files = [...source.matchAll(/\bfile: "([^"]+)"/g)].map((m) => m[1]!)
 
@@ -18,12 +20,16 @@ describe("the console's logo files", () => {
     expect(files.length).toBeGreaterThan(20)
   })
 
+  it("serves no record with them", () => {
+    expect(existsSync(`${LOGOS}BRON.md`)).toBe(false)
+  })
+
   it("ships every file BrandLogo names", () => {
     expect(files.filter((file) => !existsSync(`${LOGOS}${file}`))).toEqual([])
   })
 
   it("records the source of every file it ships", () => {
-    const sources = readFileSync(`${LOGOS}BRON.md`, "utf8")
+    const sources = readFileSync(RECORD, "utf8")
     expect(files.filter((file) => !sources.includes(`\`${file}\``))).toEqual([])
   })
 })

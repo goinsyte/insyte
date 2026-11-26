@@ -819,7 +819,7 @@ export const STORE_ROWS: ReadonlyArray<StoreRow> = STORES.map((s) => ({
       },
       {
         id: "inc_rate",
-        finding: "De limiet van Shopify voor verzoeken is bijna bereikt.",
+        finding: "De limiet van Shopify voor verzoeken was bijna bereikt.",
         next: null,
         since: "Sinds vr 11:30",
         told: null,

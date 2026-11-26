@@ -1,7 +1,7 @@
 # Logos of the integrations
 
-The console serves these files itself. Each one is a byte-for-byte copy of the file of the same name in
-`apps/design/public/logos/`, taken on 26 November 2026, limited to the files `BrandLogo`
+The console serves these files itself, from `public/logos/`; this record sits outside `public/` so it is not served
+with them. Each one is a byte-for-byte copy of the file of the same name in `apps/design/public/logos/`, taken on 26 November 2026, limited to the files `BrandLogo`
 (`packages/ui/src/app/marketplace/brand-logos.tsx`) names. The sources below are the ones recorded there.
 
 Shown wherever the console names a service it connects to, so an operator recognises the software

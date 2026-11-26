@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { initials } from "../lib/format";
 import { cn } from "../lib/utils";
 
@@ -6,7 +6,8 @@ import { cn } from "../lib/utils";
  * The logo of a service Insyte connects to — the software an operator already uses, recognised at a
  * glance, which a monogram never is.
  *
- * Files live in `public/logos/` with their provenance beside them (`BRON.md`). This used to hotlink
+ * Files live in each app's `public/logos/`, with their provenance recorded in a `BRON.md` (the console's
+ * is `apps/console/logos-BRON.md`, outside what it serves). This used to hotlink
  * svgl.app's CDN for three of twelve apps and paint the other nine as an invented colour with an
  * initial on it: a third-party request on every marketplace open, and nine "logos" no company drew.
  *
@@ -114,6 +115,16 @@ export function BrandLogo({
 	// broken-image icon; kept by name, so a tile that moves to another brand tries its file again.
 	const [failed, setFailed] = useState<string | null>(null);
 	const file = logo !== undefined && logo.file !== failed ? logo.file : undefined;
+	// A server-rendered page can lose its image before React hydrates and listens for `error`: an
+	// image already done loading is asked to decode, which only a broken one refuses. Not its
+	// natural width, which is 0 for an SVG without a size of its own even when it drew fine.
+	const checkLoaded = useCallback(
+		(img: HTMLImageElement | null) => {
+			if (img === null || file === undefined || !img.complete) return;
+			img.decode().catch(() => setFailed(file));
+		},
+		[file],
+	);
 	// A tile's corner follows its size — the chip radius below 24px, the control radius up to 40px,
 	// the tile radius above it — so a 16px logo in a table cell does not look like a pill.
 	const radius = size < 24 ? "rounded-sm" : size <= 40 ? "rounded-md" : "rounded-lg";
@@ -140,6 +151,7 @@ export function BrandLogo({
 					decoding="async"
 					draggable={false}
 					onError={() => setFailed(file)}
+					ref={checkLoaded}
 					className={cn(
 						"object-contain",
 						logo?.full === true ? "size-full" : "size-[64%]",
