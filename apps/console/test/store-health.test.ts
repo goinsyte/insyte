@@ -37,6 +37,14 @@ const connection = (over: Partial<ConstructorParameters<typeof ConnectionHealth>
     ...over
   })
 
+/** Who an incident says heard of it. */
+const told = (notifiedYou: boolean) =>
+  storeHealthOf(connection({ state: "broken", incidents: [incident({ notifiedYou })] }), NOW).incidents[0]!.told
+
+/** What an incident says was or is wrong. */
+const finding = (resolvedAt: number | null) =>
+  storeHealthOf(connection({ incidents: [incident({ resolvedAt })] }), NOW).incidents[0]!.finding
+
 describe("a store's sync health on Winkels", () => {
   it("says a store that is fine once, as connected, with its last sync beside it", () => {
     const health = storeHealthOf(connection(), NOW)
@@ -46,16 +54,12 @@ describe("a store's sync health on Winkels", () => {
   })
 
   it("says who heard of an incident, and 'jou' when that is the reader", () => {
-    const told = (notifiedYou: boolean) =>
-      storeHealthOf(connection({ state: "broken", incidents: [incident({ notifiedYou })] }), NOW).incidents[0]!.told
     expect(told(false)).toBe("Gemeld aan Sanne")
     expect(told(true)).toBe("Gemeld aan jou")
   })
 
   it("says a resolved incident in the past tense, an open one in the present", () => {
-    const of = (resolvedAt: number | null) =>
-      storeHealthOf(connection({ incidents: [incident({ resolvedAt })] }), NOW).incidents[0]!.finding
-    expect(of(null)).toBe("Synchroniseren met Shopify lukt niet.")
-    expect(of(NOW - HOUR)).toBe("Synchroniseren met Shopify lukte niet.")
+    expect(finding(null)).toBe("Synchroniseren met Shopify lukt niet.")
+    expect(finding(NOW - HOUR)).toBe("Synchroniseren met Shopify lukte niet.")
   })
 })
