@@ -13,18 +13,24 @@ export function copyLines(lines: ReadonlyArray<string>, what: string) {
   toast(`${what} gekopieerd`)
 }
 
-/** A CSV of the selection, built here and handed to the browser — nothing leaves the machine. */
+/**
+ * A CSV of the selection, built here and handed to the browser — nothing leaves the machine. `dutch` writes the Data
+ * hub's file as the server does: `;` between cells and a BOM, so Dutch Excel reads its decimal commas.
+ */
 export function exportCsv(
   name: string,
   header: ReadonlyArray<string>,
-  rows: ReadonlyArray<ReadonlyArray<string | number>>
+  rows: ReadonlyArray<ReadonlyArray<string | number>>,
+  { dutch = false }: { dutch?: boolean } = {}
 ) {
+  const sep = dutch ? ";" : ","
   const cell = (v: string | number) => {
     const s = String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, "\"\"")}"` : s
+    return /[",\n]/.test(s) || s.includes(sep) ? `"${s.replace(/"/g, "\"\"")}"` : s
   }
-  const body = [header, ...rows].map((r) => r.map(cell).join(",")).join("\n")
-  const url = URL.createObjectURL(new Blob([body], { type: "text/csv" }))
+  const lines = [header, ...rows].map((r) => r.map(cell).join(sep))
+  const body = dutch ? `﻿${lines.join("\r\n")}` : lines.join("\n")
+  const url = URL.createObjectURL(new Blob([body], { type: dutch ? "text/csv;charset=utf-8" : "text/csv" }))
   const a = document.createElement("a")
   a.href = url
   a.download = `${name}.csv`

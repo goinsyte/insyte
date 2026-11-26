@@ -1,6 +1,6 @@
 import { ChevronRight, Key, Plus, Webhook } from "../../icons";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactElement, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { Blocked } from "../access/blocked";
 import { EmptyState } from "../common/empty-state";
 import { PageGuide } from "../common/page-guide";
@@ -37,7 +37,12 @@ export function ApiKeysPage({ start }: { start?: "agent" | undefined } = {}) {
 	const { keys, roles } = source;
 	const manage = source.can.manage;
 	const [creating, setCreating] = useState(start === "agent" && manage.ok);
-	const [forAgent, setForAgent] = useState(start === "agent");
+	const [forAgent, setForAgent] = useState(start === "agent" && manage.ok);
+	// A role that may not make keys gets no dialog, so the parameter goes at once.
+	useEffect(() => {
+		if (start === "agent" && !manage.ok) void navigate({ to: "/settings/api-keys" as never, search: {} as never, replace: true });
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- once, for the address the page opened on
+	}, []);
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [showRevoked, setShowRevoked] = useState(false);
 

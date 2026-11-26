@@ -107,7 +107,10 @@ export function DemoDataSource({ children }: { children: ReactNode }) {
     exportFile: (ask) => {
       if (ask.source === "orders") {
         const cols = EXPORT_COLUMNS.filter((c) => ask.columns.includes(c.id))
-        exportCsv("orders-export", cols.map((c) => c.label), orders.map((o) => cols.map((c) => c.read(o))))
+        // As the server writes the hub's file: `;` and a BOM, for the decimal commas.
+        exportCsv("orders-export", cols.map((c) => c.label), orders.map((o) => cols.map((c) => c.read(o))), {
+          dutch: true
+        })
         return
       }
       const id = ask.source.import
@@ -117,7 +120,8 @@ export function DemoDataSource({ children }: { children: ReactNode }) {
       exportCsv(
         batch.fileName.replace(/\.csv$/i, "-export"),
         idx.map((i) => batch.header[i] ?? `Kolom ${i + 1}`),
-        batch.rows.map((r) => idx.map((i) => r[i] ?? ""))
+        batch.rows.map((r) => idx.map((i) => r[i] ?? "")),
+        { dutch: true }
       )
     },
     exporting: false,

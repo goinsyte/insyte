@@ -117,7 +117,7 @@ export function CreateKeyDialog({ open, onOpenChange, forAgent = false }: { open
 									<div className="flex flex-col gap-1.5">
 										<SelectField value={roleId} onChange={setRoleId} options={roles.map((r) => r.id)} renderLabel={(id) => roles.find((r) => r.id === id)?.label ?? id} />
 										<p className="text-ink-2 text-sm leading-normal">
-											{scopeSummary(access, 4)}. Verandert de rol onder Rollen, dan verandert deze sleutel mee. Het team kan een sleutel alleen bekijken; facturatie, instellingen en de sleutels zelf nooit.
+											{scopeSummary(access, 4)}. Verandert de rol onder Rollen, dan verandert deze sleutel mee. Een sleutel kan het team alleen bekijken, niet wijzigen. Facturatie, instellingen, koppelingen, cursussen en sleutels zijn nooit bereikbaar.
 										</p>
 									</div>
 								) : (
