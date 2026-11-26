@@ -315,7 +315,8 @@ export function SyncProgress(
     return (
       <p className="rounded-md bg-well px-3.5 py-3 text-sm text-pretty text-ink-2">
         Nog geen winkel gekoppeld. Koppel Shopify wanneer je wilt via{" "}
-        <span className="font-medium text-ink">Instellingen, Koppelingen</span>. De rest van de inrichting werkt gewoon.
+        <span className="font-medium text-ink">Instellingen › Koppelingen</span>. De rest van de inrichting werkt
+        gewoon.
       </p>
     )
   }

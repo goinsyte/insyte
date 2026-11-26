@@ -14,6 +14,7 @@ import { toast } from "sonner"
 import { BILLING, billingWrites } from "../data/billing.ts"
 import { TEAM } from "../data/team.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
+import { money } from "./money.ts"
 
 /*
  * Facturatie over `Billing.*` (M13 step 1). Every amount is Stripe's, in the currency of its prices; what a plan
@@ -26,17 +27,6 @@ import { failureOf, sayRefusal } from "../frame/refusals.ts"
 const NAMES: Record<PlanTier, string> = { starter: "Starter", growth: "Growth", scale: "Scale" }
 
 const keys = { reactivityKeys: [...BILLING, ...TEAM] }
-
-/** Minor units as nl-NL writes them: "€ 299" for a whole amount, "€ 12,34" otherwise. */
-const money = (minor: number, currency: string) => {
-  const whole = minor % 100 === 0
-  return (minor / 100).toLocaleString("nl-NL", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    minimumFractionDigits: whole ? 0 : 2,
-    maximumFractionDigits: 2
-  })
-}
 
 const date = (ms: number) =>
   new Intl.DateTimeFormat("nl-NL", { timeZone: ZONE, day: "numeric", month: "long", year: "numeric" }).format(ms)

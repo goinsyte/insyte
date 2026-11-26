@@ -94,3 +94,56 @@ describe("the onboarding shell's other buttons", () => {
     expect(back(shell({}, { canGoBack: false }))).toMatch(/ disabled=""/)
   })
 })
+
+type SyncStep = (input: {
+  connected: boolean
+  rows: ReadonlyArray<never>
+  canContinue: boolean
+  onPrimary: () => void
+  failed?: boolean
+  onReconnect?: () => void
+  onSkip?: () => void
+}) => Step & { skipLabel?: string; onSkip?: () => void }
+
+const wait = () => undefined
+const reconnect = () => undefined
+const skip = () => undefined
+
+describe("the sync step", () => {
+  let syncStep: SyncStep
+  beforeAll(async () => {
+    const specifier = "@insyte/ui/app/onboarding/sync-progress"
+    syncStep = ((await import(/* @vite-ignore */ specifier)) as { syncStep: SyncStep }).syncStep
+  })
+
+  it("can be left while the import runs, to go on without it", () => {
+    const step = syncStep({ connected: true, rows: [], canContinue: true, onPrimary: wait, onSkip: skip })
+    expect(step.title).toBe("Alles wordt opgehaald.")
+    expect(step.primaryLabel).toBe("Laat Insyte kijken")
+    expect(step.skipLabel).toBe("Nu overslaan")
+    expect(step.onSkip).toBe(skip)
+  })
+
+  it("says a failed import, and goes back to Shopify or on without it", () => {
+    const step = syncStep({
+      connected: true,
+      rows: [],
+      canContinue: true,
+      onPrimary: wait,
+      failed: true,
+      onReconnect: reconnect,
+      onSkip: skip
+    })
+    expect(step.title).toBe("De eerste import is mislukt.")
+    expect(step.primaryLabel).toBe("Opnieuw koppelen")
+    expect(step.onPrimary).toBe(reconnect)
+    expect(step.skipLabel).toBe("Nu overslaan")
+  })
+
+  it("has nothing to wait for without a store", () => {
+    const step = syncStep({ connected: false, rows: [], canContinue: true, onPrimary: wait, onSkip: skip })
+    expect(step.title).toBe("Geen winkel, geen import.")
+    expect(step.primaryLabel).toBe("Verder")
+    expect(step.skipLabel).toBeUndefined()
+  })
+})

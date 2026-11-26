@@ -32,6 +32,7 @@ import { sessionMeAtom } from "../../data/session.ts"
 import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
 import { AnalysisLive, ConsoleReadyCard, useConsoleAnalysis } from "../../onboarding/analysis.tsx"
 import { ORGANIZATION_STEP, useAnotherWorkspace } from "../../onboarding/another-workspace.ts"
+import { type FirstImportKind, firstImportKind, importedStore } from "../../onboarding/first-import.ts"
 import { OFFLINE_WAIT_MS, type OfflineReady, offlineReady } from "../../onboarding/offline-ready.ts"
 import { planTiles } from "../../onboarding/plan-tiles.ts"
 import { LiveUpdates } from "../../realtime/live-updates.tsx"
@@ -148,42 +149,27 @@ const IDLE_STORES: Atom.Atom<AsyncResult.AsyncResult<ReadonlyArray<StoreView>, u
 )
 const IDLE_SYNC: Atom.Atom<AsyncResult.AsyncResult<SyncStatus, unknown>> = Atom.make(AsyncResult.initial())
 
-/**
- * The store's first import, for the sync step: not read yet, no store to import, still importing, in, or failed (the
- * backfill gave up and the store needs the operator, `action_required`). Read on that step only.
- */
-type FirstImport =
-  | { readonly kind: "loading" }
-  | { readonly kind: "none" }
-  | {
-    readonly kind: "importing" | "done" | "failed"
-    readonly store: StoreView
-    readonly status: SyncStatus | undefined
-  }
+/** The store's first import, for the sync step (`firstImportKind`), with the store and its counts. Read on that step only. */
+interface FirstImport {
+  readonly kind: FirstImportKind
+  readonly store: StoreView | undefined
+  readonly status: SyncStatus | undefined
+}
 
 /** The import as it lands: every page's frame refetches it, and a slow poll covers a lost socket, until it ends. */
 function useFirstImport(on: boolean): FirstImport {
   const listed = useAtomValue(on ? storesAtom : IDLE_STORES)
-  const store = Option.getOrUndefined(AsyncResult.value(listed))?.find((s) => s.status !== "disconnected")
+  const store = importedStore(Option.getOrElse(AsyncResult.value(listed), () => []))
   const atom = store === undefined ? IDLE_SYNC : syncStatusAtom(store.id)
   const status = Option.getOrUndefined(AsyncResult.value(useAtomValue(atom)))
   const refresh = useAtomRefresh(atom)
-  const kind = store === undefined
-    ? "none"
-    : status?.lastSyncedAt !== null && status?.lastSyncedAt !== undefined
-    ? "done"
-    : (status?.status ?? store.status) === "action_required"
-    ? "failed"
-    : "importing"
+  const kind = on ? firstImportKind(listed, status) : "loading"
   useEffect(() => {
     if (kind !== "importing") return
     const timer = setInterval(refresh, 4000)
     return () => clearInterval(timer)
   }, [kind, refresh])
-  if (!on || !AsyncResult.isSuccess(listed)) {
-    return on && AsyncResult.isFailure(listed) ? { kind: "none" } : { kind: "loading" }
-  }
-  return store === undefined ? { kind: "none" } : { kind: kind as "importing" | "done" | "failed", store, status }
+  return { kind, store, status }
 }
 
 const SYNC_LABELS = [
@@ -192,31 +178,12 @@ const SYNC_LABELS = [
   { id: "orders", label: "Bestellingen" }
 ] as const
 
-/** The import's rows as the mirror counts them, the reference's "no store" copy, or the way back to Shopify. */
-function ConsoleSync({ first, onReconnect }: { first: FirstImport; onReconnect: (domain: string) => Promise<void> }) {
-  const [leaving, setLeaving] = useState(false)
-  if (first.kind === "loading") return <SyncProgress connected rows={[]} />
+/** The import's rows as the mirror counts them, or the reference's "no store" copy. */
+function ConsoleSync({ first }: { first: FirstImport }) {
   if (first.kind === "none") return <SyncProgress connected={false} rows={[]} />
-  if (first.kind === "failed") {
-    const { store } = first
-    return (
-      <button
-        type="button"
-        disabled={leaving}
-        onClick={() => {
-          setLeaving(true)
-          // The browser leaves for Shopify; it stays here only if it could not (and said why).
-          void onReconnect(store.shopDomain).finally(() => setLeaving(false))
-        }}
-        className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg bg-paper px-4 font-medium text-base text-ink transition-colors hover:bg-ink/4 disabled:cursor-not-allowed disabled:text-ink-3"
-      >
-        {leaving ? "Shopify wordt geopend" : "Opnieuw koppelen"}
-      </button>
-    )
-  }
   const { status } = first
   const done = first.kind === "done"
-  const rows: Array<SyncRowData> = SYNC_LABELS.map((r, i) => ({
+  const rows: Array<SyncRowData> = first.kind === "loading" ? [] : SYNC_LABELS.map((r, i) => ({
     ...r,
     to: status?.counts[r.id] ?? 0,
     delay: i * 250,
@@ -230,7 +197,7 @@ function ConsoleSync({ first, onReconnect }: { first: FirstImport; onReconnect: 
   )
 }
 
-/** Said when a step was finished on a screen the server had moved past (Terug, another tab): it goes on there. */
+/** Said when a step was finished on a screen the server had moved past (another tab): it goes on there. */
 const RESUMED = "Je was al verder. Je gaat verder waar je was."
 
 const NOT_YET: StepDef = {
@@ -292,7 +259,8 @@ function ConsoleOnboarding() {
     return "Je werkruimte kon niet worden aangemaakt. Probeer het opnieuw."
   }
   // The later steps move to where the server says: skipping the store skips the steps a store would need. A step the
-  // server has moved past (`NotCurrentStep`) goes to the step it holds; `notReady` says a fact it does not have yet.
+  // server has moved past (`NotCurrentStep`) goes to the step it holds, said once, and answers nothing; `notReady` says a
+  // fact the server does not have yet.
   const finish = async (payload: Exclude<AdvanceInput, { step: "organization" }>, notReady?: string) => {
     const exit = await advance({ payload, reactivityKeys: ONBOARDING })
     if (Exit.isSuccess(exit)) {
@@ -303,7 +271,8 @@ function ConsoleOnboarding() {
     if (failure._tag === "Some" && failure.value._tag === "NotCurrentStep" && server !== undefined) {
       state.setStepIndex(positionOf(server.track, failure.value.current).index)
       refreshMe()
-      throw new Error(RESUMED)
+      toast(RESUMED)
+      return undefined
     }
     if (failure._tag === "Some" && failure.value._tag === "StepNotReady" && notReady !== undefined) {
       throw new Error(notReady)
@@ -319,7 +288,7 @@ function ConsoleOnboarding() {
   const policy = useOfflinePolicy(server?.step, offlineShown)
   const tiles = usePlanTiles(server?.step === "plan")
   const firstImport = useFirstImport(server?.step === "sync")
-  const importing = firstImport.kind !== "loading" && firstImport.kind !== "done"
+  const importStore = firstImport.store
 
   // Back from Shopify: a connected store is the store step's answer; a refusal is said once.
   useEffect(() => {
@@ -363,32 +332,28 @@ function ConsoleOnboarding() {
       }),
       {
         ...syncStep({
-          connected: true,
+          connected: firstImport.kind !== "none",
           rows: [],
-          // Nothing to look at without an import: the step goes on without it ("Nu overslaan").
-          canContinue: firstImport.kind !== "failed" && firstImport.kind !== "none",
+          canContinue: true,
+          // No store to import: on without it. Otherwise once the import is in.
           onPrimary: async () => {
-            await finish({ step: "sync" }, "De eerste import is nog bezig. Wacht even, of sla deze stap over.")
-          }
-        }),
-        ...(firstImport.kind === "failed"
-          ? {
-            title: "De eerste import is mislukt.",
-            subtitle:
-              "Koppel je winkel opnieuw om het nog eens te proberen, of ga verder zonder en koppel later via Instellingen, Koppelingen."
-          }
-          : {}),
-        // The import may take a while, or fail: no one has to wait for it. Without it there is nothing to analyse, so
-        // the steps it feeds are skipped.
-        ...(importing
-          ? {
-            skipLabel: "Nu overslaan",
-            onSkip: async () => {
-              await finish({ step: "sync", choice: "later" })
+            await (firstImport.kind === "none"
+              ? finish({ step: "sync", choice: "later" })
+              : finish({ step: "sync" }, "De eerste import is nog bezig. Wacht even, of sla deze stap over."))
+          },
+          failed: firstImport.kind === "failed",
+          ...(importStore === undefined ? {} : { onReconnect: () => beginConnect(importStore.shopDomain) }),
+          // The import may take a while, or fail: no one has to wait for it. Without it there is nothing to analyse,
+          // so the steps it feeds are skipped.
+          ...(firstImport.kind === "importing" || firstImport.kind === "failed"
+            ? {
+              onSkip: async () => {
+                await finish({ step: "sync", choice: "later" })
+              }
             }
-          }
-          : {}),
-        content: <ConsoleSync first={firstImport} onReconnect={beginConnect} />
+            : {})
+        }),
+        ...(firstImport.kind === "failed" ? {} : { content: <ConsoleSync first={firstImport} /> })
       },
       (() => {
         const step = analysisStep({
@@ -460,7 +425,7 @@ function ConsoleOnboarding() {
         data,
         finish: () => undefined,
         onReady: async () => {
-          await finish({ step: "ready" })
+          if ((await finish({ step: "ready" })) === undefined) return
           await navigate({ to: "/dashboard" })
         },
         content: <ConsoleReadyCard view={analysis.view} />

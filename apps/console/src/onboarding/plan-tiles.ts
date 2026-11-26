@@ -1,5 +1,6 @@
 import type { BillingPlans } from "@insyte/modules/billing/domain/Billing"
 import type { PlanTile } from "@insyte/ui/app/lib/plan-tile"
+import { money } from "../settings/money.ts"
 
 /*
  * Onboarding's plan step over `Billing.plans`: each tile says what the server holds the plan to (its seats, stores and
@@ -9,15 +10,6 @@ import type { PlanTile } from "@insyte/ui/app/lib/plan-tile"
 
 const ORDER = ["starter", "growth", "scale"] as const
 const NAMES: Record<(typeof ORDER)[number], string> = { starter: "Starter", growth: "Growth", scale: "Scale" }
-
-/** Minor units as nl-NL writes them: "€ 299" for a whole amount, "€ 12,34" otherwise (as Facturatie writes them). */
-const money = (minor: number, currency: string) =>
-  (minor / 100).toLocaleString("nl-NL", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    minimumFractionDigits: minor % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2
-  })
 
 export const planTiles = (plans: BillingPlans | undefined): ReadonlyArray<PlanTile> =>
   ORDER.map((id) => {
