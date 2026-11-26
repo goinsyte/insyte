@@ -33,7 +33,10 @@ export const AgentLinksLive = Layer.effect(
     const run = (action: ProposalAction) =>
       Effect.flatMap(
         filed(labels)(action),
-        (r) => r === "stale" ? Effect.fail(new Conflict({ entity: "agent_action", reason: "stale" })) : Effect.void
+        (r) =>
+          r === "stale" || "refused" in r
+            ? Effect.fail(new Conflict({ entity: "agent_action", reason: "stale" }))
+            : Effect.void
       )
     return AgentLinks.of({
       takeBack: (sql, command, compensation) => {

@@ -14,7 +14,7 @@ import { Field, FormDialog, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
 import { cellCommit } from "../lib/cost-cell"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, pluralize } from "../lib/format"
 import { parseTyped } from "../lib/sheets"
 import type { Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
@@ -89,7 +89,7 @@ export function CostsPage() {
   if (lines.length === 0) {
     return (
       <div className="flex min-w-0 flex-col">
-        <PageHeader title="Kosten" crumbs={[{ label: "Analyse", to: "/analytics" }]} />
+        <PageHeader title="Kosten" crumbs={[{ label: "Rekenbladen", to: "/sheets" }]} />
         <EmptyPage
           kind="analytics"
           count="0 kostenposten"
@@ -112,8 +112,8 @@ export function CostsPage() {
     <div className="flex min-w-0 flex-col">
       <PageHeader
         title="Kosten"
-        crumbs={[{ label: "Analyse", to: "/analytics" }]}
-        meta={`${lines.length} posten · ${source.rangeLabel}`}
+        crumbs={[{ label: "Rekenbladen", to: "/sheets" }]}
+        meta={`${pluralize(lines.length, "post", "posten")} · ${source.rangeLabel}`}
         actions={
           <>
             {source.profitSheet === undefined ? null : (

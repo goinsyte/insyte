@@ -7075,7 +7075,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "description": "Comma-separated figures, as INSYTE() names them: omzet, bestellingen, gemiddelde_bestelling, terugbetaald, chargebacks, advertentiekosten, overige_kosten, kosten, nettowinst, marge, roas, advertenties_meta, advertenties_google (omzet_meta, omzet_google, omzet_klaviyo and omzet_organisch are not kept yet)."
+              "description": "Comma-separated figures, as INSYTE() names them: omzet, bestellingen, gemiddelde_bestelling, terugbetaald, terugbetaald_omzet, chargebacks, advertentiekosten, overige_kosten, kosten, nettowinst, marge, roas, advertenties_meta, advertenties_google (omzet_meta, omzet_google, omzet_klaviyo and omzet_organisch are not kept yet)."
             },
             "required": true
           },

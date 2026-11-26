@@ -12,5 +12,7 @@ export const VIEWS = [
 ] as const
 
 export const dataSearch = z.object({
-  view: z.enum(VIEWS).optional().catch(undefined)
+  view: z.enum(VIEWS).optional().catch(undefined),
+  /* Tabel's table: an imported file's id; absent, the orders. */
+  source: z.string().optional().catch(undefined)
 })

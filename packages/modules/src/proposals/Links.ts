@@ -5,7 +5,7 @@ import { Context, type Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { UndoTicket } from "../shared/domain/Undo.ts"
-import type { ProposalAction } from "./domain/Proposals.ts"
+import type { ProposalAction, ProposalRefusal } from "./domain/Proposals.ts"
 
 /** What a filed plate's command answered: its undo, whether it still has to leave (a mail in line), and whether its
  * queue row's condition ends with it (an approval) or stands (a mail sent, a ticket opened: the row is decided). */
@@ -15,16 +15,22 @@ export interface Ran {
   readonly settles: boolean
 }
 
+/** A command refused for its amount, not its record's state: what the person is told instead. */
+export interface Refused {
+  readonly refused: ProposalRefusal
+}
+
 /**
  * What filing a proposal asks of the rest of the app (ADR-0014): the command a person's button runs, as that person,
  * with their permissions checked by the command itself; and the queue brought in line on the same transaction, so the
  * row settles as the plate is filed. The proposals slice names no other slice; this is composed where the app is put
- * together (`SliceLinks`). A command refused because its record moved on answers `stale`.
+ * together (`SliceLinks`). A command refused because its record moved on answers `stale`; a refund refused for its
+ * amount answers why (`Refused`).
  */
 export class ProposalLinks extends Context.Service<ProposalLinks, {
   readonly run: (
     action: ProposalAction
-  ) => Effect.Effect<Ran | "stale", Forbidden | NotFound | SqlError.SqlError, Db | CurrentPrincipal | Relay>
+  ) => Effect.Effect<Ran | "stale" | Refused, Forbidden | NotFound | SqlError.SqlError, Db | CurrentPrincipal | Relay>
   readonly refreshQueue: (sql: SqlClient.SqlClient) => Effect.Effect<boolean, SqlError.SqlError>
   /** The row decided by the filer, where the command leaves its condition standing. */
   readonly decideRow: (

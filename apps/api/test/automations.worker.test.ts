@@ -206,6 +206,26 @@ describe("automations", () => {
     expect(back.versions).toEqual([])
   })
 
+  it("names a flow never given a name after its steps when it goes live", async () => {
+    const { automation } = ok(await rpc("Automations.create", {}, people.owner))
+    const id = automation!.automation.id
+    const nodes = [
+      { id: "t", variantId: "trigger.order_placed", config: {} },
+      { id: "a", variantId: "action.tag_customer", config: { tag: "vip" } }
+    ]
+    ok(await rpc("Automations.saveDraft", { id, nodes }, people.owner))
+    const published = ok(await rpc("Automations.publish", { id, note: "" }, people.owner))
+    expect(published.automation!.automation.name).toBe("Nieuwe bestelling → Klant labelen")
+    const list = ok(await rpc("Automations.list", {}, people.owner))
+    expect(list.rows.find((r) => r.id === id)?.name).toBe("Nieuwe bestelling → Klant labelen")
+
+    // A name someone gave stays.
+    const named = ok(await rpc("Automations.create", { name: "Mijn VIP-label" }, people.owner)).automation!
+    ok(await rpc("Automations.saveDraft", { id: named.automation.id, nodes }, people.owner))
+    const kept = ok(await rpc("Automations.publish", { id: named.automation.id, note: "" }, people.owner))
+    expect(kept.automation!.automation.name).toBe("Mijn VIP-label")
+  })
+
   it("pauses and turns on a published flow, and a draft has nothing to turn on", async () => {
     const { automation } = ok(await rpc("Automations.create", { templateId: "tpl_vip" }, people.owner))
     const id = automation!.automation.id

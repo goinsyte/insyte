@@ -55,6 +55,9 @@ export function useFigures(): Figures {
           return f.orders ? f.revenue / f.orders : 0
         case "terugbetaald":
           return refundedOf(m)
+        case "terugbetaald_omzet":
+          // The history refunds orders whole, and a whole refund leaves its order out of revenue: none given back.
+          return 0
         case "chargebacks":
           return disputedOf(m)
         case "advertentiekosten":

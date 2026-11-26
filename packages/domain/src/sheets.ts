@@ -309,8 +309,18 @@ function parse(toks: Tok[]): Node | SheetError {
 
 /* ── evaluation ───────────────────────────────────────────────────────────────────────────── */
 
-/** How a sheet reads Insyte: a metric for a month, or a sentence saying why it cannot. */
-export type Figures = (metric: string, month: string | undefined) => number | SheetError
+/**
+ * How a sheet reads Insyte: a metric for a month, a sentence saying why it cannot, or `null`, an empty cell, for a month
+ * before the store's first order (`beforeFirst`): there is nothing to read yet, which is not an error.
+ */
+export type Figures = (metric: string, month: string | undefined) => number | SheetError | null
+
+/**
+ * Whether a month Insyte has no figures for (`no_month`) lies before the first month it has: the store had not started,
+ * so the cell reads empty. Any other month without figures, and every other refusal, stays an error.
+ */
+export const beforeFirst = (resolved: string | null | undefined, months: ReadonlyArray<string>): boolean =>
+  resolved !== null && resolved !== undefined && months[0] !== undefined && resolved < months[0]
 
 export type Book = { tabs: ReadonlyArray<Tab>; figures: Figures }
 
@@ -614,6 +624,7 @@ export const METRICS: ReadonlyArray<
   { id: "bestellingen", label: "Betaalde bestellingen", fmt: "integer", group: "Verkoop" },
   { id: "gemiddelde_bestelling", label: "Gemiddelde bestelling", fmt: "money", group: "Verkoop" },
   { id: "terugbetaald", label: "Terugbetaald", fmt: "money", group: "Verkoop" },
+  { id: "terugbetaald_omzet", label: "Terugbetaald op omzet", fmt: "money", group: "Verkoop" },
   { id: "chargebacks", label: "Onder geschil", fmt: "money", group: "Verkoop" },
   { id: "advertentiekosten", label: "Advertentiekosten", fmt: "money", group: "Kosten" },
   { id: "overige_kosten", label: "Overige kosten", fmt: "money", group: "Kosten" },

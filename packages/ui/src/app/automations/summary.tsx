@@ -1,24 +1,14 @@
+import { fieldLabel } from "@insyte/domain/automations/Fields"
 import { cn } from "../lib/utils"
 import { VARIANTS_BY_ID, type WorkflowNode } from "./node-types"
 
 /**
- * A step in one line, read off its settings, with the record's fields as chips: "Aan klant.email ·
+ * A step in one line, read off its settings, with the record's fields as chips: "Aan E-mail klant ·
  * “Excuses + nieuwe leverdatum”". A field is written `{{customer.email}}` in a step's settings and
- * read back in Dutch, in the sans face, as a soft `arc-tint` chip; it is never set in a typewriter.
+ * read back by its Dutch name (`fieldLabel`, the names the picker and the server use), in the sans face, as a soft
+ * `arc-tint` chip; it is never set in a typewriter. A field Insyte does not know shows as written.
  */
-const VAR_LABEL: Record<string, string> = {
-  "customer.email": "klant.email",
-  "customer.first_name": "klant.voornaam",
-  "customer.name": "klant.naam",
-  "order.number": "bestelling.nummer",
-  "order.total": "bestelling.totaal",
-  "order.supplier": "bestelling.leverancier",
-  "order.tracking": "bestelling.trackingnummer",
-  "order.expected_delivery": "bestelling.verwachte_bezorging",
-  "trigger.summary": "trigger"
-}
-
-export const varLabel = (key: string) => VAR_LABEL[key.trim()] ?? key.trim()
+export const varLabel = (key: string) => fieldLabel(key) ?? key.trim()
 
 const PRIORITY: Record<string, string> = {
   low: "laag",

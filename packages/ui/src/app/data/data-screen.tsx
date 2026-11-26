@@ -1,4 +1,4 @@
-import { Link, useSearch } from "@tanstack/react-router"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useMemo, useRef, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/table"
@@ -287,7 +287,17 @@ function importColumns(file: DataImport): Array<ColumnDef<Array<string>, unknown
 function SheetView() {
   const { orders, imports } = useDataSource()
   const rows = useMemo(() => [...orders], [orders])
-  const [source, setSource] = useState("orders")
+  // The table shown is the URL's (`?source=`, an imported file's id), so "Openen in Tabel" opens that file.
+  const { source } = useSearch({ strict: false }) as { source?: string | undefined }
+  const navigate = useNavigate()
+  const setSource = (id: string) =>
+    void navigate(
+      {
+        to: ".",
+        search: (prev: Record<string, unknown>) => ({ ...prev, source: id === "orders" ? undefined : id }),
+        replace: true
+      } as never
+    )
   const file = imports.find((b) => b.id === source)
 
   return (
@@ -542,7 +552,7 @@ function ImportView() {
                     <>
                       <Link
                         to="/data"
-                        search={{ view: "sheet" }}
+                        search={{ view: "sheet", source: b.id }}
                         className="flex h-7 items-center rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-ink/6 hover:text-ink"
                       >
                         Openen in Tabel

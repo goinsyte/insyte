@@ -67,6 +67,13 @@ export const fieldsOf = (triggerVariant: string): ReadonlyArray<TriggerField> =>
   return record === undefined ? [] : BY_RECORD[record]
 }
 
+const LABEL: ReadonlyMap<string, string> = new Map(
+  Object.values(BY_RECORD).flatMap((fields) => fields.map((f) => [f.path, f.label] as const))
+)
+
+/** A field's name in Dutch, as the picker shows it ("E-mail klant" for `customer.email`); undefined for an unknown one. */
+export const fieldLabel = (path: string): string | undefined => LABEL.get(path.trim())
+
 const REFERENCE = /\{\{\s*([a-z_]+(?:\.[a-z_]+)*)\s*\}\}/g
 
 /** Every `{{field}}` a text holds. */

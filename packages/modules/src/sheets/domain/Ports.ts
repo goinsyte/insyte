@@ -13,6 +13,8 @@ export interface SheetFigure {
   readonly month?: string | undefined
   readonly value: number | null
   readonly error: string | null
+  /** The month it was read for, where the month named one. */
+  readonly resolved?: string | null | undefined
 }
 
 /**
@@ -26,7 +28,12 @@ export class SheetFigures extends Context.Service<SheetFigures, {
     sql: SqlClient.SqlClient,
     requests: ReadonlyArray<{ readonly metric: string; readonly month?: string | undefined }>
   ) => Effect.Effect<
-    { readonly currency: string; readonly figures: ReadonlyArray<SheetFigure> },
+    {
+      readonly currency: string
+      /** The months Insyte has figures for, oldest first. */
+      readonly months: ReadonlyArray<string>
+      readonly figures: ReadonlyArray<SheetFigure>
+    },
     SqlError.SqlError,
     CurrentPrincipal
   >
