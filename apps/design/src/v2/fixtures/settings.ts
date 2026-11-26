@@ -567,7 +567,7 @@ export type Channel = "app" | "email" | "push" | "slack"
 export const CHANNELS: ReadonlyArray<{ readonly id: Channel; readonly label: string; readonly short: string }> = [
   { id: "app", label: "In de app", short: "App" },
   { id: "email", label: "E-mail", short: "E-mail" },
-  { id: "push", label: "Mobiel push", short: "Push" },
+  { id: "push", label: "Push", short: "Push" },
   { id: "slack", label: "Slack", short: "Slack" }
 ]
 

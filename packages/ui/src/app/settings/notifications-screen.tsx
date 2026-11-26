@@ -113,7 +113,7 @@ export function NotificationSettings() {
             <span className={cn(INPUT_CLASS, "flex items-center text-ink-2")}>{email}</span>
           </FieldRow>
           {source.push ? <PushRow push={source.push} testPush={source.testPush} /> : (
-            <FieldRow label="Mobiel push">
+            <FieldRow label="Push">
               {source.testPush ?
                 <FieldButton icon onClick={source.testPush}>Testmelding sturen</FieldButton> :
                 <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
@@ -421,8 +421,8 @@ const Muted = ({ children }: { children: ReactNode }) => (
 )
 
 /**
- * "Mobiel push" where the host can deliver it: on in this browser, or a step to turn it on; what the browser or the
- * environment cannot do is said, with the way out where there is one.
+ * Push where the host can deliver it: on in this browser, or a step to turn it on; what the browser or the
+ * environment cannot do is said, with the way out where there is one. Until the browser has said, neither.
  */
 export function PushRow({ push, testPush }: { push: PushHere; testPush: (() => void) | undefined }) {
   const others = push.state === "on" ? push.devices - 1 : push.devices
@@ -432,14 +432,14 @@ export function PushRow({ push, testPush }: { push: PushHere; testPush: (() => v
   switch (push.state) {
     case "unavailable":
       return (
-        <FieldRow label="Mobiel push">
+        <FieldRow label="Push">
           <Muted>{NOT_YET}</Muted>
         </FieldRow>
       )
     case "unsupported":
       return (
         <FieldRow
-          label="Mobiel push"
+          label="Push"
           hint="Op een iPhone of iPad zet je Insyte eerst op je beginscherm en open je het daar."
         >
           <Muted>Niet in deze browser</Muted>
@@ -447,19 +447,25 @@ export function PushRow({ push, testPush }: { push: PushHere; testPush: (() => v
       )
     case "blocked":
       return (
-        <FieldRow label="Mobiel push" hint="Sta meldingen voor Insyte toe in de instellingen van je browser.">
+        <FieldRow label="Push" hint="Sta meldingen voor Insyte toe in de instellingen van je browser.">
           <Muted>Geblokkeerd in deze browser</Muted>
+        </FieldRow>
+      )
+    case "checking":
+      return (
+        <FieldRow label="Push">
+          <Muted>Controleren…</Muted>
         </FieldRow>
       )
     case "off":
       return (
-        <FieldRow label="Mobiel push" {...(elsewhere === undefined ? {} : { hint: elsewhere })}>
+        <FieldRow label="Push" {...(elsewhere === undefined ? {} : { hint: elsewhere })}>
           <FieldButton icon disabled={push.busy} onClick={push.enable}>Push aanzetten</FieldButton>
         </FieldRow>
       )
     case "on":
       return (
-        <FieldRow label="Mobiel push" {...(elsewhere === undefined ? {} : { hint: elsewhere })}>
+        <FieldRow label="Push" {...(elsewhere === undefined ? {} : { hint: elsewhere })}>
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {testPush
               ? <FieldButton icon disabled={push.busy} onClick={testPush}>Testmelding sturen</FieldButton>

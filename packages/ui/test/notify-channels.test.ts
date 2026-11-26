@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 /** `notifications-source.tsx`'s, restated: its own imports are the bundler's too. */
 interface PushHere {
-  state: "unavailable" | "unsupported" | "blocked" | "off" | "on"
+  state: "unavailable" | "unsupported" | "blocked" | "checking" | "off" | "on"
   devices: number
   busy: boolean
   enable: () => void
@@ -67,7 +67,7 @@ const slackRow = (s: Partial<SlackHere>, channel = "") =>
     onChannel: noop
   }))
 
-describe("Mobiel push", () => {
+describe("Push", () => {
   it("says what the environment and the browser cannot do", () => {
     expect(pushRow({ state: "unavailable" })).toContain("Nog niet beschikbaar")
     expect(pushRow({ state: "unsupported" })).toContain("Niet in deze browser")
@@ -75,8 +75,13 @@ describe("Mobiel push", () => {
   })
 
   it("offers to turn it on here, saying where else it is on", () => {
-    expect(pushRow({ state: "off" })).toBe("Mobiel push Push aanzetten")
+    expect(pushRow({ state: "off" })).toBe("Push Push aanzetten")
     expect(pushRow({ state: "off", devices: 2 })).toContain("Staat ook aan op 2 andere apparaten.")
+  })
+
+  it("offers nothing until the browser has said whether it has it", () => {
+    const checking = pushRow({ state: "checking", devices: 1 })
+    expect(checking).toBe("Push Controleren…")
   })
 
   it("tests and turns off a browser that has it, counting the others", () => {

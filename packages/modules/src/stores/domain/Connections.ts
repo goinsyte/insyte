@@ -53,7 +53,7 @@ export class ConnectionRow extends Schema.Class<ConnectionRow>("stores/Connectio
    * Why it needs attention, as a code: `action_required` for a store Shopify asks to connect again, else its worst open
    * incident (`Health.ts`), a warning too while the store still reads as connected; `token_expired` or `scope_missing`
    * for Klaviyo and Slack; `unverified` for a domain not verified at Resend as last read; `off` for Insyte AI not
-   * switched on on this stage. `null` when nothing is the matter.
+   * switched on on this stage; `unavailable` for a Slack this stage has no app for. `null` when nothing is the matter.
    */
   reason: Schema.NullOr(Schema.String),
   /** What a store's sync found, or what to do about it, in the module's sentence; `null` otherwise. */
@@ -87,6 +87,15 @@ export const accountStatus = (
       return { status: "disconnected", reason: null }
   }
 }
+
+/**
+ * Slack's row where this stage has no Slack app: nothing can be connected, or connected again, so it says so
+ * (`unavailable`), as Meldingen does. A connection that still works keeps its own row.
+ */
+export const slackOnStage = (row: ConnectionRow, configured: boolean): ConnectionRow =>
+  configured || row.status === "connected"
+    ? row
+    : new ConnectionRow({ ...row, status: "disconnected", reason: "unavailable" })
 
 /**
  * A store's row, as the shell's line reads its health (`Health.line`): a store Shopify asks to connect again says so

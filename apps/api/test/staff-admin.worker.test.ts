@@ -46,7 +46,7 @@ const unchecked = async (sessionId: string, rpcName: string, payload?: unknown) 
 
 const logbook = async (cookie: string) =>
   (ok(await rpc("Audit.list", { category: "settings", page: "privacy" }, cookie)).lines as Array<Json>)
-    .filter((line) => line.field === "Insyte-support" || line.field === "Insyte-support mag meekijken")
+    .filter((line) => ["Meekijken", "Status", "Insyte-support mag meekijken"].includes(line.field))
 
 const trail = async (workspace: string) => (await admin(`/audit?workspace=${workspace}`)).body.lines as Array<Json>
 
@@ -144,7 +144,7 @@ describe("the staff admin", () => {
       const lines = await logbook(owner.cookie)
       expect(lines).toHaveLength(before + 1)
       expect(lines[0]).toMatchObject({
-        field: "Insyte-support",
+        field: "Status",
         after: "Insyte-support bekeek de status",
         actor: { name: "Insyte-support" }
       })
@@ -193,7 +193,7 @@ describe("the staff admin", () => {
       expect(status.session).not.toBeNull()
       expect(status.session!.endsAt).toBe(Date.parse(start.body.session.expiresAt))
       expect((await logbook(owner.cookie))[0]).toMatchObject({
-        field: "Insyte-support",
+        field: "Meekijken",
         after: "Meekijken gestart. Reden: Ticket 42",
         actor: { name: "Insyte-support" }
       })
@@ -205,7 +205,7 @@ describe("the staff admin", () => {
       expect(team.body.ok).toBe(true)
       const emails = JSON.stringify(team.body.value)
       expect(emails).toContain(owner.email)
-      expect((await logbook(owner.cookie))[0]).toMatchObject({ field: "Insyte-support", after: "Bekeken: Team" })
+      expect((await logbook(owner.cookie))[0]).toMatchObject({ field: "Meekijken", after: "Bekeken: Team" })
       expect((await trail(workspace)).find((l) => l.action === "session.read")).toMatchObject({
         sessionId: session,
         rpc: "Team.get",

@@ -81,7 +81,10 @@ const currentSubscription = async (key: Uint8Array) => {
 type Known = "unknown" | "unsupported" | "blocked" | "off" | { readonly hash: string }
 
 export function useBrowserPush(prefs: NotePrefs): { push: PushHere; testPush: (() => void) | undefined } {
-  const devices = Option.getOrUndefined(AsyncResult.value(useAtomValue(pushDevicesAtom)))
+  const listed = useAtomValue(pushDevicesAtom)
+  const devices = Option.getOrUndefined(AsyncResult.value(listed))
+  // The member's browsers are still on their way: whether this one is among them is not known yet.
+  const listing = devices === undefined && !AsyncResult.isFailure(listed)
   const subscribe = useAtomSet(notifyWrites.subscribePush, { mode: "promiseExit" })
   const unsubscribe = useAtomSet(notifyWrites.unsubscribePush, { mode: "promiseExit" })
   const test = useAtomSet(notifyWrites.testPush, { mode: "promiseExit" })
@@ -109,6 +112,8 @@ export function useBrowserPush(prefs: NotePrefs): { push: PushHere; testPush: ((
     ? "unavailable"
     : here === "unsupported" || here === "blocked"
     ? here
+    : here === "unknown" || listing
+    ? "checking"
     : mine !== undefined
     ? "on"
     : "off"
@@ -210,9 +215,9 @@ export function useBrowserPush(prefs: NotePrefs): { push: PushHere; testPush: ((
 
   return {
     push: {
-      state: here === "unknown" && key !== null ? "off" : state,
+      state,
       devices: devices?.length ?? 0,
-      busy: busy || (here === "unknown" && key !== null),
+      busy,
       enable: () => void enable(),
       disable: () => void disable()
     },

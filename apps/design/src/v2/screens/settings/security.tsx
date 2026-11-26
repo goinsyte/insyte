@@ -135,7 +135,7 @@ export function SecurityScreen() {
       <PageSection
         id="audit"
         title="Auditlog"
-        meta="Een alleen-lezen spoor van elke gevoelige beheeractie. Na 90 dagen wordt het gearchiveerd."
+        meta="Een alleen-lezen spoor van elke gevoelige beheeractie. Insyte bewaart het minstens 13 maanden."
         actions={<Button size="sm" icon={<Download />} onClick={downloadAudit}>Exporteren als CSV</Button>}
       >
         <Table label="Auditlog" minWidth={640}>
