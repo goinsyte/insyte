@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { type Ref, useImperativeHandle, useRef, useState } from "react"
+import { useToastClearance } from "../../components/sonner"
 import type { ChatRecordRef } from "../../data-source"
 import {
   AtSign,
@@ -76,6 +77,8 @@ export function Composer({
 }) {
   const area = useRef<HTMLTextAreaElement | null>(null)
   const file = useRef<HTMLInputElement>(null)
+  // Toasts rise above the composer, not over what is being typed.
+  const clear = useToastClearance<HTMLFormElement>()
   const [dragging, setDragging] = useState(false)
   const reduce = useReducedMotion() ?? false
   const source = useChatsSource()
@@ -148,6 +151,7 @@ export function Composer({
 
   return (
     <form
+      ref={clear}
       onSubmit={(e) => {
         e.preventDefault()
         if (canSend) submit()

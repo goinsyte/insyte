@@ -567,7 +567,7 @@ export type Channel = "app" | "email" | "push" | "slack"
 export const CHANNELS: ReadonlyArray<{ readonly id: Channel; readonly label: string; readonly short: string }> = [
   { id: "app", label: "In de app", short: "App" },
   { id: "email", label: "E-mail", short: "E-mail" },
-  { id: "push", label: "Mobiel push", short: "Push" },
+  { id: "push", label: "Push", short: "Push" },
   { id: "slack", label: "Slack", short: "Slack" }
 ]
 
@@ -2248,7 +2248,7 @@ export const PRIVACY_CLASSES = [
   {
     id: "contact",
     label: "Klantcontact",
-    detail: "E-mails, chats en WhatsApp-berichten met klanten, met hun tickets en notities.",
+    detail: "E-mails en websitechats met klanten, met hun tickets en notities.",
     months: "24",
     count: 312
   },
@@ -2269,7 +2269,8 @@ export const PRIVACY_CLASSES = [
   {
     id: "ads",
     label: "Advertentielog",
-    detail: "Wat een automatisering met Meta Ads deed: budgetten, pauzes, de cijfers erbij.",
+    detail:
+      "Wat een automatisering met je advertenties deed: budgetten, pauzes, de cijfers erbij. Leeg zolang er geen advertentiekoppeling is.",
     months: "24",
     count: 0
   },

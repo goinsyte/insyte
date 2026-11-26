@@ -96,7 +96,7 @@ export function NotificationsScreen() {
           control={<Tag tone="good">Aan</Tag>}
         />
         <SettingRow
-          title="Mobiel push"
+          title="Push"
           description="iPhone 15 · de Insyte-app"
           control={
             <Button

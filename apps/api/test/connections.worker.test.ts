@@ -35,7 +35,8 @@ const REASONS = [
   "rate_limited",
   "sync_failed",
   "unverified",
-  "off"
+  "off",
+  "unavailable"
 ]
 
 /**

@@ -2,10 +2,10 @@ import { useAtomSet } from "@effect/atom-react"
 import type { CustomerDetail, CustomerRow } from "@insyte/modules/customers/domain/Customers"
 import type { CustomerDetailSource } from "@insyte/ui/app/customers/detail-source"
 import type { Currency, Order } from "@insyte/ui/app/lib/types/domain"
-import { undoable } from "@insyte/ui/app/lib/undo"
+import { useNavigate } from "@tanstack/react-router"
 import { Exit } from "effect"
 import { useRef } from "react"
-import { useAtomSetInTurn } from "../data/in-turn.ts"
+import { toast } from "sonner"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 import { customerOf } from "./customers-source.ts"
@@ -14,7 +14,7 @@ import { customerOf } from "./customers-source.ts"
  * One customer's source in the console (M6.4): `Customers.get` as the design's profile, with the newest 50 orders
  * Insyte holds for them (their status, payment and fulfilment as Shopify has them) and the profiles merged into it, or
  * the one it went into (M7.4). The Klaviyo line is the newest sync that sent them (M7.5). "Nieuw ticket" opens a
- * follow-up ticket about them on the board, with Undo, where the role may open tickets; the route adds their returns.
+ * follow-up ticket about them on the board, with "Openen", where the role may open tickets; the route adds the returns.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -70,13 +70,13 @@ export function arrivingCustomerDetail(row: CustomerRow): CustomerDetailSource {
 }
 
 /**
- * "Nieuw ticket": a follow-up about them on the board, related to them, with Undo; `undefined` where the role may not.
- * A second click while the first is out opens nothing more.
+ * "Nieuw ticket": a follow-up about them on the board, related to them, with "Openen" to go to it; `undefined` where
+ * the role may not. A second click while the first is out opens nothing more.
  */
 export function useCustomerNewTicket(d: CustomerDetail): (() => void) | undefined {
   const gate = useGate("support", 2)
   const create = useAtomSet(ticketWrites.create, { mode: "promiseExit" })
-  const undo = useAtomSetInTurn(ticketWrites.undo)
+  const navigate = useNavigate()
   const busy = useRef(false)
   if (!gate.ok) return undefined
   const c = d.customer
@@ -97,16 +97,12 @@ export function useCustomerNewTicket(d: CustomerDetail): (() => void) | undefine
       busy.current = false
       if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), { gone: "Deze klant bestaat niet meer" })
       const ticket = exit.value.tickets[0]
-      const token = exit.value.undo?.token
-      if (ticket === undefined || token === undefined) return
-      undoable(
-        `#${ticket.number} geopend voor ${c.name}`,
-        () =>
-          void undo({ payload: { token }, ...keys }).then((e) => {
-            if (Exit.isFailure(e)) sayRefusal(failureOf(e), { gone: "Dat ticket is er niet meer" })
-          }),
-        "Het ticket staat op het bord."
-      )
+      if (ticket === undefined) return
+      // The way to the ticket, as every "ticket from …" says it; the profile stays where it is.
+      toast.success(`#${ticket.number} geopend voor ${c.name}`, {
+        description: "Het ticket staat op het bord.",
+        action: { label: "Openen", onClick: () => void navigate({ to: "/tickets", search: { ticket: ticket.id } }) }
+      })
     })
   }
 }

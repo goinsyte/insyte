@@ -45,6 +45,19 @@ export type InboxSearch = {
   view?: "handed_over" | "insyte" | undefined
 }
 
+/*
+ * A customer's "E-mailen" opens "Nieuwe e-mail" here addressed to them, through the history entry rather than the
+ * address: an email address in a URL ends up in the browser's history, request logs and the login redirect.
+ */
+declare module "@tanstack/react-router" {
+  interface HistoryState {
+    compose?: string
+  }
+}
+
+/** What a link passes as `state` to open "Nieuwe e-mail" in the inbox, addressed to `to`. */
+export const composeTo = (to: string): { compose: string } => ({ compose: to })
+
 /** A mailbox, as its band in the list and the offline banner say it. */
 export type InboxMailbox = {
   id: string

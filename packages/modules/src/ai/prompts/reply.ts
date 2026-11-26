@@ -1,3 +1,4 @@
+import { midSentence } from "@insyte/domain/Sentence"
 import { Schema } from "effect"
 import { dataBlock } from "../domain/Guards.ts"
 import { DATA_RULE, definePrompt, FIGURE_RULE, MAX_TOKENS, VOICE } from "./Prompt.ts"
@@ -87,7 +88,7 @@ const first = (c: ReplyContext): string => {
   const order = c.orders[0]
   const facts = order === undefined
     ? ""
-    : ` Je bestelling ${order.number} staat op "${(order.parcel ?? order.status).toLowerCase()}"${
+    : ` Je bestelling ${order.number} staat op "${midSentence(order.parcel ?? order.status, order.carrier)}"${
       order.trackingNumber === null ? "" : `, met trackingnummer ${order.trackingNumber}`
     }.`
   const known = c.knowledge[0] === undefined ? "" : ` ${firstSentence(c.knowledge[0].text)}`

@@ -154,7 +154,12 @@ describe("pages", () => {
     expect(changesOf({ section: "support", action: "support.access_changed", diff: { from: false, to: true } }))
       .toEqual([{ field: "Insyte-support mag meekijken", before: "Uit", after: "Aan" }])
     expect(changesOf({ section: "support", action: "support.read", diff: { said: "Bekeken: Team" } }))
-      .toEqual([{ field: "Insyte-support", before: null, after: "Bekeken: Team" }])
+      .toEqual([{ field: "Meekijken", before: null, after: "Bekeken: Team" }])
+    // Wie already says it was Insyte-support: Wat names what it did.
+    expect(changesOf({ section: "support", action: "support.session_started", diff: { said: "Meekijken gestart" } }))
+      .toEqual([{ field: "Meekijken", before: null, after: "Meekijken gestart" }])
+    const status = { section: "support", action: "support.status_viewed", diff: { said: "Bekeek de status" } }
+    expect(changesOf(status)).toEqual([{ field: "Status", before: null, after: "Bekeek de status" }])
   })
 
   it("lists each page once, by its Dutch name", () => {

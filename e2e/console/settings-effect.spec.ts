@@ -95,7 +95,7 @@ test("@settings-effect Huisstijl reaches the returns portal and a shopper's trac
   // The returns portal on.
   await page.goto("/settings/returns")
   await hydrated(page)
-  await page.getByRole("switch", { name: "Retourportaal aan" }).click()
+  await page.getByRole("switch", { name: "Retourportaal", exact: true }).click()
   await page.getByRole("button", { name: "Wijzigingen opslaan" }).click()
   await expect(page.getByText("Retourinstellingen opgeslagen")).toBeVisible()
   const portal = await page.getByRole("link", { name: "Portaal bekijken" }).getAttribute("href")

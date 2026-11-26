@@ -1,3 +1,4 @@
+import { useToastClearance } from "../../components/sonner";
 import { CornerDownLeft, Factory, type IconComponent, Inbox, Mail } from "../../icons";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -25,6 +26,7 @@ export function Thread({ compact = false }: { compact?: boolean }) {
 	const { turns, ask, busy, mentions } = useAskSource();
 	const scroller = useRef<HTMLDivElement>(null);
 	const composer = useRef<PromptBarHandle>(null);
+	const clear = useToastClearance<HTMLDivElement>();
 	const playing = busy ?? turns?.some((t) => t.role === "assistant" && !t.settled) ?? false;
 
 	const follow = useCallback(() => {
@@ -57,7 +59,8 @@ export function Thread({ compact = false }: { compact?: boolean }) {
 					)}
 				</div>
 			</div>
-			<div className={cn("shrink-0", compact ? "px-4 pt-2 pb-4" : "px-6 pt-2 pb-6")}>
+			{/* Toasts rise above the question being typed. */}
+			<div ref={clear} className={cn("shrink-0", compact ? "px-4 pt-2 pb-4" : "px-6 pt-2 pb-6")}>
 				<div className={cn("mx-auto", compact ? "" : "max-w-[680px]")}>
 					<PromptBar ref={composer} onSend={ask} busy={playing} mentions={mentions} autoFocus />
 				</div>

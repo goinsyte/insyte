@@ -12,8 +12,9 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
 import { useAtomSetInTurn } from "../data/in-turn.ts"
-import { deliveriesAtom, deliveryAtom, WEBHOOKS, webhookWrites } from "../data/webhooks.ts"
+import { deliveriesAtom, deliveryAtom, reReadWebhooks, WEBHOOKS, webhookWrites } from "../data/webhooks.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
+import { settleDelivery } from "./webhook-settle.ts"
 
 /*
  * Instellingen → Webhooks' source in the console (M19.4): `Webhooks.list` as the screens read it, an endpoint's
@@ -113,10 +114,6 @@ const INVALID: Readonly<Record<string, string>> = {
 
 const refused = (error: unknown) => sayRefusal(error, COPY)
 
-const SETTLED = new Set(["delivered", "failed", "cancelled"])
-
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
 /** The change took: its value; otherwise its refusal said. */
 const run = async <A>(exit: Exit.Exit<A, unknown>): Promise<A | undefined> => {
   if (Exit.isSuccess(exit)) return exit.value
@@ -173,7 +170,8 @@ export function useConsoleWebhooksSource(input: {
     sendTest: useAtomSet(webhookWrites.sendTest, { mode: "promiseExit" }),
     redeliver: useAtomSet(webhookWrites.redeliver, { mode: "promiseExit" }),
     delivery: useAtomSet(webhookWrites.delivery, { mode: "promiseExit" }),
-    undo: useAtomSetInTurn(webhookWrites.undo)
+    undo: useAtomSetInTurn(webhookWrites.undo),
+    reRead: useAtomSet(reReadWebhooks)
   }
   const edit = useGate("integrations", 2)
   // Secrets made, revealed or rotated in this visit: never kept anywhere else.
@@ -195,17 +193,15 @@ export function useConsoleWebhooksSource(input: {
       if (Exit.isFailure(exit)) return refused(failureOf(exit))
       after?.()
     })
-  /** A delivery's result: asked for until its attempt is in, for at most fifteen seconds. */
+  /** A delivery's result: asked for until its attempt is in, for at most fifteen seconds; then the page reads again. */
   const settled = async (deliveryId: string): Promise<Delivery | undefined> => {
-    let last: WebhookDeliveryDetail | undefined
-    for (let i = 0; i < 20; i++) {
-      await pause(i === 0 ? 400 : 750)
-      const exit = await write.delivery({ payload: { id: deliveryId } })
-      if (Exit.isSuccess(exit)) {
-        last = exit.value
-        if (SETTLED.has(last.delivery.outcome) || last.delivery.attempts > 0) break
-      }
-    }
+    const last = await settleDelivery(
+      async (): Promise<WebhookDeliveryDetail | undefined> => {
+        const exit = await write.delivery({ payload: { id: deliveryId } })
+        return Exit.isSuccess(exit) ? exit.value : undefined
+      },
+      () => write.reRead()
+    )
     return last === undefined ? undefined : asDetail(last)
   }
   return {

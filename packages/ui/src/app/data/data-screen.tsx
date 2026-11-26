@@ -616,7 +616,7 @@ function ExportView() {
     const cols = EXPORT_COLUMNS.filter((c) => picked.includes(c.id))
     return {
       header: cols.map((c) => c.label),
-      rows: orders.slice(0, 5).map((o) => cols.map((c) => c.read(o))),
+      rows: orders.slice(0, 5).map((o) => cols.map((c) => (c.show ?? c.read)(o))),
       count: counts.orders
     }
   }, [file, fileRows, importCols, picked, orders, counts.orders])

@@ -47,8 +47,8 @@ export class StoresService extends Context.Service<StoresService, {
   readonly syncStatus: (id: string) => Effect.Effect<SyncStatus, Forbidden | NotFound, R>
   readonly health: Effect.Effect<HealthView, Forbidden, R>
   readonly healthLine: Effect.Effect<HealthLine, never, R>
-  /** `aiOn`: whether Insyte AI is switched on on this stage, which only the caller's settings say. */
-  readonly connections: (aiOn: boolean) => Effect.Effect<ConnectionList, Forbidden, R>
+  /** `stage`: whether Insyte AI is switched on and whether there is a Slack app, which only the caller's settings say. */
+  readonly connections: (stage: Connections.ConnectionStage) => Effect.Effect<ConnectionList, Forbidden, R>
 }>()("modules/StoresService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.effect(
@@ -75,7 +75,7 @@ export class StoresService extends Context.Service<StoresService, {
         syncStatus: (id) => run(Stores.syncStatus(id)),
         health: run(Health.read()),
         healthLine: run(Health.line()),
-        connections: (aiOn) => run(Connections.list(aiOn))
+        connections: (stage) => run(Connections.list(stage))
       }
     })
   )

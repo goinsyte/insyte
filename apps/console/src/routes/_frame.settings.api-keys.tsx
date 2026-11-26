@@ -19,6 +19,10 @@ import { useConsoleDeveloperSource } from "../team/developer-source.ts"
  * hold), in the settings sheet, without the shell (M5). The loader reads both on the server.
  */
 export const Route = createFileRoute("/_frame/settings/api-keys")({
+  // `?nieuw=agent`: Agents en MCP's "Sleutel aanmaken", the new-key dialog open for an agent.
+  validateSearch: (
+    s: Record<string, unknown>
+  ): { nieuw?: "agent" } => (s["nieuw"] === "agent" ? { nieuw: "agent" } : {}),
   head: () => ({ meta: [{ title: "API-sleutels · Insyte" }] }),
   loader: async ({ context }) => {
     // Mounted so the values survive until the registry is dehydrated into the document.
@@ -80,7 +84,7 @@ function Loaded(
     <div className="flex min-h-full flex-col bg-paper text-ink">
       <DeveloperSourceProvider value={source}>
         <SettingsSheet title="API-sleutels" icon={Key}>
-          <ApiKeysPage />
+          <ApiKeysPage start={Route.useSearch().nieuw} />
         </SettingsSheet>
       </DeveloperSourceProvider>
     </div>

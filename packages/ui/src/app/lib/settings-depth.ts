@@ -86,10 +86,10 @@ export const SHIP_CARRIERS: ReadonlyArray<{ id: string; carrier: string; tone: S
 
 /** The kinds of data a period is kept for, as Gegevens en privacy names them. */
 export const RETENTION_COPY: ReadonlyArray<{ id: string; label: string; detail: string }> = [
-	{ id: "contact", label: "Klantcontact", detail: "E-mails, chats en WhatsApp-berichten met klanten, met hun tickets en notities." },
+	{ id: "contact", label: "Klantcontact", detail: "E-mails en websitechats met klanten, met hun tickets en notities." },
 	{ id: "uploads", label: "Bijlagen", detail: "Foto's uit het retourportaal en bijlagen bij e-mails." },
 	{ id: "logs", label: "Logboeken", detail: "Inlogpogingen, webhookverzoeken en wat Insyte deed." },
-	{ id: "ads", label: "Advertentielog", detail: "Wat een automatisering met Meta Ads deed: budgetten, pauzes, de cijfers erbij." },
+	{ id: "ads", label: "Advertentielog", detail: "Wat een automatisering met je advertenties deed: budgetten, pauzes, de cijfers erbij. Leeg zolang er geen advertentiekoppeling is." },
 	{ id: "courses", label: "Cursusvoortgang", detail: "Antwoorden, scores en herkansingen per teamlid." },
 	{ id: "customers", label: "Klantgegevens", detail: "Naam, adres en e-mail van klanten zonder bestelling in deze periode." },
 ];

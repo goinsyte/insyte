@@ -122,7 +122,7 @@ export function ReturnSettingsPage() {
 									<StatusPill tone={r.kind === "not_returnable" ? "warning" : "neutral"} label={RULE_LABEL[r.kind]} />
 									<button
 										type="button"
-										aria-label="Regel verwijderen"
+										aria-label={`Regel “${RULE_LABEL[r.kind]}” voor ${r.target.by === "tag" ? `label “${r.target.tag}”` : r.target.label} verwijderen`}
 										onClick={() => {
 											const before = draft.rules;
 											set("rules", draft.rules.filter((x) => x.id !== r.id));
@@ -143,7 +143,7 @@ export function ReturnSettingsPage() {
 			<SettingCard id="redenen" title="Redenen" icon={ListFilter}>
 				<BandedList>
 					{draft.reasons.map((r, i) => (
-						<li key={r.id} className="grid grid-cols-1 items-center gap-2 px-3.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto_120px] sm:gap-4">
+						<li key={r.id} className="grid grid-cols-1 items-center gap-2 px-3.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto_148px] sm:gap-4">
 							<span className="flex min-w-0 flex-col">
 								<span className="font-medium text-base text-ink">{r.label}</span>
 								<span className="text-ink-3 text-sm">{r.claim ? "Claim" : "Retour"}</span>
@@ -290,9 +290,10 @@ export function ReturnSettingsPage() {
 				}
 			>
 				<div className="flex flex-col">
-					<FieldRow label="Portaal aan">
-						<span className="flex h-9 items-center">
-							<Switch checked={draft.portal.on} onCheckedChange={(on) => set("portal", { ...draft.portal, on })} aria-label="Retourportaal aan" />
+					<FieldRow label="Retourportaal">
+						<span className="flex h-9 items-center gap-2.5">
+							<Switch checked={draft.portal.on} onCheckedChange={(on) => set("portal", { ...draft.portal, on })} aria-label="Retourportaal" />
+							<span aria-hidden className="text-ink-2 text-sm">{draft.portal.on ? "Aan" : "Uit"}</span>
 						</span>
 					</FieldRow>
 					<FieldRow label="Adres">
@@ -503,7 +504,7 @@ function RuleDialog({ products, open, onClose, onAdd }: { products: ReadonlyArra
  */
 function DaysField({ value, onChange, label, placeholder, small = false, control }: { value: number | null; onChange: (v: number | null) => void; label: string; placeholder?: string; small?: boolean; control?: FieldControl }) {
 	return (
-		<label className={cn("field flex items-center gap-2 rounded-md px-3 focus-within:bg-paper has-[[aria-invalid=true]]:bg-signal-red-bg", small ? "h-8 w-[120px] text-sm" : "h-9 w-40 text-base")}>
+		<label className={cn("field flex items-center gap-2 rounded-md px-3 focus-within:bg-paper has-[[aria-invalid=true]]:bg-signal-red-bg", small ? "h-8 w-[148px] text-sm" : "h-9 w-40 text-base")}>
 			<input
 				{...control}
 				inputMode="numeric"

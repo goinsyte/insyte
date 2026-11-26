@@ -53,10 +53,10 @@ const SETTLED: SettingsDepthSeed = {
 	privacy: {
 		erasing: false,
 		classes: [
-			{ id: "contact", label: "Klantcontact", detail: "E-mails, chats en WhatsApp-berichten met klanten, met hun tickets en notities.", months: 24, count: 312 },
+			{ id: "contact", label: "Klantcontact", detail: "E-mails en websitechats met klanten, met hun tickets en notities.", months: 24, count: 312 },
 			{ id: "uploads", label: "Bijlagen", detail: "Foto's uit het retourportaal en bijlagen bij e-mails.", months: 24, count: 87 },
 			{ id: "logs", label: "Logboeken", detail: "Inlogpogingen, webhookverzoeken en wat Insyte deed.", months: 3, count: 1_940 },
-			{ id: "ads", label: "Advertentielog", detail: "Wat een automatisering met Meta Ads deed: budgetten, pauzes, de cijfers erbij.", months: 24, count: 0 },
+			{ id: "ads", label: "Advertentielog", detail: "Wat een automatisering met je advertenties deed: budgetten, pauzes, de cijfers erbij. Leeg zolang er geen advertentiekoppeling is.", months: 24, count: 0 },
 			{ id: "courses", label: "Cursusvoortgang", detail: "Antwoorden, scores en herkansingen per teamlid.", months: 12, count: 4 },
 			{ id: "customers", label: "Klantgegevens", detail: "Naam, adres en e-mail van klanten zonder bestelling in deze periode.", months: 36, count: 58 },
 		],

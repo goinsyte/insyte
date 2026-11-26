@@ -1,5 +1,11 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
-import type { LinkUsage, RetentionValue, SettingsSection, StatusCounts } from "@insyte/modules/settings/domain/Settings"
+import type {
+  LinkUsage,
+  RetentionCount,
+  RetentionValue,
+  SettingsSection,
+  StatusCounts
+} from "@insyte/modules/settings/domain/Settings"
 import {
   type Brand,
   type Privacy,
@@ -137,8 +143,11 @@ function usePrivacy(section: SettingsSection | undefined, refresh: () => void): 
   const switchIt = useAtomSet(depthWrites.setErasing, { mode: "promiseExit" })
   const undo = useAtomSetInTurn(depthWrites.undo)
   const [counting, setCounting] = useState(false)
+  // The count's own answer, so its figures show at once rather than after the section is read again.
+  const [answered, setAnswered] = useState<RetentionCount | null>(null)
   if (section?.section !== "retention") return undefined
-  const last = section.state.lastCount
+  const read = section.state.lastCount
+  const last = answered !== null && (read === null || answered.at > read.at) ? answered : read
   return {
     erasing: section.state.erasing,
     countedAt: last === null ? null : new Date(last.at).toISOString(),
@@ -146,14 +155,18 @@ function usePrivacy(section: SettingsSection | undefined, refresh: () => void): 
     countOf: (c, months) =>
       last !== null && last.classes.find((x) => x.id === c.id)?.months === months ? (last.perClass[c.id] ?? 0) : null,
     counting,
-    count: (classes) => {
-      if (counting) return
+    count: async (classes) => {
+      if (counting) return undefined
       setCounting(true)
-      void count({ payload: { classes: classesOf(classes) }, reactivityKeys: [...DEPTH] }).then((exit) => {
-        setCounting(false)
-        if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
-        refresh()
-      })
+      const exit = await count({ payload: { classes: classesOf(classes) }, reactivityKeys: [...DEPTH] })
+      setCounting(false)
+      if (Exit.isFailure(exit)) {
+        sayRefusal(failureOf(exit), COPY)
+        return undefined
+      }
+      setAnswered(exit.value)
+      refresh()
+      return exit.value.total
     },
     setErasing: (on, said: Said) =>
       void switchIt({ payload: { on }, reactivityKeys: [...DEPTH] }).then((exit) => {

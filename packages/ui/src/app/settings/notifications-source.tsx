@@ -14,9 +14,10 @@ import type { SaveOutcome } from "./form"
 export interface PushHere {
   /**
    * `unavailable`: this environment sends no push yet. `unsupported`: this browser cannot take it. `blocked`: the
-   * member refused it for Insyte in the browser. `off` and `on`: whether this browser has it.
+   * member refused it for Insyte in the browser. `checking`: the browser has not said yet. `off` and `on`: whether
+   * this browser has it.
    */
-  state: "unavailable" | "unsupported" | "blocked" | "off" | "on"
+  state: "unavailable" | "unsupported" | "blocked" | "checking" | "off" | "on"
   /** The member's browsers with push, this one included. */
   devices: number
   /** A step is out: the page waits for it. */

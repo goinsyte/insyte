@@ -1,3 +1,5 @@
+import { localIso } from "@insyte/domain/LocalTime"
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { csvBytes, type ExportJob, ExportRefused, type ExportSource } from "../../shared/domain/Exports.ts"
@@ -45,6 +47,8 @@ interface OrderLine {
   readonly placedAt: Date
   /** `placed_at` as the database writes it, to the microsecond: the page's cursor, compared as it is. */
   readonly placedKey: string
+  /** The workspace's timezone, which "Geplaatst" is written in. */
+  readonly timezone: string
 }
 
 const STATUS: Record<string, string> = {
@@ -70,22 +74,27 @@ const FULFILMENT: Record<string, string> = {
   returned: "Retour"
 }
 
-/** Amounts with a decimal comma, as the `;` file is read by Dutch Excel. */
-const amount = (minor: string | number) => (Number(minor) / 100).toFixed(2).replace(".", ",")
+/** Amounts with a decimal comma, as the `;` file is read by Dutch Excel, in the currency's own decimals ("24,95", "2495"). */
+export const amount = (minor: string | number, currency: string) => {
+  const digits = minorDigits(currency.trim())
+  return (Number(minor) / 10 ** digits).toFixed(digits).replace(".", ",")
+}
 
 /** Each order column: its header in the file and its value. */
 export const ORDER_EXPORT: Record<OrderColumn, { readonly label: string; readonly read: (o: OrderLine) => string }> = {
   number: { label: "Bestelling", read: (o) => o.number },
   customer: { label: "Klant", read: (o) => o.customerName },
   email: { label: "E-mail", read: (o) => o.customerEmail ?? "" },
-  total: { label: "Totaal", read: (o) => amount(o.totalMinor) },
+  total: { label: "Totaal", read: (o) => amount(o.totalMinor, o.currency) },
   currency: { label: "Valuta", read: (o) => o.currency.trim() },
   status: { label: "Status", read: (o) => STATUS[o.status] ?? o.status },
   payment: { label: "Betaling", read: (o) => PAYMENT[o.paymentStatus] ?? o.paymentStatus },
   fulfillment: { label: "Afhandeling", read: (o) => FULFILMENT[o.fulfillmentStatus] ?? o.fulfillmentStatus },
   items: { label: "Artikelen", read: (o) => String(o.lineCount) },
   tracking: { label: "Track & trace", read: (o) => o.trackingNumber ?? "" },
-  placed: { label: "Geplaatst", read: (o) => o.placedAt.toISOString() }
+  // The workspace's clock with its offset ("2026-11-21T19:26:11+01:00"): the time the page shows, and still the exact
+  // moment for a program that reads the file.
+  placed: { label: "Geplaatst", read: (o) => localIso(o.placedAt, o.timezone) }
 }
 
 const decodeFilter = Schema.decodeUnknownEffect(Schema.NullOr(FilterGroup))
@@ -141,6 +150,7 @@ export const ordersSourceOf = (pageRows: number): ExportSource => ({
       const rows = yield* sql<OrderLine>`
         select o.id, o.number, o.customer_name, o.customer_email, o.total_minor, o.currency, o.status,
                o.payment_status, o.fulfillment_status, o.placed_at, o.placed_at::text as placed_key,
+               (select w.timezone from workspaces w where w.id = ${job.workspaceId}) as timezone,
                (select count(*) from order_lines l where l.order_id = o.id)::int as line_count,
                (select f.tracking_number from fulfilments f where f.order_id = o.id and f.tracking_number is not null
                   order by f.shipped_at desc nulls last limit 1) as tracking_number

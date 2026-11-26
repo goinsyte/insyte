@@ -81,13 +81,13 @@ function Avatar({ tone = 0 }: { tone?: number }) {
 const MESH =
 	"radial-gradient(120% 90% at 0% 0%, color-mix(in oklch, var(--color-sky) 55%, transparent), transparent 60%), radial-gradient(90% 80% at 100% 100%, color-mix(in oklch, var(--color-arc) 80%, transparent), transparent 70%), radial-gradient(60% 60% at 85% 10%, color-mix(in oklch, var(--color-powder) 35%, transparent), transparent 70%)";
 
-/** The stage stays put between steps; only the sketch on it changes. */
+/** The stage stays put between steps; only the sketch on it changes, the next one rising as the last one goes. */
 export function GuideIllustration({ art, step }: { art?: GuideArt; step: number }) {
 	const reduce = useReducedMotion() ?? false;
 	const A = art ? ART[art] : null;
 	return (
 		<div aria-hidden className="relative flex h-[188px] items-center justify-center overflow-hidden bg-abyss" style={{ backgroundImage: MESH }}>
-			<AnimatePresence mode="wait" initial={false}>
+			<AnimatePresence mode="popLayout" initial={false}>
 				<motion.div
 					key={step}
 					initial={reduce ? { opacity: 0 } : { opacity: 0, y: 10, scale: 1.02 }}

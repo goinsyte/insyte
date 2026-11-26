@@ -20,7 +20,7 @@ export function LogPage() {
     <SettingCard
       title="Elke wijziging in de instellingen"
       icon={FileText}
-      subtitle="Logboeken bewaart Insyte zolang onder Gegevens en privacy staat."
+      subtitle="Insyte bewaart het logboek minstens 13 maanden. Er wordt niets in gewijzigd of uit gewist."
       action={
         <button
           type="button"
