@@ -34,10 +34,16 @@ describe("a key press that belongs to what the person is in", () => {
   })
 })
 
-describe("the shell's `g` shortcuts", () => {
-  it("both ask the guard, so `g` then `n` in a sheet stays in the sheet", () => {
-    for (const file of ["goto-keys.tsx", "notifications-inbox.tsx"]) {
-      const source = readFileSync(new URL(`../src/app/shell/${file}`, import.meta.url), "utf8")
+describe("the shortcuts on the window", () => {
+  it("ask the guard, so `g` then `n` in a sheet stays in the sheet", () => {
+    const files = [
+      "shell/goto-keys.tsx",
+      "shell/notifications-inbox.tsx",
+      "affiliates/affiliates-screen.tsx",
+      "dashboard/queue-panel.tsx"
+    ]
+    for (const file of files) {
+      const source = readFileSync(new URL(`../src/app/${file}`, import.meta.url), "utf8")
       expect(source, file).toMatch(/typing\(e\.target\)/)
     }
   })

@@ -5,6 +5,7 @@ import { X } from "../../icons"
 import { FilterButton, FilterChips } from "../filters/filter-bar"
 import { useListFilter } from "../filters/use-list-filter"
 import { applyFilter, type FilterField } from "../lib/filter"
+import { typing } from "../lib/typing"
 import { cn } from "../lib/utils"
 import { PlateEmpty, type PlateOpen, type PlatePhase, PlateView } from "./plate"
 
@@ -162,9 +163,8 @@ export function useQueuePanel(
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (t?.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return
+      if (typing(e.target)) return
       const open = rows.filter((r) => r.state === "open")
       const at = open.findIndex((r) => r.id === selectedId)
       const k = e.key.toLowerCase()

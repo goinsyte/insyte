@@ -7,7 +7,7 @@ import {
 } from "@insyte/modules/channel-agent/domain/Rules"
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
 import { failure, join, ok, outboxOf, pastUndo, quiet, run } from "./journeys.ts"
@@ -81,10 +81,11 @@ const deliver = async (task: AgentTask) => {
 const workspaces = new Set<string>()
 
 /*
- * The shoppers' events are relayed at the end, and the Worker's own consumer runs the agent's turn on each (seen
- * already, or left to a newer message's, it does nothing) and logs it: waited for, so nothing logs after the file.
+ * The shoppers' events are relayed after each test, and the Worker's own consumer runs the agent's turn on each (seen
+ * already, or left to a newer message's, it does nothing) and logs it: waited for, so the next test starts on a quiet
+ * workspace, the batch stays one test's, and nothing logs after the file.
  */
-afterAll(() => quiet(workspaces), 60_000)
+afterEach(() => quiet(workspaces), 60_000)
 
 /** A workspace with a store, a published chapter for the customer agent, and the ways the tests chat in it. */
 const chatStore = async (tag: string) => {

@@ -146,8 +146,8 @@ export function SecurityPage() {
           />
           <p className="font-normal text-base text-ink-3 leading-[1.6]">
             Bewaard:{" "}
-            <span className="font-medium text-ink">minstens 13 maanden</span>. Er wordt niets in gewijzigd of uit
-            gewist.
+            <span className="font-medium text-ink">minstens 13 maanden</span>. Gegevens van een klant die om
+            verwijdering vraagt, en van een definitief verwijderde leverancier, worden eruit gehaald.
           </p>
         </div>
       </SettingCard>
