@@ -259,30 +259,41 @@ export const disputes = (
   }
 }
 
-/** Klantenservice: tickets that came in at the weekend against those in the week, by hours to done. */
+/** Saturday (6) or Sunday (0), as `extract(dow …)` numbers the days. */
+const isWeekend = (w: number) => w === 0 || w === 6
+
+/**
+ * Klantenservice: tickets that came in at the weekend against those in the week, by hours to done. Hours are read only
+ * where tickets were done: with none done in A there is no finding, and with none done at the weekend or in the week
+ * `weekend` and `weekday` are null (the finding then sets A's hours against B's, or says A's alone).
+ */
 export const support = (
   a: ReadonlyArray<TicketsCell>,
   b: ReadonlyArray<TicketsCell>
 ): Omit<Finding, "recordCount"> | undefined => {
   const created = sum(a, (c) => c.created)
   if (created === 0) return undefined
-  const resolveA = hoursOf(a) ?? 0
-  const resolveB = hoursOf(b) ?? 0
+  const resolveA = hoursOf(a)
+  if (resolveA === null) return undefined
+  const resolveB = hoursOf(b)
   const byDay = [0, 1, 2, 3, 4, 5, 6].map((w) => {
     const cells = a.filter((c) => c.weekday === w)
-    return { w, h: hoursOf(cells) ?? 0, n: sum(cells, (c) => c.created) }
-  })
-  const weekday = avg(byDay.filter((d) => d.w >= 1 && d.w <= 5).map((d) => d.h))
-  const weekend = byDay.filter((d) => d.w === 0 || d.w === 6)
+    return { w, h: hoursOf(cells), n: sum(cells, (c) => c.created) }
+  }).map((d) => ({ ...d, done: d.h !== null, h: d.h ?? 0 }))
+  const weekdays = byDay.filter((d) => !isWeekend(d.w) && d.done)
+  const weekday = weekdays.length === 0 ? null : avg(weekdays.map((d) => d.h))
+  const weekend = byDay.filter((d) => isWeekend(d.w))
   const n = sum(weekend, (d) => d.n)
-  const wk = sum(weekend, (d) => d.h * d.n) / Math.max(1, n)
+  const done = weekend.filter((d) => d.done)
+  const wk = done.length === 0 ? null : sum(done, (d) => d.h * d.n) / Math.max(1, sum(done, (d) => d.n))
+  const slowWeekend = wk !== null && weekday !== null && wk > weekday * 1.8
   return {
     kind: "support",
-    tone: wk > weekday * 1.8 || resolveA > resolveB ? "bad" : "good",
+    tone: slowWeekend || (resolveB !== null && resolveA > resolveB) ? "bad" : "good",
     weight: n * 18,
     figures: {
-      weekend: round1(wk),
-      weekday: round1(weekday),
+      weekend: wk === null ? null : round1(wk),
+      weekday: weekday === null ? null : round1(weekday),
       weekendTickets: n,
       tickets: created,
       resolveA,

@@ -3,6 +3,7 @@ import {
   flat,
   type Flow,
   MAX_STEPS,
+  nameOfFlow,
   publishable,
   scopesRequired,
   triggerOf,
@@ -169,6 +170,9 @@ const insert = Effect.fn("Automations.insert")(function*(
 })
 
 export const UNTITLED = "Naamloze automatisering"
+
+/** The longest name a flow takes (`CreateInput`'s and `UpdateInput`'s `name`). */
+const MAX_NAME = 120
 
 /** "Nieuwe automatisering", or "Gebruiken" on a template: a draft, which runs nothing until it is published. */
 export const create = Effect.fn("Automations.create")(function*(input: typeof CreateInput.Type) {
@@ -353,8 +357,13 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
         values (${principal.workspaceId}, ${a.id}, ${version}, ${draftJson}::jsonb,
                 ${input.note.trim() || "Gepubliceerd"}, ${[...scopesRequired(nodes)]}::text[], ${principal.id}, true)`
       const status: AutomationStatus = a.status === "draft" ? "active" : a.status
+      // A flow never given a name goes live named after its steps, as the canvas names one, not as "Naamloze".
+      const name = a.name.trim() === "" || a.name.trim() === UNTITLED
+        ? (nameOfFlow(nodes) ?? a.name).slice(0, MAX_NAME)
+        : a.name
       yield* sql`update automations set live_version = ${version}, status = ${status}, trigger_variant = ${trigger},
-                   store_scope = ${principal.storeScope === null ? null : [...principal.storeScope]}::text[]
+                   store_scope = ${principal.storeScope === null ? null : [...principal.storeScope]}::text[],
+                   name = ${name}
                  where id = ${a.id}`
       yield* syncAccount(sql, a.id, { renew: true })
       yield* audit(sql, "automation.published", a.id, { version, note: input.note, from: a.status, to: status })

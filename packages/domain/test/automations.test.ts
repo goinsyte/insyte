@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { fieldsOf, referencesIn } from "../src/automations/Fields.ts"
-import { type Flow, type FlowNode, scopesRequired, triggerOf, validate } from "../src/automations/Graph.ts"
+import { fieldLabel, fieldsOf, referencesIn } from "../src/automations/Fields.ts"
+import { type Flow, type FlowNode, nameOfFlow, scopesRequired, triggerOf, validate } from "../src/automations/Graph.ts"
 import { SCOPE_IDS } from "../src/automations/Scopes.ts"
 import { configSchemaOf, STEPS, STEPS_BY_ID } from "../src/automations/Steps.ts"
 import { nodesOfTemplate, TEMPLATES } from "../src/automations/Templates.ts"
@@ -47,6 +47,28 @@ describe("fields", () => {
       "customer.first_name",
       "order.number"
     ])
+  })
+
+  it("have one Dutch name each, the picker's", () => {
+    expect(fieldLabel("customer.email")).toBe("E-mail klant")
+    expect(fieldLabel(" order.tracking_url ")).toBe("Track & trace-link")
+    expect(fieldLabel("trigger.summary")).toBe("Wat er gebeurde")
+    expect(fieldLabel("klant.email")).toBeUndefined()
+  })
+})
+
+describe("a flow's name", () => {
+  it("is read off its trigger and first two actions", () => {
+    const flow = [
+      node("trigger.shipping_delay"),
+      node("delay.wait"),
+      node("action.send_email"),
+      node("action.create_ticket"),
+      node("action.tag_customer")
+    ]
+    expect(nameOfFlow(flow)).toBe("Bestelling vertraagd → E-mail versturen + Ticket aanmaken")
+    expect(nameOfFlow([node("trigger.order_placed")])).toBe("Nieuwe bestelling")
+    expect(nameOfFlow([node("action.send_email")])).toBeUndefined()
   })
 })
 

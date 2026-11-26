@@ -186,8 +186,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       count: inboxCounts?.["/inbox?channel=webchat"]
     }]
   }, [channels, inboxCounts])
-  // The Rekenbladen panel: the folders and each view's count, from `Sheets.list`, on the sheets pages only (M14 step 4).
-  const onSheets = useRouterState({ select: (s) => s.location.pathname.startsWith("/sheets") })
+  // The Rekenbladen panel: the folders and each view's count, from `Sheets.list`, on the pages it shows on (M14 step 4).
+  const onSheets = useRouterState({
+    select: (s) => s.location.pathname.startsWith("/sheets") || s.location.pathname.startsWith("/costs")
+  })
   const sheetList = value(useAtomValue(onSheets ? sheetsAtom : NO_SHEETS))
   const sheets = useMemo<ShellSource["sheets"]>(
     () => ({

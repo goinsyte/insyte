@@ -172,8 +172,33 @@ export class ProposalClosed extends Schema.TaggedError<ProposalClosed>()("Propos
   state: ProposalState
 }) {}
 
-/** The record moved on since the plate was drawn (the return is no longer in review): the plate is superseded. */
-export class ProposalStale extends Schema.TaggedError<ProposalStale>()("ProposalStale", { id: Schema.String }) {}
+/**
+ * A refund the command refused for its amount rather than its record: over what the person may refund per order (the
+ * limit in the order's currency, and the role's own it came from), no exchange rate yet to hold it to that limit, or
+ * more than is left on the order. Minor units.
+ */
+export const ProposalRefusal = Schema.Union([
+  Schema.Struct({
+    reason: Schema.Literal("over_limit"),
+    limitMinor: Schema.Int,
+    currency: Schema.String,
+    roleMinor: Schema.Int,
+    roleCurrency: Schema.String
+  }),
+  Schema.Struct({ reason: Schema.Literal("no_fx_rate") }),
+  Schema.Struct({ reason: Schema.Literal("over_balance"), balanceMinor: Schema.Int, currency: Schema.String })
+])
+export type ProposalRefusal = typeof ProposalRefusal.Type
+
+/**
+ * The record moved on since the plate was drawn (the return is no longer in review): the plate is superseded. Or the
+ * command refused the plate's refund for its amount (`refusal`), which the person is told as such; optional, so a
+ * console deployed before the API it calls still decodes it.
+ */
+export class ProposalStale extends Schema.TaggedError<ProposalStale>()("ProposalStale", {
+  id: Schema.String,
+  refusal: Schema.optional(ProposalRefusal)
+}) {}
 
 /**
  * A proposal as it was, for `Shared.undo` (`proposals.restore`): a discard put back, or a filing taken back. Keyed by

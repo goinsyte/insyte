@@ -16,6 +16,7 @@ import type { Flow } from "@insyte/domain/automations/Graph"
 import { SCOPE_LABEL } from "@insyte/domain/automations/Scopes"
 import { BRAND_NAME, STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { mintId } from "@insyte/domain/Ids"
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
@@ -146,7 +147,7 @@ const storeOf = (sql: SqlClient.SqlClient, kind: RunRecordKind, id: string) =>
  * One run row for a flow and record, `running`, or `skipped` with why (no account, the hour's limit); nothing when the
  * record lies outside the flow's stores or this key already started it. A schedule's record (`revive`) that was
  * skipped is tried again on a later tick, under the same row, rather than holding its key forever. Answers the id of
- * a run to start.
+ * the run written, and whether it is one to start.
  */
 const startOne = Effect.fn("Automations.startOne")(function*(
   sql: SqlClient.SqlClient,
@@ -199,8 +200,17 @@ const startOne = Effect.fn("Automations.startOne")(function*(
   const [row] = written
   if (row === undefined) return undefined
   if (row.inserted) yield* sql`update automations set runs_total = runs_total + 1 where id = ${flow.id}`
-  return reason === null ? row.id : undefined
+  return { id: row.id, start: reason === null }
 })
+
+/**
+ * Runs written `skipped` start no Workflow, so nothing else tells the Runs tab of them: one `records.changed` for them
+ * all, on the same transaction, so the tab refetches once they are there.
+ */
+const tellSkipped = (sql: SqlClient.SqlClient, workspaceId: string, ids: ReadonlyArray<string>) =>
+  ids.length === 0
+    ? Effect.void
+    : Outbox.write(sql, workspaceId, { type: "records.changed", workspaceId, kind: "automation_run", ids: [...ids] })
 
 /**
  * The runs an event starts, as `running` rows, in the event's workspace scope (the relay's transaction). One per active
@@ -217,6 +227,7 @@ export const startRuns = Effect.fn("Automations.startRuns")(function*(
   event: OutboxEvent
 ) {
   const runs: Array<string> = []
+  const skipped: Array<string> = []
   const raw = event as unknown as { type: string } & Record<string, unknown>
   for (const started of startedBy(raw)) {
     if (started.recordIds.length === 0) continue
@@ -246,17 +257,18 @@ export const startRuns = Effect.fn("Automations.startRuns")(function*(
           if (recent !== undefined) continue
           stock++
         }
-        const id = yield* startOne(sql, flow, {
+        const written = yield* startOne(sql, flow, {
           triggerEvent: started.once === true ? started.trigger : outboxId,
           trigger: started.trigger,
           summary: started.summary,
           kind: started.recordKind,
           recordId
         })
-        if (id !== undefined) runs.push(id)
+        if (written !== undefined) (written.start ? runs : skipped).push(written.id)
       }
     }
   }
+  yield* tellSkipped(sql, event.workspaceId, skipped)
   return runs
 })
 
@@ -279,6 +291,7 @@ export const startScheduled = Effect.fn("Automations.startScheduled")(function*(
       const [ws] = yield* sql<{ timezone: string }>`select timezone from workspaces where id = app_workspace_id()`
       const local = localTime(at, ws?.timezone ?? "Europe/Amsterdam")
       const runs: Array<string> = []
+      const skipped: Array<string> = []
       for (const flow of flows) {
         const schedule = scheduleOf(triggerConfigOf(flow))
         if (!scheduleDue(schedule, local)) continue
@@ -312,7 +325,7 @@ export const startScheduled = Effect.fn("Automations.startScheduled")(function*(
           ? `${schedule.days} dagen onderweg`
           : `${schedule.days} dagen geen bestelling`
         for (const { id: recordId } of due) {
-          const id = yield* startOne(sql, flow, {
+          const written = yield* startOne(sql, flow, {
             triggerEvent: "schedule",
             trigger: "trigger.schedule",
             summary,
@@ -320,9 +333,10 @@ export const startScheduled = Effect.fn("Automations.startScheduled")(function*(
             recordId,
             revive: true
           })
-          if (id !== undefined) runs.push(id)
+          if (written !== undefined) (written.start ? runs : skipped).push(written.id)
         }
       }
+      yield* tellSkipped(sql, flows[0]!.workspaceId, skipped)
       return runs
     })
   )
@@ -578,9 +592,22 @@ const TERMINAL = new Set([
   "AlreadyRefunded"
 ])
 
+/** An amount a refusal names, in minor units of its currency: "€ 100,00". */
+const moneyOf = (minor: unknown, currency: unknown) => {
+  const code = typeof currency === "string" && currency !== "" ? currency : "EUR"
+  const digits = minorDigits(code)
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency: code,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  }).format(Number(minor) / 10 ** digits)
+}
+
 /** A slice's typed refusal as the run's explanation; terminal, as trying again gives the same answer. */
 export const explain = (variantId: string, error: unknown): StepFailed => {
   const tag = (error as { _tag?: string })._tag ?? ""
+  const field = (key: string) => (error as Readonly<Record<string, unknown>>)[key]
   const scope = STEPS_BY_ID[variantId]?.scope
   const explanation = tag === "Forbidden"
     ? `De flow mist het recht “${
@@ -592,12 +619,18 @@ export const explain = (variantId: string, error: unknown): StepFailed => {
     ? `Een veld van de stap klopt niet (${Object.keys((error as { fields?: object }).fields ?? {}).join(", ")}).`
     : tag === "MemberNotActive"
     ? "De collega aan wie de stap toewijst, is niet meer actief."
+    : tag === "Conflict" && field("reason") === "no_fx_rate"
+    ? "Er is nog geen wisselkoers naar de munt van de bestelling, dus de limiet is niet te toetsen; er is niets terugbetaald."
     : tag === "Conflict"
     ? "Het record veranderde intussen; de stap is niet uitgevoerd."
     : tag === "RefundOverLimit"
-    ? "Het bedrag is meer dan de flow per bestelling mag terugbetalen; er is niets terugbetaald."
+    ? `Het bedrag is meer dan de flow per bestelling mag terugbetalen (${
+      moneyOf(field("limitMinor"), field("currency"))
+    }); er is niets terugbetaald.`
     : tag === "RefundOverBalance"
-    ? "Het bedrag is meer dan er nog op de bestelling openstaat; er is niets terugbetaald."
+    ? `Het bedrag is meer dan er nog op de bestelling openstaat (${
+      moneyOf(field("balanceMinor"), field("currency"))
+    }); er is niets terugbetaald.`
     : tag === "AlreadyRefunded"
     ? "De bestelling is al volledig terugbetaald, of nog niet betaald; er is niets terugbetaald."
     : "De stap lukte niet; Insyte probeert het opnieuw."

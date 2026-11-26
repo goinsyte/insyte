@@ -444,20 +444,21 @@ function write(f: Finding, A: PeriodLabels, B: PeriodLabels, money: (n: number) 
     case "support": {
       const weekend = asNumber(x["weekend"])
       const weekendTickets = asNumber(x["weekendTickets"])
+      // Hours are compared only where tickets were done on both sides: a side with none has no hours, not 0 u.
+      const weekendVsWeek = weekendTickets > 0 && x["weekend"] !== null && x["weekday"] !== null
+      const thanB = x["resolveB"] === null ? "" : `, tegenover ${num(asNumber(x["resolveB"]))} u in ${B.short}`
       return {
-        headline: weekendTickets === 0 ?
-          `Tickets werden gemiddeld na ${num(asNumber(x["resolveA"]))} u opgelost, tegenover ${
-            num(asNumber(x["resolveB"]))
-          } u in ${B.short}.` :
+        headline: weekendVsWeek ?
           `Tickets uit het weekend wachten ${num(weekend)} u tot ze opgelost zijn, tegenover ${
             num(asNumber(x["weekday"]))
-          } u door de week.`,
+          } u door de week.` :
+          `Tickets werden gemiddeld na ${num(asNumber(x["resolveA"]))} u opgelost${thanB}.`,
         figure: `${num(asNumber(x["resolveA"]))} u`,
         explain: `In ${A.label} kwamen ${plural(asNumber(x["tickets"]), "ticket", "tickets")} binnen, ${
           int(weekendTickets)
-        } in het weekend. Gemiddeld duurde het ${
-          num(asNumber(x["resolveA"]))
-        } u tot een ticket opgelost was, tegenover ${num(asNumber(x["resolveB"]))} u in ${B.label}.`,
+        } in het weekend. Gemiddeld duurde het ${num(asNumber(x["resolveA"]))} u tot een ticket opgelost was${
+          x["resolveB"] === null ? "" : `, tegenover ${num(asNumber(x["resolveB"]))} u in ${B.label}`
+        }.`,
         drivers: f.drivers.map((d) => ({
           label: cap(WEEKDAY[Number(d.key)] ?? d.key),
           value: round1(d.a - d.b),

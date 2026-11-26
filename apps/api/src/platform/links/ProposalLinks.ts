@@ -10,7 +10,7 @@ import { reply as replyThread } from "@insyte/modules/inbox/use-cases/commands"
 import { cancel as cancelOrders, setNote, tag as tagOrders } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
 import { refund as refundOrder } from "@insyte/modules/orders/use-cases/refund"
-import type { ProposalAction } from "@insyte/modules/proposals/domain/Proposals"
+import type { ProposalAction, ProposalRefusal } from "@insyte/modules/proposals/domain/Proposals"
 import { ProposalLinks } from "@insyte/modules/proposals/Links"
 import { approve as approveCheck } from "@insyte/modules/quality/use-cases/quality"
 import { decideIn, refreshIn } from "@insyte/modules/queue/Queue"
@@ -59,14 +59,40 @@ type AgentAsked = Exclude<
   }
 >
 
-/** A refused filing: the record moved on (`stale`); anything else the person is told as the command said it. */
+/** A refund refused for its amount, not its record's state: why, with the amounts the command named. */
+const refusalOf = (e: { readonly _tag: string }): ProposalRefusal | undefined => {
+  const x = e as unknown as Readonly<Record<string, unknown>>
+  switch (e._tag) {
+    case "RefundOverLimit":
+      return {
+        reason: "over_limit",
+        limitMinor: Number(x["limitMinor"]),
+        currency: String(x["currency"]),
+        roleMinor: Number(x["roleMinor"]),
+        roleCurrency: String(x["roleCurrency"])
+      }
+    case "RefundOverBalance":
+      return { reason: "over_balance", balanceMinor: Number(x["balanceMinor"]), currency: String(x["currency"]) }
+    case "Conflict":
+      return x["reason"] === "no_fx_rate" ? { reason: "no_fx_rate" } : undefined
+    default:
+      return undefined
+  }
+}
+
+/**
+ * A refused filing: a refund's amount (`refused`, with why), or the record moved on (`stale`); anything else the person
+ * is told as the command said it.
+ */
 const staleOn = <A, E extends { readonly _tag: string }, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
-    Effect.catch((e: E) =>
-      e._tag === "Forbidden" || e._tag === "NotFound" || e._tag === "SqlError"
-        ? Effect.fail(e as unknown as Forbidden | NotFound | SqlError.SqlError)
-        : Effect.succeed("stale" as const)
-    )
+    Effect.catch((e: E) => {
+      if (e._tag === "Forbidden" || e._tag === "NotFound" || e._tag === "SqlError") {
+        return Effect.fail(e as unknown as Forbidden | NotFound | SqlError.SqlError)
+      }
+      const refused = refusalOf(e)
+      return Effect.succeed(refused === undefined ? "stale" as const : { refused })
+    })
   )
 
 const filedRan = (undo: UndoTicket | null, pending = false) => ({ undo, pending, settles: false })
