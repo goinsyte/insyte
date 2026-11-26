@@ -1,0 +1,21 @@
+{
+  /*
+   * The console's journeys, specs and helpers alike: run by Playwright under Node, and so typechecked nowhere else
+   * (`tsc -b` follows the product's projects, `tsconfig.tools.json` the gate scripts). The DOM's types because a spec
+   * reaches into the page (`page.evaluate`, `waitForFunction`: `window`, `document`). In `check`.
+   */
+  "extends": "../../tsconfig.base.json",
+  "include": ["*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    // `warm-up.ts` reads the expect timeout from `playwright.console.config.ts`, at the repo's root.
+    "rootDir": "../..",
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  }
+}

@@ -3,7 +3,9 @@ import type {
   Browser,
   BrowserContext,
   BrowserContextOptions,
+  Page,
   PlaywrightWorkerArgs,
+  Request,
   Route
 } from "@playwright/test"
 
@@ -48,6 +50,63 @@ export const guarded = (handler: (route: Route) => Promise<unknown>) => async (r
   }
 }
 
+/** The calls of an API request context that send a request. */
+const SENDS: ReadonlySet<PropertyKey> = new Set(["delete", "fetch", "get", "head", "patch", "post", "put"])
+
+/**
+ * What a failed call may say: its method, its path and why, in a word. Playwright's own error lists, in its call log,
+ * every header the request sent and the response's `set-cookie` (the session cookie, the Access token), so only the
+ * first line's status (a `failOnStatusCode` refusal) or a network error's code is kept, else the error's name.
+ */
+const failedCall = (method: string, url: string, error: unknown): Error => {
+  const first = error instanceof Error ? (error.message.split("\n")[0] ?? "") : ""
+  const why = /^[\w.]+: (\d{3})\b/.exec(first)?.[1] ?? /\b(E[A-Z]{3,})\b/.exec(first)?.[1] ??
+    (error instanceof Error ? error.name : "Error")
+  return new Error(`${method.toUpperCase()} ${new URL(url, "http://e2e.invalid").pathname} failed (${why})`)
+}
+
+/**
+ * An API request context whose failed calls cannot put a request's headers in a log, as `guarded` does for routes: a
+ * call that throws is rethrown as an error naming only the method, the path and why. Every API context the journeys
+ * use goes through this (`previewRequest`, `pageRequest`, `plainRequest`; `bun run e2e:requests` holds them to it).
+ */
+function sealed(api: APIRequestContext): APIRequestContext {
+  return new Proxy(api, {
+    get(target, key) {
+      const value: unknown = Reflect.get(target, key, target)
+      if (typeof value !== "function") return value
+      if (!SENDS.has(key)) return value.bind(target)
+      const send = async (urlOrRequest: string | Request, options?: { method?: string }) => {
+        try {
+          return await value.call(target, urlOrRequest, options)
+        } catch (error) {
+          const [method, url] = typeof urlOrRequest === "string"
+            ? [key === "fetch" ? (options?.method ?? "GET") : String(key), urlOrRequest]
+            : [options?.method ?? urlOrRequest.method(), urlOrRequest.url()]
+          const failed = failedCall(method, url, error)
+          // The stack starts at the journey's own line, which the report then shows, not this one.
+          Error.captureStackTrace(failed, send)
+          // No `cause`: the cause is the error with the headers, and a reporter would print it.
+          // oxlint-disable-next-line preserve-caught-error
+          throw failed
+        }
+      }
+      return send
+    }
+  })
+}
+
+/** The page's own API context (`page.request`: the page's cookies, not its routes), sealed. */
+export const pageRequest = (page: Page): APIRequestContext => sealed(page.request)
+
+/** An API context of its own, for a host that is not the preview (no Access token on it), sealed. */
+export async function plainRequest(
+  playwright: PlaywrightWorkerArgs["playwright"],
+  options: Parameters<PlaywrightWorkerArgs["playwright"]["request"]["newContext"]>[0]
+): Promise<APIRequestContext> {
+  return sealed(await playwright.request.newContext(options))
+}
+
 /** Adds the token's headers to the context's requests to `baseURL`'s origin, and to no other. */
 export async function admit(context: BrowserContext, baseURL: string | undefined): Promise<void> {
   const access = headers()
@@ -78,14 +137,19 @@ export async function newContext(browser: Browser, baseURL: string | undefined):
   return context
 }
 
-/** The API request context for the preview: the token on its requests, and no redirect followed to another origin. */
+/**
+ * The API request context for the preview, sealed: the token on its requests, and no redirect followed to another
+ * origin.
+ */
 export async function previewRequest(
   playwright: PlaywrightWorkerArgs["playwright"],
   baseURL: string | undefined
 ): Promise<APIRequestContext> {
   const access = headers()
-  return playwright.request.newContext({
-    ...(baseURL === undefined ? {} : { baseURL }),
-    ...(access === undefined ? {} : { extraHTTPHeaders: access, maxRedirects: 0 })
-  })
+  return sealed(
+    await playwright.request.newContext({
+      ...(baseURL === undefined ? {} : { baseURL }),
+      ...(access === undefined ? {} : { extraHTTPHeaders: access, maxRedirects: 0 })
+    })
+  )
 }
