@@ -40,9 +40,9 @@ export interface CoursesCommands {
   create: (draft: { title: string; chapterId?: string; moduleId?: string; newChapter?: string }) => Promise<
     string | undefined
   >
-  /** The editor's draft; `publish` makes it live in the same move. */
-  save: (saved: Course, next: Course, said: Said) => void
-  publish: (saved: Course, next: Course, said: Said) => void
+  /** The editor's draft; `publish` makes it live in the same move. Whether it was kept (a refusal the host says). */
+  save: (saved: Course, next: Course, said: Said) => boolean | Promise<boolean>
+  publish: (saved: Course, next: Course, said: Said) => boolean | Promise<boolean>
   setStatus: (id: string, status: Course["status"], said: Said) => void
   duplicate: (id: string, said: (title: string) => Said) => void
   remove: (id: string, said: Said) => void

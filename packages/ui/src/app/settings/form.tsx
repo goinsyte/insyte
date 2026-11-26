@@ -2,6 +2,7 @@ import { useBlocker, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
+import { useToastClearance } from "../../components/sonner"
 import { ChevronDown, Loader } from "../../icons"
 import { cn } from "../lib/utils"
 
@@ -319,6 +320,8 @@ export function UnsavedBar({
   const [held, setHeld] = useState<Held | null>(null)
   const body = useRef<HTMLDivElement>(null)
   const saveButton = useRef<HTMLButtonElement>(null)
+  // Toasts rise above the bar while it is up, not over its buttons.
+  const clear = useToastClearance<HTMLDivElement>()
 
   const proceedAfter = useRef<(() => void) | null>(null)
 
@@ -417,6 +420,7 @@ export function UnsavedBar({
         {visible ?
           (
             <motion.div
+              ref={clear}
               initial={still ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.96, filter: "blur(6px)" }}
               animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
               exit={still

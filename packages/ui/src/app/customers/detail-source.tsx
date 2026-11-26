@@ -20,6 +20,11 @@ export interface CustomerDetailSource {
     | undefined
   /** The Klaviyo list they were sent to, where the host has one. */
   klaviyo?: { list: string; at: string } | undefined
+  /**
+   * "E-mailen" writes from the host's inbox, where the role may write mail there; absent or false, it is a `mailto:`
+   * link to the computer's own mail app.
+   */
+  mailFromInbox?: boolean | undefined
   /** A follow-up ticket for them, where the host has a board. */
   newTicket?: (() => void) | undefined
   Returns?: ComponentType<{ email: string }> | undefined

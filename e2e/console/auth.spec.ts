@@ -376,8 +376,33 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("row", { name: /Anna de Vries/ }).click()
   const profile = page.getByRole("dialog")
   await expect(profile.getByRole("link", { name: "#1002" })).toBeVisible()
+  // "E-mailen" writes from the support inbox, not the computer's mail app: "Nieuwe e-mail" opens there addressed to
+  // them. The address rides on the history entry, never in the URL, and once the dialog is closed a reload does not
+  // open it again.
+  await profile.getByRole("link", { name: "E-mailen" }).click()
+  const compose = page.getByRole("dialog", { name: "Nieuwe e-mail" })
+  await expect(compose.getByLabel("Aan")).toHaveValue("klant1@example.com")
+  await expect(page).toHaveURL(/\/inbox/)
+  expect(page.url()).not.toMatch(/klant1|%40|compose/)
+  await compose.getByRole("button", { name: "Annuleren" }).click()
+  await expect(compose).toHaveCount(0)
+  await page.reload()
+  await hydrated(page)
+  await expect(page.getByRole("dialog", { name: "Nieuwe e-mail" })).toHaveCount(0)
+  // "Nieuw ticket": the toast's "Openen" is the way to the new ticket.
+  await page.goto("/customers")
+  await hydrated(page)
+  await page.getByRole("row", { name: /Anna de Vries/ }).click()
   await profile.getByRole("button", { name: "Nieuw ticket" }).click()
   await expect(page.getByText(/^#\d+ geopend voor Anna de Vries$/)).toBeVisible()
+  await page.locator("[data-sonner-toast]", { hasText: /geopend voor Anna de Vries/ }).getByRole("button", {
+    name: "Openen"
+  }).click()
+  await expect(page).toHaveURL(/\/tickets\?ticket=/)
+  await expect(page.getByRole("dialog", { name: "Opvolgen met Anna de Vries" })).toBeVisible()
+  await page.goto("/customers")
+  await hydrated(page)
+  await page.getByRole("row", { name: /Anna de Vries/ }).click()
   await profile.getByRole("link", { name: "#1002" }).click()
   await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
   await page.goto("/products")

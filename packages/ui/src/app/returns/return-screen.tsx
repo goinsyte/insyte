@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
+import { useToastClearance } from "../../components/sonner";
 import { AlertTriangle, Check, Download, ExternalLink, Package as PackageCheck, RotateCcw, Send, Truck, User, XCircle } from "../../icons";
 import { useNow } from "../hooks/use-now";
 import { ConfirmDialog } from "../common/confirm-dialog";
@@ -54,6 +55,7 @@ function Detail({ view }: { view: ReturnView }) {
 	const [rejecting, setRejecting] = useState(false);
 	const [resolving, setResolving] = useState(false);
 	const [tracking, setTracking] = useState(false);
+	const clear = useToastClearance<HTMLDivElement>();
 	// Waiting on the parcel with no label to send: no carrier is set up for labels, so the shopper sends it themselves.
 	const noCarrier = source.labels === false && !view.arriving && r.status === "awaiting_parcel" && !r.label && !r.labelPending && !r.labelFailed;
 
@@ -328,8 +330,8 @@ function Detail({ view }: { view: ReturnView }) {
 				</aside>
 			</div>
 
-			{/* On a phone the actions sit in a bar at the foot, where a thumb is. */}
-			<div className="fixed inset-x-0 bottom-0 z-20 flex justify-end gap-1.5 bg-paper/95 px-3 py-2.5 shadow-[0_-1px_0_color-mix(in_oklch,var(--ink)_8%,transparent)] sm:hidden">{actions}</div>
+			{/* On a phone the actions sit in a bar at the foot, where a thumb is. Toasts rise above it. */}
+			<div ref={clear} className="fixed inset-x-0 bottom-0 z-20 flex justify-end gap-1.5 bg-paper/95 px-3 py-2.5 shadow-[0_-1px_0_color-mix(in_oklch,var(--ink)_8%,transparent)] sm:hidden">{actions}</div>
 
 			<RejectDialog
 				count={1}

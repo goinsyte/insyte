@@ -1,5 +1,5 @@
-import { Link, useNavigate } from "@tanstack/react-router"
-import { Fragment, type ReactNode, useCallback, useMemo, useState } from "react"
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
+import { useToastClearance } from "../../components/sonner"
 import {
   Archive,
   BookOpen,
@@ -166,6 +167,26 @@ export function InboxPage() {
     return id !== undefined
   }
   const mailbox = mailboxes.find((m) => m.id === search.mailbox)
+  /*
+   * A customer's "E-mailen": "Nieuwe e-mail" opens addressed to them, where the role may write mail. The history entry
+   * lets go of the address at once, so Back or a reload does not open it again. With no mailbox to send from, the
+   * dialog says so rather than letting the send be refused.
+   */
+  const asked = useRouterState({ select: (s) => s.location.state.compose })
+  const [addressed, setAddressed] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (asked === undefined) return
+    if (gate.ok) setAddressed(asked)
+    void navigate({ to: ".", search: true, state: {}, replace: true } as never)
+  }, [asked, gate.ok, navigate])
+  const from = mailbox ?? mailboxes.find((m) => m.status.live) ?? mailboxes[0]
+  const unsendable = addressed === undefined
+    ? undefined
+    : from === undefined
+    ? "Er is nog geen mailbox om vanaf te versturen. Koppel er eerst een."
+    : from.status.live
+    ? undefined
+    : `${from.address} is ontkoppeld. Koppel hem opnieuw om te versturen.`
   const channel = search.channel
   const agentView = search.view
   const title = mailbox
@@ -185,6 +206,9 @@ export function InboxPage() {
   const [forwarding, setForwarding] = useState(false)
   const [composing, setComposing] = useState(false)
   const reply = useSettle()
+  // Toasts go above the reply bar and the draft, not over them.
+  const clearBar = useToastClearance<HTMLDivElement>()
+  const clearDraft = useToastClearance<HTMLTextAreaElement>()
   useOnCreate("thread", useCallback(() => setComposing(true), []))
 
   const inFolderThreads = useMemo(
@@ -342,7 +366,11 @@ export function InboxPage() {
         )}
       >
         <div className="flex h-12 shrink-0 items-center justify-between pr-2 pl-5">
-          <h2 className="flex items-baseline gap-2 font-medium text-base text-ink leading-none">
+          {/* Named "Support, 0": the two spans alone run together into one word. */}
+          <h2
+            aria-label={`${title}, ${inFolderThreads.length}`}
+            className="flex items-baseline gap-2 font-medium text-base text-ink leading-none"
+          >
             {title}
             <span className="font-normal text-sm text-ink-3 tabular-nums">
               {inFolderThreads.length}
@@ -781,6 +809,7 @@ export function InboxPage() {
                             Jouw concept
                           </span>
                           <textarea
+                            ref={clearDraft}
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
                             readOnly={reply.busy}
@@ -807,7 +836,7 @@ export function InboxPage() {
                       </div>
                     ) :
                     null}
-                  <div className="flex shrink-0 items-center justify-between bg-mist px-4 py-2.5">
+                  <div ref={clearBar} className="flex shrink-0 items-center justify-between bg-mist px-4 py-2.5">
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -855,10 +884,17 @@ export function InboxPage() {
         onSend={(to, note) => (active ? writes.forward(active, to, note, { label: `Doorgestuurd naar ${to}` }) : false)}
       />
       <ComposeDialog
-        open={composing}
-        onOpenChange={setComposing}
+        open={composing || addressed !== undefined}
+        to={addressed}
+        unsendable={unsendable}
+        onOpenChange={(v) => {
+          setComposing(v)
+          if (!v) setAddressed(undefined)
+        }}
         onSend={(m) => {
-          const made = writes.compose({ ...m, mailbox: mailbox?.id }, { label: `E-mail verstuurd naar ${m.to}` })
+          // For a customer it goes from the mailbox it said it would; otherwise from the one in view, or the host's.
+          const sender = addressed === undefined ? mailbox : from
+          const made = writes.compose({ ...m, mailbox: sender?.id }, { label: `E-mail verstuurd naar ${m.to}` })
           return made instanceof Promise ? made.then(openComposed) : openComposed(made)
         }}
       />
@@ -1034,14 +1070,23 @@ function ForwardDialog({
 
 function ComposeDialog({
   open,
+  to: addressed,
+  unsendable,
   onOpenChange,
   onSend
 }: {
   open: boolean
+  /** Who it is to, filled in as it opens: the customer whose "E-mailen" opened it. */
+  to?: string | undefined
+  /** Why it cannot go (no mailbox to send from); the dialog says so and keeps Versturen shut. */
+  unsendable?: string | undefined
   onOpenChange: (v: boolean) => void
   onSend: (m: { to: string; subject: string; body: string }) => Sent
 }) {
   const [to, setTo] = useState("")
+  useEffect(() => {
+    if (open && addressed !== undefined) setTo(addressed)
+  }, [open, addressed])
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const { busy, settle } = useSettle()
@@ -1061,7 +1106,7 @@ function ComposeDialog({
       title="Nieuwe e-mail"
       description="Verstuurd vanuit je supportinbox. De mail komt bovenaan de inbox te staan."
       primaryLabel={busy ? "Versturen…" : "Versturen"}
-      disabled={!valid || busy}
+      disabled={!valid || busy || unsendable !== undefined}
       width={560}
       onSubmit={() => {
         settle(onSend({ to: to.trim(), subject: subject.trim(), body: body.trim() }), (ok) => {
@@ -1071,6 +1116,13 @@ function ComposeDialog({
         })
       }}
     >
+      {unsendable === undefined ?
+        null :
+        (
+          <p role="status" className="rounded-md bg-signal-amber-bg px-3 py-2 text-sm text-signal-amber">
+            {unsendable}
+          </p>
+        )}
       <Field label="Aan">
         <TextField value={to} onChange={setTo} placeholder="klant@voorbeeld.nl" type="email" />
       </Field>

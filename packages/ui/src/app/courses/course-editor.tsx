@@ -39,7 +39,10 @@ import {
   blockers,
   type BlockKind,
   type Course,
+  draftDirty,
+  draftOnArrival,
   emptyBlock,
+  keptOrHeld,
   minutesOf,
   newId,
   quizzesOf,
@@ -87,13 +90,25 @@ function Editor({ saved }: { saved: Course }) {
   const savedKey = JSON.stringify(saved)
   const [draft, setDraft] = useState<Course>(saved)
   const last = useRef(savedKey)
+  /*
+   * The draft as a save or publish kept it, until the course comes back from the host (`draftDirty`): the bar goes
+   * the moment the write lands, so the save's toast is not left lying on a bar that is done. The ref is set as the
+   * write leaves, because the host's course can come back before the write's answer does.
+   */
+  const [kept, setKept] = useState<string | null>(null)
+  const keptRef = useRef<string | null>(null)
   useEffect(() => {
     if (last.current !== savedKey) {
+      const baseline = keptRef.current ?? last.current
       last.current = savedKey
-      setDraft(JSON.parse(savedKey) as Course)
+      keptRef.current = null
+      setKept(null)
+      // What was typed since the save stays; an untouched draft follows the host.
+      setDraft((d) => draftOnArrival(d, JSON.stringify(d), baseline, JSON.parse(savedKey) as Course))
     }
   }, [savedKey])
-  const dirty = JSON.stringify(draft) !== savedKey
+  const draftKey = JSON.stringify(draft)
+  const dirty = draftDirty(draftKey, savedKey, kept)
   const todo = blockers(draft)
   const chapter = chapters.find((c) => c.id === draft.chapterId)
   const [active, setActive] = useState<string>("over")
@@ -102,18 +117,34 @@ function Editor({ saved }: { saved: Course }) {
   const setBlock = (id: string, next: Block) =>
     setDraft((d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === id ? next : b)) }))
 
+  /** Whether the write kept this draft; a refusal (the host said why) leaves the bar and the work as they are. */
+  const keep = async (write: () => boolean | Promise<boolean>) => {
+    const key = draftKey
+    keptRef.current = key
+    const ok = await write()
+    // The host's course came back first and took over from here.
+    if (keptRef.current !== key) return ok
+    if (ok) setKept(key)
+    else keptRef.current = null
+    return ok
+  }
+  // The bar holds a navigation until its save lands; one that was refused keeps it held (`keptOrHeld`).
   const save = () =>
-    commands.save(saved, draft, {
-      label: `“${draft.title}” opgeslagen`,
-      detail: saved.status === "live"
-        ? "Het team ziet de nieuwe versie meteen."
-        : "Nog een concept: het team ziet hem pas na publiceren."
-    })
+    keptOrHeld(keep(() =>
+      commands.save(saved, draft, {
+        label: `“${draft.title}” opgeslagen`,
+        detail: saved.status === "live"
+          ? "Het team ziet de nieuwe versie meteen."
+          : "Nog een concept: het team ziet hem pas na publiceren."
+      })
+    ))
   const publish = () =>
-    commands.publish(saved, draft, {
-      label: `“${draft.title}” gepubliceerd`,
-      detail: "Het team ziet hem nu onder Mijn cursussen."
-    })
+    void keep(() =>
+      commands.publish(saved, draft, {
+        label: `“${draft.title}” gepubliceerd`,
+        detail: "Het team ziet hem nu onder Mijn cursussen."
+      })
+    )
 
   /* The outline follows the section being read: the last one whose top has passed a third of the window. */
   useEffect(() => {
@@ -440,7 +471,11 @@ function Editor({ saved }: { saved: Course }) {
               <Settings draft={draft} set={set} />
             </section>
           </fieldset>
-          <UnsavedBar visible={dirty && gate.ok} onDiscard={() => setDraft(saved)} onSave={save} />
+          <UnsavedBar
+            visible={dirty && gate.ok}
+            onDiscard={() => setDraft(kept === null ? saved : JSON.parse(kept) as Course)}
+            onSave={save}
+          />
         </div>
       </div>
     </div>
