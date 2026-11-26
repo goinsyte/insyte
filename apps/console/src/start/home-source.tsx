@@ -25,7 +25,7 @@ import {
   TicketsView,
   TodoView
 } from "@insyte/ui/app/dashboard/widget-views"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { formatCurrency, WHOLE } from "@insyte/ui/app/lib/format"
 import type { PulseFigure } from "@insyte/ui/app/lib/home/pulse"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
@@ -293,7 +293,7 @@ const share = (part: number, of: number) => (of === 0 ? 0 : (part / of) * 100)
 
 /** The band's figures over `Home.widgets`' pulse, worded as the design's (`lib/home/pulse.ts`). */
 export function pulseFigures(p: PulseFigures, days: number, currency: Currency): Array<PulseFigure> {
-  const money = (n: number) => formatCurrency(n, currency).replace(/,00$/, "")
+  const money = (n: number) => formatCurrency(n, currency, WHOLE).replace(/,00$/, "")
   const pct = (a: number, b: number, upGood = true) => {
     if (b === 0 || !p.comparable) return null
     const x = Math.round(((a - b) / b) * 1000) / 10

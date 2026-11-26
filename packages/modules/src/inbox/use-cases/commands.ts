@@ -317,6 +317,33 @@ const otherSide = (l: Locked, lastInbound: { name: string; email: string } | und
   return { name, email: found.email }
 }
 
+/** The most a ticket's description holds (`Tickets.fromThread`). */
+const DESCRIPTION = 20_000
+
+const SAID_BY: Readonly<Record<string, string>> = { shopper: "Klant", agent: "Insyte", team: "Team" }
+
+/**
+ * A website chat as a ticket's description: who it was with, then what the shopper, Insyte and the team said there,
+ * oldest first. A reply still inside its undo window never reached the shopper, and stays out; so does the widget's
+ * own line. Past the description's length the oldest lines give way.
+ */
+const chatDescription = Effect.fn("Threads.chatDescription")(function*(
+  sql: SqlClient.SqlClient,
+  threadId: string,
+  head: string
+) {
+  const rows = yield* sql<{ author: string; body: string }>`
+    select author, body from (
+      select id, author, body, created_at from channel_messages
+      where thread_id = ${threadId} and author in ('shopper', 'agent', 'team') and visible_at <= now()
+      order by created_at desc, id desc limit 200
+    ) m order by created_at, id`
+  const lines = rows.map((m) => `${SAID_BY[m.author] ?? "Team"}: ${m.body.trim()}`)
+  let size = head.length + lines.reduce((n, l) => n + l.length + 1, 1)
+  while (lines.length > 1 && size > DESCRIPTION) size -= lines.shift()!.length + 1
+  return lines.length === 0 ? head : `${head}\n\n${lines.join("\n")}`
+})
+
 /** "Aan ticket koppelen": to a ticket that exists, or a new one from the thread (its subject, who wrote, the line). */
 export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeof LinkTicketInput.Type) {
   yield* Policy.require("support", 2)
@@ -349,13 +376,23 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
           select from_name as name, from_address as email from email_messages
           where thread_id = ${l!.id} and direction = 'inbound' order by created_at desc, id desc limit 1`
         const from = otherSide(l!, last)
+        const who = `${from?.name || from?.email || "onbekend"}${from?.email ? ` (${from.email})` : ""}`
+        // A chat's order is the one on its chip: its customer's latest in the chat's store.
+        const [order] = l!.chat && l!.customerId !== null
+          ? yield* sql<{ id: string }>`
+              select o.id from channel_threads c
+              join orders o on o.customer_id = c.customer_id and o.store_id = c.store_id
+              where c.id = ${l!.id} order by o.placed_at desc, o.id limit 1`
+          : []
         ticket = yield* tickets.make(sql, {
           title: (l!.subject.trim() || (l!.chat ? "Websitechat" : "Mail zonder onderwerp")).slice(0, 200),
-          description: `Van ${from?.name || from?.email || "onbekend"}${from?.email ? ` (${from.email})` : ""}: ${
-            l!.lastMessagePreview
-          }`.slice(0, 20_000),
+          description: l!.chat
+            ? yield* chatDescription(sql, l!.id, `Websitechat met ${who}`)
+            : `Van ${who}: ${l!.lastMessagePreview}`.slice(0, DESCRIPTION),
           threadId: l!.id,
-          customerId: l!.customerId
+          chat: l!.chat,
+          customerId: l!.customerId,
+          orderId: order?.id ?? null
         })
         created = ticket.id
       }

@@ -4,7 +4,7 @@ import { type ReactNode, useMemo, useState } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { AlertTriangle, Box, Clock, MessagesSquare, Plus, Truck, Workflow, X } from "../../icons"
 import { Glyph } from "../common/glyph"
-import { formatCurrency, initials } from "../lib/format"
+import { formatCurrency, initials, WHOLE } from "../lib/format"
 import { personStyle } from "../lib/person-color"
 import type { Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
@@ -196,7 +196,7 @@ export function RevenueView({
   breakdown: (open: boolean, onOpenChange: (v: boolean) => void) => ReactNode
 }) {
   const [explaining, setExplaining] = useState(false)
-  const money = (n: number) => formatCurrency(n, currency)
+  const money = (n: number) => formatCurrency(n, currency, WHOLE)
 
   return (
     <div className="flex flex-col gap-3">
@@ -504,7 +504,7 @@ export function ChargebacksView({
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-1.5">
         <Stat label="Bewijs nodig" value={String(open)} />
-        <Stat label="Op het spel" value={formatCurrency(atStake, currency)} />
+        <Stat label="Op het spel" value={formatCurrency(atStake, currency, WHOLE)} />
         <Stat label="Gewonnen" value={decided === 0 ? "—" : `${won} van ${decided}`} />
         <Stat label="Ingediend" value={String(submitted)} />
       </div>

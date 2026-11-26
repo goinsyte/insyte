@@ -17,7 +17,7 @@ import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { ORDERS } from "../data/orders.ts"
 import { RETURN_SETTINGS, RETURNS, returnWrites } from "../data/returns.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
-import { NO_FX_RATE, sayOverLimit } from "../orders/order-writes.ts"
+import { balanceText, NO_FX_RATE, sayOverLimit } from "../orders/order-writes.ts"
 import { docOf } from "./return-of.ts"
 
 /*
@@ -27,9 +27,6 @@ import { docOf } from "./return-of.ts"
  * discount code, the exchange or replacement order, M9.3) and mailed to the shopper; one Shopify did not make can be
  * asked again. A label is asked for with Undo, made at the carrier once the window has passed (M9.2) and mailed.
  */
-
-const euros = (minor: number) =>
-  new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
 
 const LINE: Record<string, string> = {
   taken: "Dat artikel zit al in een andere retour.",
@@ -79,7 +76,7 @@ const COPY: RefusalCopy = {
         return true
       case "RefundOverBalance":
         toast.error("Meer dan er openstaat", {
-          description: `Er staat nog ${euros(Number(tagged["balanceMinor"]))} open op deze bestelling.`
+          description: `Er staat nog ${balanceText(tagged)} open op deze bestelling.`
         })
         return true
       case "AlreadyRefunded":
@@ -195,18 +192,24 @@ export function useReturnCommands() {
       if (ticket !== null) undoable(`${made.number} aangemaakt`, () => undo(ticket.token))
       return made.id
     },
-    /** The policy saved, with its undo; a draft the server would refuse is said here. */
-    save: async (next: ReturnSettings, saved: ReturnSettingsDoc, s: Said) => {
+    /**
+     * The policy saved, with its undo; a draft the server would refuse is said here. Answers the document as the server
+     * wrote it, or `null` when it did not save.
+     */
+    save: async (next: ReturnSettings, saved: ReturnSettingsDoc, s: Said): Promise<ReturnSettingsDoc | null> => {
       const decoded = Schema.decodeExit(ReturnSettingsDoc)(docOf(next, saved))
       if (Exit.isFailure(decoded)) {
-        return void toast.error("Dat kan zo niet", {
-          description: "Kijk de termijnen, redenen en teksten nog eens na."
-        })
+        toast.error("Dat kan zo niet", { description: "Kijk de termijnen, redenen en teksten nog eens na." })
+        return null
       }
       const exit = await write.setSettings({ payload: decoded.value, reactivityKeys: [...RETURN_SETTINGS, ...RETURNS] })
-      if (Exit.isFailure(exit)) return refused(failureOf(exit))
+      if (Exit.isFailure(exit)) {
+        refused(failureOf(exit))
+        return null
+      }
       const token = exit.value.undo.token
       undoable(s.label, () => undo(token, [...RETURN_SETTINGS, ...RETURNS]), s.detail)
+      return exit.value.settings
     }
   }
 }

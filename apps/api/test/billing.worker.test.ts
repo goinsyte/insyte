@@ -1,4 +1,6 @@
 import { testSignature } from "@insyte/integrations-stripe/Sdk"
+import { introspectWorkflow } from "cloudflare:test"
+import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { failure, ok, outboxOf, person, productEventsOf, relay } from "./journeys.ts"
 import { call, onboarding, rpc, rpcWith, sessionMe } from "./support.ts"
@@ -530,5 +532,96 @@ describe("billing", () => {
     expect((await stripe(event)).status).toBe(200)
     expect(ok(await rpc("Billing.get", undefined, a.cookie)).seats.extra).toBe(2)
     expect(ok(await rpc("Billing.get", undefined, b.cookie))).toMatchObject({ status: "trial", seats: { extra: 0 } })
+  })
+
+  it("ends the subscription when the workspace is deleted, never while the deletion waits or once it is stopped", async () => {
+    const owner = await founder("delete")
+    ok(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))
+    const name = ok(await rpc("Privacy.requests", undefined, owner.cookie)).workspaceName
+    await using lifecycle = await introspectWorkflow(env.WORKSPACE_LIFECYCLE)
+    await lifecycle.modifyAll(async (m) => {
+      await m.disableSleeps()
+    })
+
+    // Asked and stopped: the workspace pays and works as before.
+    ok(await rpc("Workspaces.requestDeletion", { confirmName: name }, owner.cookie))
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie))).toMatchObject({ status: "active", cancelAt: null })
+    ok(await rpc("Workspaces.cancelDeletion", undefined, owner.cookie))
+    await relay(owner.workspace)
+    for (const instance of await lifecycle.get()) await instance.waitForStatus("complete")
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie))).toMatchObject({ status: "active", cancelAt: null })
+
+    // Asked again and waited out: Stripe's subscription ends before the rows go.
+    ok(await rpc("Workspaces.requestDeletion", { confirmName: name }, owner.cookie))
+    await call(`http://api.test/api/__dev/privacy/deletion-due?workspace=${owner.workspace}`, { method: "POST" })
+    await relay(owner.workspace)
+    const runs = await lifecycle.get()
+    expect(runs).toHaveLength(2)
+    for (const instance of runs) await instance.waitForStatus("complete")
+    // The first run was stopped before it got there, so it has no such step to wait for.
+    const ended = await Promise.all(
+      runs.map((r) =>
+        Promise.race([
+          r.waitForStepResult({ name: "billing" }),
+          new Promise((done) => setTimeout(() => done(null), 2000))
+        ])
+      )
+    )
+    expect(ended).toContainEqual({ ended: 1 })
+    expect(ok(await sessionMe(owner.cookie)).principals).toEqual([])
+  })
+
+  it("keeps the workspace while Stripe does not answer the end of its subscription", async () => {
+    const owner = await founder("delete-held")
+    ok(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))
+    const name = ok(await rpc("Privacy.requests", undefined, owner.cookie)).workspaceName
+    await call(`http://api.test/api/__dev/billing/end-fails?workspace=${owner.workspace}&reason=unreachable`, {
+      method: "POST"
+    })
+    try {
+      await using lifecycle = await introspectWorkflow(env.WORKSPACE_LIFECYCLE)
+      await lifecycle.modifyAll(async (m) => {
+        await m.disableSleeps()
+        await m.disableRetryDelays()
+      })
+      ok(await rpc("Workspaces.requestDeletion", { confirmName: name }, owner.cookie))
+      await call(`http://api.test/api/__dev/privacy/deletion-due?workspace=${owner.workspace}`, { method: "POST" })
+      await relay(owner.workspace)
+      // Every try failed: the run gives up before the purge, and the daily sweep starts it again.
+      for (const instance of await lifecycle.get()) await instance.waitForStatus("errored")
+    } finally {
+      await call(`http://api.test/api/__dev/billing/end-fails?workspace=${owner.workspace}&reason=none`, {
+        method: "POST"
+      })
+    }
+    expect(ok(await sessionMe(owner.cookie)).principals).not.toEqual([])
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie))).toMatchObject({ status: "active" })
+  }, 180_000)
+
+  it("purges a workspace whose subscription Stripe refuses to end, for a person to end in Stripe", async () => {
+    const owner = await founder("delete-refused")
+    ok(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))
+    const name = ok(await rpc("Privacy.requests", undefined, owner.cookie)).workspaceName
+    await call(`http://api.test/api/__dev/billing/end-fails?workspace=${owner.workspace}&reason=refused`, {
+      method: "POST"
+    })
+    try {
+      await using lifecycle = await introspectWorkflow(env.WORKSPACE_LIFECYCLE)
+      await lifecycle.modifyAll(async (m) => {
+        await m.disableSleeps()
+      })
+      ok(await rpc("Workspaces.requestDeletion", { confirmName: name }, owner.cookie))
+      await call(`http://api.test/api/__dev/privacy/deletion-due?workspace=${owner.workspace}`, { method: "POST" })
+      await relay(owner.workspace)
+      const [run] = await lifecycle.get()
+      await run!.waitForStatus("complete")
+      // A refusal would be the same on every try, and the erasure has a deadline: logged as an error, not retried.
+      expect(await run!.waitForStepResult({ name: "billing" })).toEqual({ ended: 0 })
+    } finally {
+      await call(`http://api.test/api/__dev/billing/end-fails?workspace=${owner.workspace}&reason=none`, {
+        method: "POST"
+      })
+    }
+    expect(ok(await sessionMe(owner.cookie)).principals).toEqual([])
   })
 })

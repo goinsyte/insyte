@@ -1,5 +1,5 @@
+import { minorDigits } from "@insyte/domain/MinorUnits"
 import { Option, Schema } from "effect"
-import { minorDigits } from "../../fx/domain/Units.ts"
 
 /*
  * The commerce mirror's shapes (M6.3; integrations.md §2 "Backfill", domain.md §4): the queries Insyte reads a store

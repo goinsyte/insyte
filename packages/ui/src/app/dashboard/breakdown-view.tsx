@@ -9,7 +9,7 @@ import {
   DialogTitle
 } from "../../components/dialog"
 import { ArrowUpRight } from "../../icons"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import type { Currency } from "../lib/types/domain"
 
 /**
@@ -48,7 +48,7 @@ export function RevenueBreakdownView({
   rateNote: string | null
 }) {
   const still = useReducedMotion()
-  const money = (n: number) => formatCurrency(n, currency)
+  const money = (n: number) => formatCurrency(n, currency, WHOLE)
   const aov = count === 0 ? 0 : total / count
   const left = excluded.cancelled + excluded.refunded
 

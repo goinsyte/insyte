@@ -57,11 +57,14 @@ const rowOf = (l: ServerLine): CostRow => ({
   name: l.name,
   kind: l.kind,
   rate: l.kind === "percent" ? (l.rate ?? 0) : l.kind === "per_order" ? major(l.rateMinor ?? 0) : 0,
+  ...(l.rateUnconverted === true ? { rateUnconverted: true } : {}),
   source: l.source === "google_ads" ? "google-ads" : l.source,
   reads: l.readsFromSource,
   hasTyped: l.hasTyped,
   cells: Object.fromEntries(
-    Object.entries(l.cells).map(([m, c]) => [m, { amount: major(c.amountMinor), typed: c.typed }])
+    Object.entries(l.cells).map((
+      [m, c]
+    ) => [m, { amount: major(c.amountMinor), typed: c.typed, ...(c.noRate === true ? { noRate: true } : {}) }])
   )
 })
 
@@ -177,7 +180,7 @@ export function useConsoleCostsSource(list: CostsList): CostsSource {
             name: patch.name,
             kind: patch.kind,
             ...(patch.kind === "percent" ? { rate: patch.rate } : {}),
-            ...(patch.kind === "per_order" ? { rateMinor: minor(patch.rate) } : {})
+            ...(patch.kind === "per_order" && patch.keepRate !== true ? { rateMinor: minor(patch.rate) } : {})
           },
           ...keys
         }),

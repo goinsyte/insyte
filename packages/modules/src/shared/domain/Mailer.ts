@@ -233,7 +233,13 @@ export class MailNotSent extends Schema.TaggedError<MailNotSent>()("MailNotSent"
    */
   senderRefused: Schema.optional(Schema.Boolean),
   /** The provider was busy or out (429, 5xx, unreachable): the same mail may go if it is tried again later. */
-  retryable: Schema.optional(Schema.Boolean)
+  retryable: Schema.optional(Schema.Boolean),
+  /**
+   * The provider refused this one mail for its recipient or its contents (Resend's 422 `validation_error`, an address
+   * that bounces), not for Insyte's own setup (a key, Insyte's sending domain, a template): trying again changes
+   * nothing, and other mails still go. A caller may record it as not sent and go on; any other refusal fails as before.
+   */
+  refusedForRecipient: Schema.optional(Schema.Boolean)
 }) {}
 
 export class Mailer extends Context.Service<Mailer, {

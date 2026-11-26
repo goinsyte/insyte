@@ -13,6 +13,7 @@ import { EmptyPage } from "../common/empty-page"
 import { Field, FormDialog, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
+import { cellCommit } from "../lib/cost-cell"
 import { formatCurrency } from "../lib/format"
 import { parseTyped } from "../lib/sheets"
 import type { Currency } from "../lib/types/domain"
@@ -233,6 +234,9 @@ export function CostsPage() {
             </tfoot>
           </table>
         </div>
+        {lines.some((l) => l.rateUnconverted === true || Object.values(l.cells).some((c) => c.noRate === true))
+          ? <p className="text-ink-2 text-sm">Geen koers: {NO_RATE_NOTE}</p>
+          : null}
         <p className="text-ink-3 text-sm">
           Omzet en bestellingen komen uit de winkelgeschiedenis, net als in Analyse. Typ in een cel om een bedrag te
           veranderen; Enter bewaart, Esc laat het staan.
@@ -254,7 +258,7 @@ function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () =>
   const rule = l.kind === "percent"
     ? `${l.rate.toLocaleString("nl-NL")}% van de omzet`
     : l.kind === "per_order"
-    ? `${money(l.rate, true)} per bestelling`
+    ? (l.rateUnconverted === true ? "Per bestelling, geen koers" : `${money(l.rate, true)} per bestelling`)
     : l.kind === "ads"
     ? (reads
       ? `Uit ${SOURCE_NAME[l.source]}`
@@ -290,6 +294,8 @@ function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () =>
         <td key={m.id} className={cn("px-1.5 py-1.5 text-right", ground)}>
           {editable
             ? <AmountCell l={l} m={m} />
+            : l.cells[m.id]?.noRate === true
+            ? <span className="px-1.5 text-ink-3" title={NO_RATE}>geen koers</span>
             : <span className="px-1.5 text-ink-2 tabular-nums">{money(l.cells[m.id]?.amount ?? 0)}</span>}
         </td>
       ))}
@@ -343,6 +349,11 @@ function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () =>
   )
 }
 
+/** Said of an amount the figures leave out because no exchange rate reads it in the workspace's currency. */
+const NO_RATE = "Dit bedrag staat in een andere munt en er is nog geen koers om het om te rekenen. Het telt niet mee."
+const NO_RATE_NOTE =
+  "een bedrag staat in een andere munt en er is nog geen koers om het om te rekenen. Het telt niet mee tot er een koers is."
+
 /** One month's amount, typed in place. A read amount shows its source until someone types over it. */
 function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
   const source = useCostsSource()
@@ -362,16 +373,11 @@ function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
   }, [opened])
   const commit = () => {
     if (draft === null) return
-    const t = draft.trim()
     setDraft(null)
-    if (t === "") {
-      if (!own) return
-      return source.setAmount(l, m.id, null, { label: `${l.name}, ${m.abbr} gewist` })
-    }
-    const n = parseTyped(t).value
-    if (typeof n !== "number" || n < 0) return
-    if (own && value === n) return
-    source.setAmount(l, m.id, n, { label: `${l.name}, ${m.abbr}: ${money(n)}` })
+    const next = cellCommit(draft, cell)
+    if (next === "keep") return
+    if (next === "clear") return source.setAmount(l, m.id, null, { label: `${l.name}, ${m.abbr} gewist` })
+    source.setAmount(l, m.id, next.amount, { label: `${l.name}, ${m.abbr}: ${money(next.amount)}` })
   }
   return (
     <input
@@ -400,8 +406,12 @@ function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
       }}
       inputMode="decimal"
       aria-label={`${l.name}, ${m.name}`}
-      placeholder="0"
-      title={l.kind === "ads" && !own && value ? `Uit ${SOURCE_NAME[l.source] ?? "het account"}` : undefined}
+      placeholder={cell?.noRate === true ? "geen koers" : "0"}
+      title={cell?.noRate === true
+        ? NO_RATE
+        : l.kind === "ads" && !own && value
+        ? `Uit ${SOURCE_NAME[l.source] ?? "het account"}`
+        : undefined}
       className={cn(
         "h-8 w-full rounded-md bg-transparent px-1.5 text-right tabular-nums outline-none transition-colors hover:bg-ink/5 focus:bg-paper focus:shadow-[inset_0_0_0_1px_var(--arc)]",
         l.kind === "ads" && !own && value ? "text-ink-2" : "text-ink"
@@ -431,7 +441,7 @@ function LineDialog({ value, onClose }: { value: CostRow | "new" | null; onClose
     setName(editing?.name ?? "")
     setKind(editing?.kind ?? "fixed")
     setRate(
-      editing && (editing.kind === "percent" || editing.kind === "per_order")
+      editing && (editing.kind === "percent" || editing.kind === "per_order") && editing.rateUnconverted !== true
         ? String(editing.rate).replace(".", ",")
         : ""
     )
@@ -439,7 +449,10 @@ function LineDialog({ value, onClose }: { value: CostRow | "new" | null; onClose
   }
   if (!open && key !== null) setKey(null)
   const needsRate = kind === "percent" || kind === "per_order"
-  const valid = name.trim() && (needsRate ? num(rate) !== null : true)
+  // A per-order amount with no rate shows empty: left empty, the line keeps it.
+  const keepRate = editing?.rateUnconverted === true && editing.kind === "per_order" && kind === "per_order" &&
+    rate.trim() === ""
+  const valid = name.trim() && (needsRate ? keepRate || num(rate) !== null : true)
   // A change that did not take keeps the dialog open with what was typed; the host has said why.
   const settle = (done: Promise<boolean>) => {
     setSaving(true)
@@ -461,7 +474,9 @@ function LineDialog({ value, onClose }: { value: CostRow | "new" | null; onClose
         const r = needsRate ? (num(rate) ?? 0) * (kind === "percent" && rate.includes("%") ? 100 : 1) : 0
         if (editing) {
           return settle(
-            source.update(editing, { name: name.trim(), kind, rate: r }, { label: `${name.trim()} opgeslagen` })
+            source.update(editing, { name: name.trim(), kind, rate: r, ...(keepRate ? { keepRate: true } : {}) }, {
+              label: `${name.trim()} opgeslagen`
+            })
           )
         }
         const a = num(amount)
@@ -486,8 +501,17 @@ function LineDialog({ value, onClose }: { value: CostRow | "new" | null; onClose
       </Field>
       {needsRate ?
         (
-          <Field label={kind === "percent" ? "Percentage van de omzet" : "Bedrag per bestelling"}>
-            <TextField value={rate} onChange={setRate} placeholder={kind === "percent" ? "2,9" : "1,40"} />
+          <Field
+            label={kind === "percent" ? "Percentage van de omzet" : "Bedrag per bestelling"}
+            hint={editing?.rateUnconverted === true && kind === "per_order"
+              ? "Het bedrag staat in een andere munt en er is nog geen koers. Laat dit leeg om het te houden."
+              : undefined}
+          >
+            <TextField
+              value={rate}
+              onChange={setRate}
+              placeholder={kind === "percent" ? "2,9" : editing?.rateUnconverted === true ? "geen koers" : "1,40"}
+            />
           </Field>
         ) :
         !editing ?

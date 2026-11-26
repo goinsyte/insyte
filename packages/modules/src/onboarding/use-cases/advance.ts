@@ -17,10 +17,11 @@ import { activeIn, factsOf, loadProgress, type Row, saveProgress, stateOf, store
  * and with it the track. `organization` founds the workspace (the `WorkspaceFounder` port) and moves on, in one
  * transaction as the person inside the new workspace: both commit, or neither; then the relay delivers its events. The
  * steps after it run the same way inside that workspace: `plan` starts the trial, `store` leaves the store for the Start
- * checklist or, connected, ticks it and goes on to `sync`, which passes once the first import is in; `analysis`
- * follows it (its choices made by `FirstAnalysis.prepare`, M6.5) and goes on to `offline` (the plan agreed by
- * `FirstAnalysis.agreeOffline`, M15), then ready; `ready` ends onboarding (`WorkspaceSetup`). A finished track
- * answers as it is: a replayed `ready` changes nothing.
+ * checklist or, connected, ticks it and goes on to `sync`, which passes once the first import is in (left for later,
+ * still importing or failed, it goes to ready without the steps the import feeds); `analysis` follows it (its choices
+ * made by `FirstAnalysis.prepare`, M6.5) and goes on to `offline` (the plan agreed by `FirstAnalysis.agreeOffline`,
+ * M15), then ready; `ready` ends onboarding (`WorkspaceSetup`). A finished track answers as it is: a replayed `ready`
+ * changes nothing.
  */
 export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceInput) {
   const user = yield* CurrentUser
@@ -66,9 +67,20 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
     const store = yield* storeFactsOf(workspaceId)
     const connected = input.step === "store" && input.choice === "connected"
     if (connected && !store.connected) return yield* new StepNotReady({ step: "store", missing: "store" })
-    if (input.step === "sync" && !store.synced) return yield* new StepNotReady({ step: "sync", missing: "import" })
-    // "Nu overslaan" with a store connected meanwhile still skips what follows a store.
-    const facts = factsOf(user, row, input.step === "store" && !connected ? { connected: false, synced: false } : store)
+    const later = input.step === "sync" && input.choice === "later"
+    if (input.step === "sync" && !later && !store.synced) {
+      return yield* new StepNotReady({ step: "sync", missing: "import" })
+    }
+    // "Nu overslaan" with a store connected (or its import in) meanwhile still skips what follows.
+    const facts = factsOf(
+      user,
+      row,
+      input.step === "store" && !connected
+        ? { connected: false, synced: false }
+        : later
+        ? { ...store, synced: false }
+        : store
+    )
     const setup = yield* WorkspaceSetup
     const db = yield* Db
     const answers = input.step === "plan"

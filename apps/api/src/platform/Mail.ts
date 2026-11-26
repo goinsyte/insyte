@@ -18,6 +18,13 @@ export const refusedReferences = new Set<string>()
 export const busyReferences = new Set<string>()
 
 /**
+ * The records whose mails find Insyte's own setup refused, as Resend's 401 for a key that is wrong or rotated
+ * (`POST /api/__dev/mail/refuse?setup=1`): neither this mail's fault nor worth giving up on. Only this isolate's, and
+ * never in production.
+ */
+export const setupReferences = new Set<string>()
+
+/**
  * The sending domains whose `from` the capture adapter refuses as Resend does a domain that is not verified
  * (`POST /api/__dev/mail/refuse-sender`): so a brand's mail falling back to Insyte's address can be seen. Only this
  * isolate's, and never in production.
@@ -56,7 +63,11 @@ export const MailerCapture = Layer.effect(
     Mailer.of({
       send: (mail) =>
         mail.reference !== undefined && refusedReferences.has(mail.reference)
-          ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail" }))
+          ? Effect.fail(
+            new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail", refusedForRecipient: true })
+          )
+          : mail.reference !== undefined && setupReferences.has(mail.reference)
+          ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "resend 401: validation_error API key is invalid" }))
           : senderRefused(mail)
           ? Effect.fail(
             new MailNotSent({

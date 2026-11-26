@@ -241,7 +241,7 @@ const SETTINGS: ReturnSettings = {
 		on: true,
 		handle: "northwind-eu",
 		intro: "Iets terugsturen of een probleem melden? Vul je bestelnummer en e-mailadres in.",
-		done: "We bekijken je aanvraag binnen twee werkdagen. Je krijgt een mail met het retourlabel zodra we hem hebben goedgekeurd.",
+		done: "Vragen over je aanvraag? Neem contact met ons op en noem je retournummer.",
 	},
 };
 

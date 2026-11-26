@@ -23,6 +23,8 @@ export type PortalStoreView = {
   offered: ReadonlyArray<Resolution>
   giftCardBonus: number
   claimSteps: ReadonlyArray<string>
+  /** `false`: no carrier is set up for labels, so an approval mails where to send the parcel, not a label. */
+  labels?: boolean | undefined
   /** The store's Huisstijl: its logo at the head and its colour on the buttons; absent, the portal's own look. */
   look?: { color?: string | undefined; logo?: string | undefined } | undefined
   /** Huisstijl's website and support address, at the foot; absent, only "Mogelijk gemaakt door Insyte". */
@@ -79,6 +81,8 @@ export type PortalMade = {
   exchangeTo: string | null
   /** Whether a confirmation went to the shopper's address. */
   mailed: boolean
+  /** The address it went to, the order's own; absent, the one the shopper typed. */
+  email?: string | null | undefined
 }
 
 /** Why a request did not go in; `expired` sends the shopper back to finding their order. */

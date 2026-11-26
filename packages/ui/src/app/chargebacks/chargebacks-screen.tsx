@@ -12,7 +12,7 @@ import { Field, FormDialog, SelectField, TextAreaField, TextField } from "../com
 import { PageHeader } from "../common/page-header"
 import { useSearchCut } from "../filters/use-search-cut"
 import { copyLines, counted, exportCsv } from "../lib/bulk-io"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import { canRole, permissionName } from "../lib/permissions"
 import type { Chargeback, ChargebackStatus, Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
@@ -174,7 +174,8 @@ export function ChargebacksPage() {
     return `${open} ${open === 1 ? "heeft" : "hebben"} bewijs nodig · ${wonPct}% van de beslechte zaken gewonnen · ${
       formatCurrency(
         recovered,
-        currency
+        currency,
+        WHOLE
       )
     } teruggehaald`
   }, [source.standing])

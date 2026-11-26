@@ -10,6 +10,7 @@ import type {
   WindowCheck
 } from "../lib/returns"
 import type { TeamGate } from "../orders/source"
+import type { SaveOutcome } from "../settings/form"
 
 /**
  * What the returns screens read and do, from whoever hosts them (as `suppliers/source.tsx` is for the suppliers page):
@@ -116,8 +117,13 @@ export interface ReturnDetailSource {
   commands: ReturnCommands
   gates: ReturnGates
   meId: string
-  /** The viewer's role, for the refund's confirmation. */
-  role: { label: string; refundLimit: number | null }
+  /**
+   * The viewer's role, for the refund's confirmation. `limitText`: the host's limit on this return's order as said, in
+   * the order's currency (`null` where the role has none); absent, `refundLimit` in the design's euros.
+   */
+  role: { label: string; refundLimit: number | null; limitText?: string | null | undefined }
+  /** `false`: no carrier is set up for labels, and the page says so where the label would be; absent, not said. */
+  labels?: boolean | undefined
   /** Whether the role may refund this much. */
   useRefundGate: (amount: number) => TeamGate
   /** What the resolution picker prices with. */
@@ -128,7 +134,11 @@ export interface ReturnDetailSource {
 
 export interface ReturnSettingsSource {
   saved: ReturnSettings
-  save: (next: ReturnSettings, said: Said) => void
+  /**
+   * Saves the policy; the host says what it did (with its Undo) or why it did not. A host that answers a promise has the
+   * bar wait for it and resolves whether it saved, so a page left right after a save is not held as unsaved.
+   */
+  save: (next: ReturnSettings, said: Said) => Promise<SaveOutcome> | void
   gate: TeamGate
   /** What a product rule can name. */
   products: ReadonlyArray<{ id: string; title: string }>

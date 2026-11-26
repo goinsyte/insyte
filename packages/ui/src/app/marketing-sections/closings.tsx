@@ -3,7 +3,7 @@ import { recommendations } from "../automations/library";
 import { useWorkflows } from "../automations/workflow-store";
 import { useCustomers, useProducts } from "../hooks/use-operator-data";
 import { TEMPLATES } from "../lib/automation-templates";
-import { formatCurrency } from "../lib/format";
+import { formatCurrency, WHOLE } from "../lib/format";
 import { affiliateResources } from "../../data-source";
 import { suppliers } from "../../data-source";
 import { statementsFor } from "../lib/supplier-statements";
@@ -221,7 +221,7 @@ export function SupplierClosing() {
 					{
 						id: "statements",
 						label: "Afrekeningen",
-						body: open ? `${open.label}: ${formatCurrency(open.total)}, wordt op de 15e betaald.` : "Per maand, regel voor regel, met een factuur.",
+						body: open ? `${open.label}: ${formatCurrency(open.total, undefined, WHOLE)}, wordt op de 15e betaald.` : "Per maand, regel voor regel, met een factuur.",
 						to: "/supplier/statements",
 					},
 					{ id: "chat", label: "Chat met Northwind", body: "Het gedeelde kanaal #allure-fulfillment, voor alles wat niet in een bestelling past.", to: "/supplier/chats" },

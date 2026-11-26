@@ -1,6 +1,6 @@
 import { counts, isLate, metrics, round1, type Span } from "../analytics/engine";
 import { HISTORY, HISTORY_END } from "../analytics/history";
-import { formatCurrency } from "../format";
+import { formatCurrency, WHOLE } from "../format";
 import { convert } from "../money";
 import type { Chargeback, Currency, Ticket } from "../types/domain";
 
@@ -63,7 +63,7 @@ export function pulse(
 	const comparable = span(days, 1).from >= "2026-01-01";
 	const parts = buckets(days);
 	const inPart = (day: string, p: { from: string; to: string }) => day >= p.from && day <= p.to;
-	const money = (n: number) => formatCurrency(n, currency).replace(/,00$/, "");
+	const money = (n: number) => formatCurrency(n, currency, WHOLE).replace(/,00$/, "");
 	const pctDelta = (a: number, b: number, upGood = true) => {
 		if (b === 0 || !comparable) return null;
 		const p = Math.round(((a - b) / b) * 1000) / 10;

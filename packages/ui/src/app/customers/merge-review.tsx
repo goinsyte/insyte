@@ -10,7 +10,7 @@ import {
 } from "../../components/dialog"
 import { Check } from "../../icons"
 import type { DuplicateGroup } from "../lib/duplicates"
-import { formatCurrency, initials } from "../lib/format"
+import { formatCurrency, initials, WHOLE } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
 import { personStyle } from "../lib/person-color"
 import type { Currency, Customer } from "../lib/types/domain"
@@ -162,7 +162,9 @@ export function MergeReview({
                             <dt className="text-ink-3">Bestellingen</dt>
                             <dd className="text-ink-2 tabular-nums">{c.orders_count}</dd>
                             <dt className="text-ink-3">Klantwaarde</dt>
-                            <dd className="text-ink-2 tabular-nums">{formatCurrency(c.lifetime_value, currency)}</dd>
+                            <dd className="text-ink-2 tabular-nums">
+                              {formatCurrency(c.lifetime_value, currency, WHOLE)}
+                            </dd>
                             <dt className="text-ink-3">Sinds</dt>
                             <dd className="text-ink-2 tabular-nums">
                               {new Intl.DateTimeFormat("nl-NL", { month: "short", year: "numeric" }).format(
@@ -187,7 +189,8 @@ export function MergeReview({
                     Samengevoegd is dit één profiel: <span className="font-medium text-ink">{keeper.name}</span>,{" "}
                     <span className="tabular-nums">{total.orders}</span>{" "}
                     {total.orders === 1 ? "bestelling" : "bestellingen"} en{" "}
-                    <span className="tabular-nums">{formatCurrency(total.value, currency)}</span> klantwaarde, met{" "}
+                    <span className="tabular-nums">{formatCurrency(total.value, currency, WHOLE)}</span>{" "}
+                    klantwaarde, met{" "}
                     {total.emails === 1 ? "één e-mailadres" : `${total.emails} e-mailadressen bewaard`}.
                   </p>
                 </motion.div>

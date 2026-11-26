@@ -37,6 +37,18 @@ const SENT: Record<ShopperMail, string> = {
   resolved: "Afhandeling gemaild aan de klant"
 }
 
+/** The history line when the provider refused it for its recipient or its contents. */
+const NOT_SENT: Record<ShopperMail, string> = {
+  received: "Ontvangstbevestiging niet gemaild: de mail werd geweigerd",
+  approved: "Goedkeuring niet gemaild: de mail werd geweigerd",
+  rejected: "Afwijzing niet gemaild: de mail werd geweigerd",
+  label: "Retourlabel niet gemaild: de mail werd geweigerd",
+  resolved: "Afhandeling niet gemaild: de mail werd geweigerd"
+}
+
+/** The provider's reason for the log, without an address it may quote. */
+const withoutAddresses = (reason: string) => reason.replace(/[^\s<>"'`]+@[^\s<>"'`]+/g, "<email>").slice(0, 300)
+
 interface Facts {
   readonly number: string
   readonly type: "return" | "claim"
@@ -77,7 +89,14 @@ const due = (mail: ShopperMail, r: Facts, label: StoredLabel | null, shopify: St
   }
 }
 
-/** One mail about one return to its shopper; nothing where there is no address, or it went before. */
+/**
+ * One mail about one return to its shopper; nothing where there is no address, or it went before. Refused for this
+ * recipient or these contents (`refusedForRecipient`: an address that bounces, a payload the provider will not take),
+ * trying again changes nothing: the history says it did not go and the event's other sinks (Shopify's write of the
+ * decision) still commit. Anything else (the provider busy or out, Insyte's key or sending domain refused, a template
+ * that did not render) fails, so the relay tries the event again and, past its tries, sets it aside where it is seen.
+ * The log has the provider's reason, never the address.
+ */
 export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
   sql: SqlClient.SqlClient,
   returnId: string,
@@ -104,8 +123,13 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
     on conflict do nothing returning kind`
   if (claimed === undefined) return
 
+  // The variant as the screens show it: not Shopify's one variant ("Default Title"), nor one named as its product.
   const items = yield* sql<{ title: string; variantTitle: string | null; qty: number }>`
-    select coalesce(p.title, ol.title) as title, ol.variant_title, rl.quantity as qty
+    select coalesce(p.title, ol.title) as title,
+           case when trim(coalesce(ol.variant_title, '')) in ('', 'Default Title')
+                  or lower(trim(ol.variant_title)) = lower(trim(coalesce(p.title, ol.title))) then null
+                else ol.variant_title end as variant_title,
+           rl.quantity as qty
     from return_lines rl join order_lines ol on ol.id = rl.order_line_id left join products p on p.id = ol.product_id
     where rl.return_id = ${returnId} order by rl.id`
   const facts: ReturnMailFacts = {
@@ -145,7 +169,7 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
     }
   })()
   const attachments = mail === "label" ? yield* labelPdf(sql, r.number, label!.fileId!) : undefined
-  yield* Senders.sendToCustomer(sql, {
+  const { error } = yield* Senders.trySendToCustomer(sql, {
     kind: KIND[mail],
     to: r.customerEmail,
     sender: r.shop,
@@ -153,8 +177,17 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
     returnMail: { ...facts, ...extra },
     ...(attachments === undefined ? {} : { attachments })
   })
+  if (error !== null) {
+    const refused = error.refusedForRecipient === true
+    yield* Effect.logWarning(
+      refused ? "a return's shopper mail was refused for its recipient" : "a return's shopper mail did not go",
+      { returnId, kind: KIND[mail], retryable: error.retryable === true, reason: withoutAddresses(error.reason) }
+    )
+    if (!refused) return yield* error
+  }
   yield* sql`insert into return_events (id, workspace_id, return_id, actor, name, kind, text)
-             values (${mintId("rev")}, app_workspace_id(), ${returnId}, 'insyte', null, 'email_sent', ${SENT[mail]})`
+             values (${mintId("rev")}, app_workspace_id(), ${returnId}, 'insyte', null,
+                     ${error === null ? "email_sent" : "note"}, ${error === null ? SENT[mail] : NOT_SENT[mail]})`
 })
 
 /** The label's PDF from the files bucket, to go with its mail. */

@@ -40,6 +40,10 @@ export type StepDef = {
 	/** What the primary button says while `pending`. */
 	pendingLabel?: string;
 	onPrimary?: () => void | Promise<void>;
+	/** A quieter way on beside the primary, with its own action ("Nu overslaan"); `optional` without it runs the primary. */
+	onSkip?: () => void | Promise<void>;
+	/** What that way on says: "Overslaan" by default. */
+	skipLabel?: string;
 	hidePrimary?: boolean;
 	content: ReactNode;
 };
@@ -64,6 +68,7 @@ export function OnboardingShell({
 	steps,
 	stepIndex,
 	onBack,
+	canGoBack = true,
 	onChangeRole,
 	onExit,
 }: {
@@ -73,6 +78,8 @@ export function OnboardingShell({
 	steps: StepDef[];
 	stepIndex: number;
 	onBack: () => void;
+	/** Whether the footer offers Terug: not where the host's server has moved past the step before. */
+	canGoBack?: boolean;
 	onChangeRole: () => void;
 	onExit: () => void;
 }) {
@@ -94,13 +101,15 @@ export function OnboardingShell({
 	const [shake, setShake] = useState(0);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: clear the error when the step changes.
 	useEffect(() => setError(null), [step.id]);
-	async function runPrimary() {
-		if (busy || step.pending === true || !step.onPrimary) return;
+	const runPrimary = () => run(step.onPrimary);
+	const runSkip = () => run(step.onSkip ?? step.onPrimary);
+	async function run(action: (() => void | Promise<void>) | undefined) {
+		if (busy || step.pending === true || !action) return;
 		setError(null);
 		setBusy(true);
 		try {
 			await new Promise((r) => setTimeout(r, MIN_BUSY_MS));
-			await step.onPrimary();
+			await action();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Er ging iets mis. Probeer het opnieuw.");
 			setShake((n) => n + 1);
@@ -171,21 +180,21 @@ export function OnboardingShell({
 									<button
 										type="button"
 										onClick={onBack}
-										disabled={safeIndex === 0 || busy}
+										disabled={safeIndex === 0 || !canGoBack || busy}
 										className="-ml-2 flex h-11 items-center gap-1.5 rounded-lg px-2 font-medium text-sm text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-0"
 									>
 										<ArrowLeft className="size-4" strokeWidth={1.75} />
 										Terug
 									</button>
 									<div className="flex items-center gap-1">
-										{step.optional ? (
+										{step.optional || step.onSkip ? (
 											<button
 												type="button"
-												onClick={runPrimary}
+												onClick={runSkip}
 												disabled={busy || step.pending === true}
 												className="flex h-11 items-center justify-center rounded-lg px-3 font-medium text-sm text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:opacity-50"
 											>
-												Overslaan
+												{step.skipLabel ?? "Overslaan"}
 											</button>
 										) : null}
 										<PrimaryButton

@@ -1,13 +1,16 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { DEFAULT_LEVELS } from "@insyte/domain/AgentActions"
 import type { AutonomyPolicy } from "@insyte/modules/agent/domain/Autonomy"
+import type { BillingPlans } from "@insyte/modules/billing/domain/Billing"
 import type { AdvanceInput } from "@insyte/modules/onboarding/domain/Onboarding"
+import { positionOf } from "@insyte/modules/onboarding/domain/Steps"
+import type { StoreView, SyncStatus } from "@insyte/modules/stores/domain/Stores"
 import { FormError } from "@insyte/ui/app/common/form-error"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import type { AgentActionId, AutonomyLevel, Policy } from "@insyte/ui/app/lib/autonomy"
 import { fieldCopy } from "@insyte/ui/app/lib/errors"
 import type { OfflineWindow } from "@insyte/ui/app/lib/first-analysis"
-import { planStep, readyStep, storeStep } from "@insyte/ui/app/onboarding/admin-tail-steps"
+import { CONNECT_FIRST, planStep, readyStep, storeStep } from "@insyte/ui/app/onboarding/admin-tail-steps"
 import { analysisStep } from "@insyte/ui/app/onboarding/analysis-step"
 import { OfflineStep, proposedLevels } from "@insyte/ui/app/onboarding/first-analysis-steps"
 import { search } from "@insyte/ui/app/onboarding/onboarding-search"
@@ -22,13 +25,16 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { autonomyAtom } from "../../data/agent.ts"
+import { billingPlansAtom } from "../../data/billing.ts"
 import { firstAnalysisAtom } from "../../data/first-analysis.ts"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
 import { sessionMeAtom } from "../../data/session.ts"
 import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
 import { AnalysisLive, ConsoleReadyCard, useConsoleAnalysis } from "../../onboarding/analysis.tsx"
 import { ORGANIZATION_STEP, useAnotherWorkspace } from "../../onboarding/another-workspace.ts"
+import { type FirstImportKind, firstImportKind, importedStore } from "../../onboarding/first-import.ts"
 import { OFFLINE_WAIT_MS, type OfflineReady, offlineReady } from "../../onboarding/offline-ready.ts"
+import { planTiles } from "../../onboarding/plan-tiles.ts"
 import { LiveUpdates } from "../../realtime/live-updates.tsx"
 import { useBeginConnect } from "../../stores/begin-connect.ts"
 import { notConnected } from "../../stores/stores-source.tsx"
@@ -42,7 +48,8 @@ import { notConnected } from "../../stores/stores-source.tsx"
  * Built so far: the shared head and the admin track up to ready (organisation founds the workspace, plan starts the
  * trial, the store connects through Shopify or waits on Start), which lands on Start. Shopify's way back is
  * `?connected=shopify` (the store step is then recorded as connected) or `?error=`; the sync step shows the first
- * import as it lands, live, the analysis step the store's first analysis as the server reads it (M6.5, M15), with
+ * import as it lands, live (failed, the way back to Shopify; either way "Nu overslaan" goes on without it to ready),
+ * the analysis step the store's first analysis as the server reads it (M6.5, M15), with
  * "Klaarzetten" making the automation draft and the sheet, and the offline step the plan for while nobody is online,
  * written into Zelfstandigheid (M15 step 5). The partner tracks say they are not available yet (11 §7.3). A finished
  * person is sent to Start.
@@ -63,6 +70,11 @@ export const Route = createFileRoute("/onboarding/")({
       throw none
         ? redirect({ to: "/onboarding", search: { step: 3, workspace: "new" } })
         : redirect({ to: "/dashboard" })
+    }
+    // The plan step shows the server's plans and Stripe's prices: in the document too.
+    if (Option.isSome(me) && me.value.step === "plan") {
+      context.registry.mount(billingPlansAtom)
+      await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, billingPlansAtom)))
     }
     // The sync step reads the store it imports: in the document too.
     if (Option.isSome(me) && me.value.step === "sync") {
@@ -125,31 +137,53 @@ function useOfflinePolicy(serverStep: string | undefined, shown: boolean): Offli
   }
 }
 
+const IDLE_PLANS: Atom.Atom<AsyncResult.AsyncResult<BillingPlans, unknown>> = Atom.make(AsyncResult.initial())
+
+/** The plan step's tiles: the server's plans and Stripe's prices, read on that step only. */
+function usePlanTiles(on: boolean) {
+  return planTiles(Option.getOrUndefined(AsyncResult.value(useAtomValue(on ? billingPlansAtom : IDLE_PLANS))))
+}
+
+const IDLE_STORES: Atom.Atom<AsyncResult.AsyncResult<ReadonlyArray<StoreView>, unknown>> = Atom.make(
+  AsyncResult.initial()
+)
+const IDLE_SYNC: Atom.Atom<AsyncResult.AsyncResult<SyncStatus, unknown>> = Atom.make(AsyncResult.initial())
+
+/** The store's first import, for the sync step (`firstImportKind`), with the store and its counts. Read on that step only. */
+interface FirstImport {
+  readonly kind: FirstImportKind
+  readonly store: StoreView | undefined
+  readonly status: SyncStatus | undefined
+}
+
+/** The import as it lands: every page's frame refetches it, and a slow poll covers a lost socket, until it ends. */
+function useFirstImport(on: boolean): FirstImport {
+  const listed = useAtomValue(on ? storesAtom : IDLE_STORES)
+  const store = importedStore(Option.getOrElse(AsyncResult.value(listed), () => []))
+  const atom = store === undefined ? IDLE_SYNC : syncStatusAtom(store.id)
+  const status = Option.getOrUndefined(AsyncResult.value(useAtomValue(atom)))
+  const refresh = useAtomRefresh(atom)
+  const kind = on ? firstImportKind(listed, status) : "loading"
+  useEffect(() => {
+    if (kind !== "importing") return
+    const timer = setInterval(refresh, 4000)
+    return () => clearInterval(timer)
+  }, [kind, refresh])
+  return { kind, store, status }
+}
+
 const SYNC_LABELS = [
   { id: "products", label: "Producten" },
   { id: "customers", label: "Klanten" },
   { id: "orders", label: "Bestellingen" }
 ] as const
 
-/** The workspace's store being imported, or "no store" (the reference's own copy for that). */
-function ConsoleSync() {
-  const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom))) ?? []
-  const store = stores.find((s) => s.status !== "disconnected")
-  if (store === undefined) return <SyncProgress connected={false} rows={[]} />
-  return <SyncOf storeId={store.id} />
-}
-
-/** The mirror's counts as they land: every page's frame refetches them, and a slow poll covers a lost socket. */
-function SyncOf({ storeId }: { storeId: string }) {
-  const status = Option.getOrUndefined(AsyncResult.value(useAtomValue(syncStatusAtom(storeId))))
-  const refresh = useAtomRefresh(syncStatusAtom(storeId))
-  const done = status?.lastSyncedAt !== null && status?.lastSyncedAt !== undefined
-  useEffect(() => {
-    if (done) return
-    const timer = setInterval(refresh, 4000)
-    return () => clearInterval(timer)
-  }, [done, refresh])
-  const rows: Array<SyncRowData> = SYNC_LABELS.map((r, i) => ({
+/** The import's rows as the mirror counts them, or the reference's "no store" copy. */
+function ConsoleSync({ first }: { first: FirstImport }) {
+  if (first.kind === "none") return <SyncProgress connected={false} rows={[]} />
+  const { status } = first
+  const done = first.kind === "done"
+  const rows: Array<SyncRowData> = first.kind === "loading" ? [] : SYNC_LABELS.map((r, i) => ({
     ...r,
     to: status?.counts[r.id] ?? 0,
     delay: i * 250,
@@ -162,6 +196,9 @@ function SyncOf({ storeId }: { storeId: string }) {
     </>
   )
 }
+
+/** Said when a step was finished on a screen the server had moved past (another tab): it goes on there. */
+const RESUMED = "Je was al verder. Je gaat verder waar je was."
 
 const NOT_YET: StepDef = {
   id: "next",
@@ -179,6 +216,7 @@ function ConsoleOnboarding() {
   const me = useAtomValue(onboardingMeAtom)
   const server = AsyncResult.isSuccess(me) ? me.value : undefined
   const advance = useAtomSet(advanceOnboardingAtom, { mode: "promiseExit" })
+  const refreshMe = useAtomRefresh(onboardingMeAtom)
   // One more workspace for someone whose onboarding is done: the organisation step again, then the rest of the track
   // for the new workspace, which the server resumes on its own row.
   const another = workspace === "new" && server?.completed === true
@@ -220,12 +258,26 @@ function ConsoleOnboarding() {
     if (failure._tag === "Some" && failure.value._tag === "Invalid") return fieldCopy(failure.value.fields)
     return "Je werkruimte kon niet worden aangemaakt. Probeer het opnieuw."
   }
-  // The later steps move to where the server says: skipping the store skips the steps a store would need.
-  const finish = async (payload: Exclude<AdvanceInput, { step: "organization" }>) => {
+  // The later steps move to where the server says: skipping the store skips the steps a store would need. A step the
+  // server has moved past (`NotCurrentStep`) goes to the step it holds, said once, and answers nothing; `notReady` says a
+  // fact the server does not have yet.
+  const finish = async (payload: Exclude<AdvanceInput, { step: "organization" }>, notReady?: string) => {
     const exit = await advance({ payload, reactivityKeys: ONBOARDING })
-    if (Exit.isFailure(exit)) throw new Error("Dit kon niet worden opgeslagen. Probeer het opnieuw.")
-    state.setStepIndex(exit.value.index)
-    return exit.value
+    if (Exit.isSuccess(exit)) {
+      state.setStepIndex(exit.value.index)
+      return exit.value
+    }
+    const failure = Cause.findErrorOption(exit.cause)
+    if (failure._tag === "Some" && failure.value._tag === "NotCurrentStep" && server !== undefined) {
+      state.setStepIndex(positionOf(server.track, failure.value.current).index)
+      refreshMe()
+      toast(RESUMED)
+      return undefined
+    }
+    if (failure._tag === "Some" && failure.value._tag === "StepNotReady" && notReady !== undefined) {
+      throw new Error(notReady)
+    }
+    throw new Error("Dit kon niet worden opgeslagen. Probeer het opnieuw.")
   }
   const beginConnect = useBeginConnect("/onboarding")
   const analysis = useConsoleAnalysis(
@@ -234,6 +286,9 @@ function ConsoleOnboarding() {
   // Whether the offline step is the one on screen: the screen moves on before the server's answer is read again.
   const [offlineShown, setOfflineShown] = useState(false)
   const policy = useOfflinePolicy(server?.step, offlineShown)
+  const tiles = usePlanTiles(server?.step === "plan")
+  const firstImport = useFirstImport(server?.step === "sync")
+  const importStore = firstImport.store
 
   // Back from Shopify: a connected store is the store step's answer; a refusal is said once.
   useEffect(() => {
@@ -257,6 +312,7 @@ function ConsoleOnboarding() {
         data,
         patch,
         next,
+        plans: tiles,
         onStart: async (plan, cycle) => {
           await finish({ step: "plan", plan, cycle })
         }
@@ -268,25 +324,36 @@ function ConsoleOnboarding() {
         onSkip: async () => {
           await finish({ step: "store", choice: "later" })
         },
+        // On with the store the server has (back from Shopify, the step not recorded yet); none, it says so.
+        onContinue: async () => {
+          await finish({ step: "store", choice: "connected" }, CONNECT_FIRST)
+        },
         onConnect: beginConnect
       }),
       {
         ...syncStep({
-          connected: true,
+          connected: firstImport.kind !== "none",
           rows: [],
           canContinue: true,
+          // No store to import: on without it. Otherwise once the import is in.
           onPrimary: async () => {
-            const exit = await advance({ payload: { step: "sync" }, reactivityKeys: ONBOARDING })
-            if (Exit.isSuccess(exit)) return state.setStepIndex(exit.value.index)
-            const failure = Cause.findErrorOption(exit.cause)
-            throw new Error(
-              failure._tag === "Some" && failure.value._tag === "StepNotReady"
-                ? "De eerste import is nog bezig. Nog even geduld."
-                : "Dit kon niet worden opgeslagen. Probeer het opnieuw."
-            )
-          }
+            await (firstImport.kind === "none"
+              ? finish({ step: "sync", choice: "later" })
+              : finish({ step: "sync" }, "De eerste import is nog bezig. Wacht even, of sla deze stap over."))
+          },
+          failed: firstImport.kind === "failed",
+          ...(importStore === undefined ? {} : { onReconnect: () => beginConnect(importStore.shopDomain) }),
+          // The import may take a while, or fail: no one has to wait for it. Without it there is nothing to analyse,
+          // so the steps it feeds are skipped.
+          ...(firstImport.kind === "importing" || firstImport.kind === "failed"
+            ? {
+              onSkip: async () => {
+                await finish({ step: "sync", choice: "later" })
+              }
+            }
+            : {})
         }),
-        content: <ConsoleSync />
+        ...(firstImport.kind === "failed" ? {} : { content: <ConsoleSync first={firstImport} /> })
       },
       (() => {
         const step = analysisStep({
@@ -358,7 +425,7 @@ function ConsoleOnboarding() {
         data,
         finish: () => undefined,
         onReady: async () => {
-          await finish({ step: "ready" })
+          if ((await finish({ step: "ready" })) === undefined) return
           await navigate({ to: "/dashboard" })
         },
         content: <ConsoleReadyCard view={analysis.view} />
@@ -376,6 +443,8 @@ function ConsoleOnboarding() {
       steps={steps}
       stepIndex={state.stepIndex}
       onBack={() => (another ? void navigate({ to: "/dashboard" }) : state.back())}
+      // Signed in, the steps before the server's are done: going back to one would only move the screen.
+      canGoBack={another || server === undefined || state.stepIndex > server.index}
       onChangeRole={() => state.setStepIndex(2)}
       onExit={async () => {
         // Someone with another workspace goes back to it rather than signing out.

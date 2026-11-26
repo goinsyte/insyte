@@ -47,7 +47,10 @@ describe("returns portal", () => {
 
     await portalOn(store.cookie)
     const page = ok(await rpc("Portal.store", { handle }))
-    expect(page).toMatchObject({ on: true, returnDays: 365, offered: expect.arrayContaining(["refund"]) })
+    // A carrier is set up here (Sendcloud's twin), so the page may promise a label once it is approved.
+    expect(page).toMatchObject({ on: true, returnDays: 365, offered: expect.arrayContaining(["refund"]), labels: true })
+    // The default words under the done page's steps do not repeat them.
+    expect(page.done).toBe("Vragen over je aanvraag? Neem contact met ons op en noem je retournummer.")
     expect(page.reasons.find((r) => r.id === "quality")).toEqual({
       id: "quality",
       label: "Kwaliteit",
@@ -88,7 +91,13 @@ describe("returns portal", () => {
         resolution: "refund"
       })
     )
-    expect(started).toMatchObject({ kind: "return", requested: "refund", exchangeTo: null })
+    // The confirmation goes to the order's address, as the order has it, not as it was typed.
+    expect(started).toMatchObject({
+      kind: "return",
+      requested: "refund",
+      exchangeTo: null,
+      email: "klant1@example.com"
+    })
     expect(started.number).toMatch(/^R-10\d\d$/)
 
     // The team sees it in Te beoordelen, from the portal, in the shopper's words.

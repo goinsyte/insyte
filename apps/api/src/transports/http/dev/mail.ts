@@ -5,7 +5,13 @@ import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../../platform/Bindings.ts"
 import { parseMail } from "../../../platform/InboundMail.ts"
-import { busyReferences, capturedSenders, refusedReferences, refusedSenderDomains } from "../../../platform/Mail.ts"
+import {
+  busyReferences,
+  capturedSenders,
+  refusedReferences,
+  refusedSenderDomains,
+  setupReferences
+} from "../../../platform/Mail.ts"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { devOnly, notInProduction } from "./shared.ts"
 
@@ -52,8 +58,8 @@ const CapturedMail = HttpRouter.add(
 /**
  * `POST /api/__dev/mail/refuse?reference=<id>`: the capture adapter refuses one record's mails from now on (an order's
  * delay mail, M10.2), as a bouncing address would, so a mail that does not go can be tried; `&off=1` takes it back.
- * `&busy=1`: the provider is busy for them instead (Resend's 429), so a mail tried again later can be. Only where
- * nothing real lives (`devOnly`).
+ * `&busy=1`: the provider is busy for them instead (Resend's 429), so a mail tried again later can be; `&setup=1`:
+ * Insyte's own key is refused (Resend's 401). Only where nothing real lives (`devOnly`).
  */
 const MailRefuse = HttpRouter.add(
   "POST",
@@ -63,7 +69,11 @@ const MailRefuse = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = new URL(request.url, "http://local").searchParams
     const reference = query.get("reference") ?? ""
-    const set = query.get("busy") === "1" ? busyReferences : refusedReferences
+    const set = query.get("busy") === "1"
+      ? busyReferences
+      : query.get("setup") === "1"
+      ? setupReferences
+      : refusedReferences
     if (reference !== "" && query.get("off") === "1") set.delete(reference)
     else if (reference !== "") set.add(reference)
     return HttpServerResponse.jsonUnsafe({ refused: [...refusedReferences], busy: [...busyReferences] })

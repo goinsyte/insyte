@@ -353,6 +353,14 @@ describe("Kosten", () => {
     )
     expect(again.undo).toBeNull()
 
+    // Renamed without an amount (the dialog's "laat leeg" for one shown as "geen koers"): the euros are kept as they
+    // were set, still read in dollars, not saved as 0. A line that has no amount per order cannot keep one.
+    ok(await rpc("Costs.update", { id: perOrder.id, name: "Doosje", kind: "per_order" }, shop.cookie))
+    const kept = ok(await rpc("Costs.list", {}, shop.cookie)).lines.find((l) => l.id === perOrder.id)!
+    expect(kept).toMatchObject({ name: "Doosje", rateMinor: Math.round(200 * latest) })
+    expect(failure(await rpc("Costs.update", { id: fixed.id, name: "Huur", kind: "per_order" }, shop.cookie)))
+      .toMatchObject({ _tag: "Invalid" })
+
     // The per-order rate saved as its old number is the dollars the page showed, no longer converted.
     const doos = { id: perOrder.id, name: "Doos", kind: "per_order", rateMinor: 200 } as const
     expect(ok(await rpc("Costs.update", doos, shop.cookie)).undo).not.toBeNull()

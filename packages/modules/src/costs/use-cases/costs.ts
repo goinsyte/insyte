@@ -20,7 +20,8 @@ import {
   figuresOf,
   type LineRule,
   type MonthBasis,
-  monthsBetween
+  monthsBetween,
+  unconvertedOf
 } from "../domain/Figures.ts"
 
 /*
@@ -96,6 +97,8 @@ interface LineRow {
   readonly kind: CostLine["kind"]
   readonly rate: number | null
   readonly rateMinor: string | null
+  /** A per-order amount in another currency than the workspace's, with no rate to read it in: `rateMinor` is null. */
+  readonly rateUnconverted: boolean
   readonly source: CostSource
   readonly reads: boolean
   readonly hasTyped: boolean
@@ -108,11 +111,12 @@ const linesOf = Effect.fn("Costs.lines")(function*(
   to: string,
   until?: string
 ) {
-  // A per-order amount in another currency than the workspace's (set before Regio changed it) at the latest rate.
+  // A per-order amount in another currency than the workspace's (set before Regio changed it) at the latest rate;
+  // without one it is not read as if it were in the workspace's, but left out and said.
   const lines = yield* sql<LineRow>`
     select l.id, l.name, l.kind, l.rate::float8 as rate,
-           round(l.rate_minor * case when l.currency = w.currency then 1 else coalesce(fx.rate, 1) end)::text
-             as rate_minor,
+           round(l.rate_minor * case when l.currency = w.currency then 1 else fx.rate end)::text as rate_minor,
+           (l.rate_minor is not null and l.currency <> w.currency and fx.rate is null) as rate_unconverted,
            l.source,
            (l.kind = 'ads' and l.source <> 'manual' and exists (
              select 1 from connections c
@@ -128,11 +132,10 @@ const linesOf = Effect.fn("Costs.lines")(function*(
     where l.deleted_at is null
     order by l.position, l.created_at, l.id`
   // A month typed in another currency than the workspace's at the rate of that month's end (the latest before it; for
-  // a month older than every rate kept, the first after).
-  const typed = yield* sql<{ lineId: string; month: string; amountMinor: string }>`
+  // a month older than every rate kept, the first after); `null` while there is no rate at all.
+  const typed = yield* sql<{ lineId: string; month: string; amountMinor: string | null }>`
     select a.line_id, to_char(a.month, 'YYYY-MM') as month,
-           round(a.amount_minor * case when a.currency = w.currency then 1 else coalesce(fx.rate, 1) end)::text
-             as amount_minor
+           round(a.amount_minor * case when a.currency = w.currency then 1 else fx.rate end)::text as amount_minor
     from cost_line_amounts a join cost_lines l on l.id = a.line_id
     cross join (select currency from workspaces where id = app_workspace_id()) w
     left join lateral (
@@ -159,10 +162,10 @@ const linesOf = Effect.fn("Costs.lines")(function*(
       order by x.day desc limit 1) fx on true
     where l.deleted_at is null and l.kind = 'ads'
     group by 1, 2`
-  const typedBy = new Map<string, Map<string, number>>()
+  const typedBy = new Map<string, Map<string, number | null>>()
   for (const t of typed) {
-    const m = typedBy.get(t.lineId) ?? new Map<string, number>()
-    m.set(t.month, Number(t.amountMinor))
+    const m = typedBy.get(t.lineId) ?? new Map<string, number | null>()
+    m.set(t.month, t.amountMinor === null ? null : Number(t.amountMinor))
     typedBy.set(t.lineId, m)
   }
   const spendBy = new Map<string, Map<string, number>>()
@@ -177,7 +180,8 @@ const linesOf = Effect.fn("Costs.lines")(function*(
       kind: l.kind,
       rate: l.rate === null ? null : Number(l.rate),
       rateMinor: l.rateMinor === null ? null : Number(l.rateMinor),
-      typed: typedBy.get(l.id) ?? new Map<string, number>(),
+      ...(l.rateUnconverted ? { rateUnconverted: true } : {}),
+      typed: typedBy.get(l.id) ?? new Map<string, number | null>(),
       account: l.reads ? (spendBy.get(l.id) ?? new Map<string, number>()) : null
     } satisfies LineRule
   }))
@@ -218,6 +222,7 @@ export const list = Effect.fn("Costs.list")(function*(input: typeof ListInput.Ty
           kind: row.kind,
           rate: rule.rate,
           rateMinor: rule.rateMinor,
+          ...(row.rateUnconverted ? { rateUnconverted: true } : {}),
           source: row.source,
           readsFromSource: row.reads,
           hasTyped: row.hasTyped,
@@ -253,7 +258,8 @@ export const figuresIn = Effect.fn("Costs.figuresIn")(function*(
       ...figuresOf(rules, m, b),
       metaMinor: adsFrom(lines, "meta", m, b),
       googleMinor: adsFrom(lines, "google_ads", m, b),
-      unconverted: basis.get(m)?.unconverted ?? 0
+      // The days of revenue and the costs left out for want of a rate.
+      unconverted: (basis.get(m)?.unconverted ?? 0) + unconvertedOf(rules, m, b)
     }
   })
 })

@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react"
 import { ReturnPortal } from "@insyte/ui/app/returns/portal/portal-screen"
 import { PortalSourceProvider } from "@insyte/ui/app/returns/portal/source"
 import { createFileRoute } from "@tanstack/react-router"
-import { Effect, Option } from "effect"
+import { Effect, Exit, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { portalStoreAtom } from "../data/portal.ts"
 import { useConsolePortalSource } from "../portal/portal-source.ts"
@@ -16,9 +16,13 @@ export const Route = createFileRoute("/retour/$storeHandle")({
   loader: async ({ context, params }) => {
     const atom = portalStoreAtom(params.storeHandle)
     context.registry.mount(atom)
-    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, atom)))
+    const store = await Effect.runPromise(Effect.exit(AtomRegistry.getResult(context.registry, atom)))
+    // The store's name in the tab, as on the page; a handle no store has keeps the plain title.
+    return { name: Exit.isSuccess(store) ? store.value.name : null }
   },
-  head: () => ({ meta: [{ title: "Retourneren" }] }),
+  head: ({ loaderData }) => ({
+    meta: [{ title: loaderData?.name ? `Retourneren · ${loaderData.name}` : "Retourneren" }]
+  }),
   component: PortalRoute
 })
 

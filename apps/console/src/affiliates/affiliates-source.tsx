@@ -19,7 +19,7 @@ import type {
   ProgramAffiliateRow,
   Said
 } from "@insyte/ui/app/affiliates/source"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { formatCurrency, WHOLE } from "@insyte/ui/app/lib/format"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit, Option } from "effect"
@@ -268,7 +268,7 @@ export function useConsoleAffiliatesSource(program: ProgramView, list: Affiliate
   const origin = typeof location === "undefined" ? "" : location.origin
 
   return {
-    money: (amount) => formatCurrency(amount, currency),
+    money: (amount) => formatCurrency(amount, currency, WHOLE),
     tiers: program.tiers.map((t) => ({ id: t.tier, label: TIER_LABEL[t.tier], rate: t.rate, from: t.threshold })),
     rejectReasons: program.rejectReasons,
     returnDays: program.returnDays,

@@ -15,7 +15,7 @@ import {
   X
 } from "../../icons"
 import { Glyph } from "../common/glyph"
-import { formatCurrency, initials } from "../lib/format"
+import { formatCurrency, initials, WHOLE } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
 import { ago } from "../lib/home/dates"
 import { personStyle } from "../lib/person-color"
@@ -85,7 +85,7 @@ export function LiveView({
         </span>
         <span className="min-w-0 flex-1 truncate tabular-nums">
           {running ? "Live" : auto ? "Gepauzeerd" : "Automatisch bijwerken staat uit"} · {today.count} vandaag ·{" "}
-          {formatCurrency(today.sum, currency)}
+          {formatCurrency(today.sum, currency, WHOLE)}
         </span>
         <button
           type="button"
@@ -232,7 +232,7 @@ export function BestsellersView({ rows, currency }: { rows: ReadonlyArray<Bestse
             <span className="flex min-w-0 flex-1 flex-col leading-tight">
               <span className="truncate text-base text-ink">{r.title}</span>
               <span className="truncate text-xs text-ink-3 tabular-nums">
-                {r.units.toLocaleString("nl-NL")} verkocht · {formatCurrency(r.revenue, currency)}
+                {r.units.toLocaleString("nl-NL")} verkocht · {formatCurrency(r.revenue, currency, WHOLE)}
               </span>
             </span>
             <span

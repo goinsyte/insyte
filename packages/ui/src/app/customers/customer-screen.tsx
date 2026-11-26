@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { Mail, MessageSquare } from "../../icons"
 import { DetailShell } from "../common/detail-shell"
 import { EmptyState } from "../common/empty-state"
-import { formatCurrency, formatDate, initials } from "../lib/format"
+import { formatCurrency, formatDate, initials, WHOLE } from "../lib/format"
 import { personStyle } from "../lib/person-color"
 import { OrderStatusBadge } from "../orders/order-status-badge"
 import { useCustomerDetailSource } from "./detail-source"
@@ -99,12 +99,12 @@ export function CustomerDetail() {
         <div className="panel flex w-full overflow-hidden rounded-lg">
           <KpiCell
             label="Klantwaarde"
-            value={formatCurrency(customer.lifetime_value, currency)}
+            value={formatCurrency(customer.lifetime_value, currency, WHOLE)}
           />
           <KpiCell label="Bestellingen" value={customer.orders_count.toString()} />
           <KpiCell
             label="Gem. bestelling"
-            value={customer.orders_count > 0 ? formatCurrency(avgOrderValue, currency) : "—"}
+            value={customer.orders_count > 0 ? formatCurrency(avgOrderValue, currency, WHOLE) : "—"}
           />
           <KpiCell
             label="Laatste bestelling"

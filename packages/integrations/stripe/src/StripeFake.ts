@@ -118,6 +118,15 @@ const learn = (event: ReturnType<typeof eventOf>) => {
   }
 }
 
+/** Workspaces whose subscription the fake will not end, and how it says no: for the worker tests of a deletion. */
+const endFailures = new Map<string, "unreachable" | "refused">()
+
+/** Makes the fake refuse (or not answer) ending a workspace's subscription; `null` lets it end again. */
+export const fakeEndFails = (workspaceId: string, reason: "unreachable" | "refused" | null) => {
+  if (reason === null) endFailures.delete(workspaceId)
+  else endFailures.set(workspaceId, reason)
+}
+
 export interface FakeConfig {
   readonly webhookSecret: string | null
 }
@@ -246,6 +255,14 @@ export const makeFake = (config: FakeConfig): Provider => ({
       const was = subscriptions.get(current.subscriptionId)?.s ?? current
       return keep({ ...was, cancelAt: cancel ? was.currentPeriodEnd : null })
     }),
+  cancelNow: ({ current }) => {
+    const failure = current.workspaceId === null ? undefined : endFailures.get(current.workspaceId)
+    if (failure !== undefined) return Effect.fail(new BillingUnavailable({ reason: failure }))
+    return Effect.sync(() => {
+      const was = subscriptions.get(current.subscriptionId)?.s ?? current
+      return was.status === "canceled" ? was : keep({ ...was, status: "canceled", cancelAt: null })
+    })
+  },
   // Back to the page: the fake has no portal of its own.
   portal: ({ returnUrl }) => Effect.succeed({ url: returnUrl }),
   subscription: (id) => Effect.sync(() => subscriptions.get(id)?.s),

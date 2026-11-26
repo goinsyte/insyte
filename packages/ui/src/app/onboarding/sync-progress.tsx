@@ -28,7 +28,8 @@ export function SyncProgress({ connected, rows, live = false }: {
     return (
       <div className="rounded-xl bg-paper p-4 text-base text-ink-2 leading-normal">
         Nog geen winkel gekoppeld. Koppel Shopify wanneer je wilt via{" "}
-        <span className="font-medium text-ink">Instellingen, Koppelingen</span>. De rest van de inrichting werkt gewoon.
+        <span className="font-medium text-ink">Instellingen › Koppelingen</span>. De rest van de inrichting werkt
+        gewoon.
       </div>
     )
   }
@@ -73,21 +74,42 @@ function SyncRow({ label, to, delay, done: known, live }: {
   )
 }
 
-/** The sync step's frame: its copy, and going on once the import allows it. */
-export function syncStep({ connected, rows, live, canContinue, onPrimary }: {
+/**
+ * The sync step's frame: its copy, and going on once the import allows it (the v2 design's sync step). Without a store
+ * there is nothing to import, and "Verder" goes on. The import may take a while, or fail: `onSkip` ("Nu overslaan")
+ * goes on without it, to ready, since the analysis needs it. Failed, the step says so and its primary goes back to
+ * Shopify (`onReconnect`), which starts the import again.
+ */
+export function syncStep({ connected, rows, live, canContinue, onPrimary, failed = false, onReconnect, onSkip }: {
   connected: boolean
   rows: ReadonlyArray<SyncRowData>
   live?: boolean
   canContinue: boolean
   onPrimary: () => void | Promise<void>
+  /** The import gave up: the store needs connecting again. */
+  failed?: boolean
+  /** "Opnieuw koppelen": to Shopify's approval page; resolves only if it could not go (and said why). */
+  onReconnect?: (() => void | Promise<void>) | undefined
+  onSkip?: (() => void | Promise<void>) | undefined
 }): StepDef {
+  const broken = connected && failed
   return {
     id: "sync",
-    title: "Alles wordt opgehaald.",
-    subtitle: "De eerste gegevens staan er binnen een paar seconden. Daarna kun je doorgaan.",
+    title: !connected
+      ? "Geen winkel, geen import."
+      : broken
+      ? "De eerste import is mislukt."
+      : "Alles wordt opgehaald.",
+    subtitle: !connected
+      ? "Dat is goed: je kunt alles inrichten en later koppelen."
+      : broken
+      ? "Koppel je winkel opnieuw om het nog eens te proberen, of ga verder zonder en koppel later via Instellingen › Koppelingen."
+      : "De eerste gegevens staan er binnen een paar seconden. Daarna kun je doorgaan.",
     canContinue,
-    primaryLabel: "Laat Insyte kijken",
-    onPrimary,
-    content: <SyncProgress connected={connected} rows={rows} live={live} />
+    primaryLabel: !connected ? "Verder" : broken ? "Opnieuw koppelen" : "Laat Insyte kijken",
+    ...(broken ? { busyLabel: "Shopify wordt geopend" } : {}),
+    onPrimary: broken && onReconnect !== undefined ? onReconnect : onPrimary,
+    ...(connected && onSkip !== undefined ? { skipLabel: "Nu overslaan", onSkip } : {}),
+    content: broken ? null : <SyncProgress connected={connected} rows={rows} live={live} />
   }
 }

@@ -6,7 +6,7 @@ import { EmptyPage } from "../common/empty-page"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
 import { useNow } from "../hooks/use-now"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import type { Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
 import { GRIDS, type MapView } from "../lib/world-dots"
@@ -203,7 +203,7 @@ export function LivePage() {
             <div className="flex flex-col items-end gap-1.5">
               <span className="figure text-4xl text-mesh-ink">
                 {connected
-                  ? formatCurrency(source.revenueToday, source.currency, { currencyDisplay: "narrowSymbol" })
+                  ? formatCurrency(source.revenueToday, source.currency, { ...WHOLE, currencyDisplay: "narrowSymbol" })
                   : <FigureBone w={150} />}
               </span>
               <span className="text-mesh-ink-2 text-xs">Omzet vandaag</span>

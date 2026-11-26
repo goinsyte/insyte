@@ -6,7 +6,7 @@ import { OPEN_AS_MODAL } from "../common/detail-shell"
 import { useCustomers } from "../hooks/use-operator-data"
 import { copyLines, counted, exportCsv } from "../lib/bulk"
 import { type DuplicateGroup, findDuplicates } from "../lib/duplicates"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import type { Customer } from "../lib/types/domain"
 import { undoable } from "../lib/undo"
 import { ListClosing, useListStarts } from "../marketing-sections/closings"
@@ -54,7 +54,7 @@ export const demoCustomerActions = (open: CustomerOpeners): ReadonlyArray<RowAct
           title: `Opvolgen met ${c.name}`,
           description: `${c.name} (${c.email}) · ${c.orders_count} ${
             c.orders_count === 1 ? "bestelling" : "bestellingen"
-          }, ${formatCurrency(c.lifetime_value)} in totaal.`,
+          }, ${formatCurrency(c.lifetime_value, undefined, WHOLE)} in totaal.`,
           priority: "medium",
           related_entity: { type: "customer", id: c.id, label: c.name }
         })

@@ -1,6 +1,6 @@
 import type { Db } from "@insyte/database/Db"
 import type { Forbidden, NotFound } from "@insyte/domain/Errors"
-import type { CurrentPrincipal } from "@insyte/domain/Principal"
+import type { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import { SqlError } from "effect/sql"
 import type { Relay } from "../shared/domain/Outbox.ts"
@@ -26,6 +26,7 @@ import type {
 } from "./domain/Billing.ts"
 import type { BillingProvider } from "./domain/Ports.ts"
 import * as Change from "./use-cases/change.ts"
+import * as End from "./use-cases/end.ts"
 import * as Read from "./use-cases/read.ts"
 import * as Webhook from "./use-cases/webhook.ts"
 
@@ -84,3 +85,13 @@ export const Billing: BillingService = {
 export const receiveWebhook = (
   delivery: Webhook.Delivery
 ): Effect.Effect<Webhook.Received, never, Db | BillingProvider | Relay> => Webhook.receive(delivery).pipe(Effect.orDie)
+
+/**
+ * A workspace's deletion, once its wait is over (`WorkspaceLifecycleWorkflow`, before the purge): its subscriptions at
+ * Stripe ended now and an open Checkout page closed. Stripe not answering fails, so the step is tried again.
+ */
+export const endForDeletion: Effect.Effect<
+  { readonly ended: number },
+  BillingUnavailable,
+  Db | CurrentWorkspace | BillingProvider
+> = End.endForDeletion().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))

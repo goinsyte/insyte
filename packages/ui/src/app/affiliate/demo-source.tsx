@@ -16,7 +16,7 @@ import {
   affiliateStatements,
   weeklyFor
 } from "../../data-source"
-import { formatCurrency, formatDate } from "../lib/format"
+import { formatCurrency, formatDate, WHOLE } from "../lib/format"
 import type { ReferralLink } from "../lib/types/domain"
 import { undoable } from "../lib/undo"
 import { AffiliateClosing } from "../marketing-sections/closings"
@@ -209,7 +209,7 @@ const RESOURCES = () => ({
 export function DemoAffiliatePortal({ children }: { children: ReactNode }) {
   const source: AffiliatePortalSource = {
     brand: "Northwind",
-    money: (amount) => formatCurrency(amount),
+    money: (amount) => formatCurrency(amount, undefined, WHOLE),
     tiers: TIERS.map((t) => ({ id: t.id, label: t.label, rate: t.rate, from: t.from })),
     returnDays: RETURN_DAYS,
     useProfile,

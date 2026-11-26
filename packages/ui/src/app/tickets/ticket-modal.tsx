@@ -33,6 +33,7 @@ import {
 } from "../../icons";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { draftFor, sendFor } from "./customer-reply";
 import { MentionField, MentionText, mentionsIn } from "./mention-field";
 import { type ActivityLine, type Said, type TicketPatch, useTicketsSource } from "./source";
 import { useNavigate } from "@tanstack/react-router";
@@ -102,12 +103,18 @@ export function TicketModal({
 	const notifying = useRef(false);
 	const [comments, setComments] = useState<ActivityLine[]>([]);
 	const [newComment, setNewComment] = useState("");
+	// The answer to the shopper ("Klant informeren", Insyte's proposal): mailed to them, never a note. Null while closed.
+	const [reply, setReply] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState(false);
 	const [editingDescription, setEditingDescription] = useState(false);
 	const [watching, setWatching] = useState(false);
 	// Insyte AI writing a summary or a reply: once at a time.
 	const [writing, setWriting] = useState<"summary" | "reply" | null>(null);
 	const navigate = useNavigate();
+	// The ticket open now: what comes back late for another one (a draft, a mail) is not this one's.
+	const openNow = useRef(ticketId);
+	openNow.current = ticketId;
+	const isOpen = () => openNow.current;
 
 	useEffect(() => {
 		if (ticket) setDraft({ ...ticket });
@@ -117,6 +124,11 @@ export function TicketModal({
 	useEffect(() => {
 		if (seeded) setComments([...seeded]);
 	}, [seeded]);
+	// Another ticket opens without the last one's unsent answer, and with Insyte free to write for it.
+	useEffect(() => {
+		setReply(null);
+		setWriting(null);
+	}, [ticketId]);
 	const followed = view?.watching;
 	useEffect(() => {
 		if (followed !== undefined) setWatching(followed);
@@ -212,8 +224,11 @@ export function TicketModal({
 		if (drafts === undefined) return;
 		if (drafts !== true) {
 			// Insyte AI's summary lands in the activity as its line; the ticket's activity refetches.
+			const asked = draft.id;
 			setWriting("summary");
-			void drafts.summarize(draft.id).finally(() => setWriting(null));
+			void drafts.summarize(asked).finally(() => {
+				if (isOpen() === asked) setWriting(null);
+			});
 			return;
 		}
 		const named = draft.assignee_ids.map((id) => person(id)?.name).filter(Boolean);
@@ -229,38 +244,49 @@ export function TicketModal({
 		const drafts = source.drafts;
 		if (drafts === undefined) return;
 		if (drafts !== true) {
+			const asked = draft.id;
 			setWriting("reply");
-			void drafts
-				.suggestReply(draft.id)
-				.then((text) => {
-					if (text !== undefined) setNewComment(text);
-				})
-				.finally(() => setWriting(null));
+			void draftFor(asked, isOpen, drafts.suggestReply, setReply)
+				.catch(() => isOpen() === asked)
+				.then((still) => {
+					if (still) setWriting(null);
+				});
 			return;
 		}
-		setNewComment(
+		setReply(
 			`Hoi, bedankt voor je geduld met ${draft.related_entity?.label ?? draft.number}. We hebben het aan onze kant bekeken en dit is de stand van zaken: ${draft.description.replace(/\.$/, "")}. We laten weer van ons horen zodra er iets verandert, en uiterlijk morgen.`,
 		);
 	}
 
+	/** The answer goes to the shopper by mail: the words written, or with none, Insyte's short update. */
 	async function notifyCustomer() {
 		const send = source.notifyCustomer;
+		const body = reply?.trim() ?? "";
 		if (typeof send === "function") {
 			// The host mails the shopper and moves the ticket itself; the modal shows what it did once it went. A second
 			// click while the first is on its way sends nothing more.
 			if (!draft || notifying.current) return;
 			notifying.current = true;
-			const went = await send(draft).finally(() => {
+			const went = await sendFor(draft, body === "" ? undefined : body, isOpen, send, setReply).finally(() => {
 				notifying.current = false;
 			});
-			if (!went) return;
+			if (!went || isOpen() !== draft.id) return;
 			setDraft((d) => (d ? { ...d, status: "awaiting_reply" } : d));
 			log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
 			return;
 		}
+		setReply(null);
 		patch({ status: "awaiting_reply" }, { label: "Klant gemaild", quiet: true });
 		log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
 		toast.success("Klant gemaild");
+	}
+
+	/** Back to the mail or the website chat the ticket was made from. */
+	function openThread() {
+		const thread = draft?.thread_id;
+		if (!thread) return;
+		onClose();
+		navigate({ to: "/inbox", search: { thread } } as never);
 	}
 
 	function snooze() {
@@ -345,6 +371,19 @@ export function TicketModal({
 									>
 										<Link2 className="size-3.5" strokeWidth={1.75} />
 										{draft.related_entity.label}
+									</button>
+								</>
+							) : null}
+							{draft.thread_id ? (
+								<>
+									<span>·</span>
+									<button
+										type="button"
+										onClick={openThread}
+										className="flex items-center gap-1 text-arc-ink hover:underline"
+									>
+										<MessageSquare className="size-3.5" strokeWidth={1.75} />
+										{draft.source === "webchat" ? "Naar de chat" : "Naar de mail"}
 									</button>
 								</>
 							) : null}
@@ -566,6 +605,63 @@ export function TicketModal({
 						</section>
 
 						{Agents ? <Agents id={draft.id} /> : null}
+
+						{/* The answer to the shopper: by mail, never into the team's notes */}
+						{reply !== null ? (
+							<section aria-label="Antwoord aan de klant" className="flex flex-col gap-2">
+								<h3 className="font-medium text-base text-ink leading-[1.2]">
+									Antwoord aan de klant
+								</h3>
+								<textarea
+									autoFocus
+									value={reply}
+									onChange={(e) => setReply(e.target.value)}
+									maxLength={10_000}
+									placeholder="Schrijf je antwoord aan de klant"
+									className="field min-h-32 w-full rounded-lg p-3 text-base text-ink leading-[1.6] outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+								/>
+								<p className="text-ink-3 text-sm">
+									{source.notifyCustomer
+										? reply.trim() === ""
+											? "Leeg? Dan krijgt de klant een korte update van Insyte."
+											: "Gaat per mail naar de klant."
+										: "Je kunt de klant hier nog niet mailen. Kopieer het antwoord."}
+								</p>
+								<div className="flex items-center gap-2">
+									{source.notifyCustomer ? (
+										<button
+											type="button"
+											onClick={() => void notifyCustomer()}
+											className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 py-1.5 font-medium text-base text-mesh-ink transition hover:bg-abyss-2 active:scale-[0.98]"
+										>
+											<Send className="size-3.5" strokeWidth={2} />
+											{reply.trim() === "" ? "Update sturen" : "Versturen"}
+										</button>
+									) : (
+										<button
+											type="button"
+											onClick={() =>
+												void navigator.clipboard?.writeText(reply).then(
+													() => toast.success("Antwoord gekopieerd"),
+													() => toast.error("Kopiëren lukte niet"),
+												)
+											}
+											className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 py-1.5 font-medium text-base text-mesh-ink transition hover:bg-abyss-2 active:scale-[0.98]"
+										>
+											<Copy className="size-3.5" strokeWidth={2} />
+											Kopiëren
+										</button>
+									)}
+									<button
+										type="button"
+										onClick={() => setReply(null)}
+										className="font-medium text-sm text-ink-3 hover:text-ink"
+									>
+										Annuleren
+									</button>
+								</div>
+							</section>
+						) : null}
 
 						{/* Activity / Comments */}
 						<section className="flex flex-col gap-3">
@@ -790,7 +886,7 @@ export function TicketModal({
 									<SidebarAction
 										icon={MessageSquare}
 										label="Klant informeren"
-										onClick={() => void notifyCustomer()}
+										onClick={() => setReply((r) => r ?? "")}
 									/>
 								) : null}
 								<SidebarAction

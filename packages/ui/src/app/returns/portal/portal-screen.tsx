@@ -3,7 +3,7 @@ import { createContext, type ReactNode, useContext, useMemo, useRef, useState } 
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Lock, RotateCcw, X } from "../../../icons";
 import { createHumanCheck, HumanCheck } from "../../auth/human-check";
 import { formatCurrency } from "../../lib/format";
-import { RESOLUTION_DETAIL, RESOLUTION_LABEL, type Resolution, resolutionsFor, type ReturnKind, STATUS_LABEL } from "../../lib/returns";
+import { RESOLUTION_DETAIL, RESOLUTION_LABEL, type Resolution, resolutionsFor, type ReturnKind, STATUS_LABEL, variantShown } from "../../lib/returns";
 import { cn } from "../../lib/utils";
 import { type LineRefusal, type PortalLine, type PortalMade, type PortalOrderView, type PortalPhoto, type PortalReason, type PortalStoreView, usePortalSource } from "./source";
 
@@ -260,7 +260,7 @@ export function ReturnPortal() {
 												<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 													<span className={cn("font-medium", no === null ? "text-ink" : "text-ink-3")}>{l.title}</span>
 													<span className="text-ink-3 text-sm">
-														{l.variantTitle ? `${l.variantTitle} · ` : ""}{formatCurrency(l.unitPrice, order.currency)}
+														{variantShown(l.title, l.variantTitle) ? `${variantShown(l.title, l.variantTitle)} · ` : ""}{formatCurrency(l.unitPrice, order.currency)}
 													</span>
 													{no !== null ? <span className="text-ink-2 text-sm">{why(no, kind)}</span> : null}
 												</span>
@@ -389,7 +389,7 @@ export function ReturnPortal() {
 												{p.image ? <img src={p.image} alt="" className="size-9 rounded-md object-cover" /> : null}
 												<span>
 													{p.title}
-													{p.variantTitle ? ` · ${p.variantTitle}` : ""}
+													{variantShown(p.title, p.variantTitle) ? ` · ${variantShown(p.title, p.variantTitle)}` : ""}
 												</span>
 											</li>
 										))}
@@ -417,12 +417,12 @@ export function ReturnPortal() {
 							</span>
 							<Title>{made.kind === "claim" ? "Probleem gemeld" : "Retour aangevraagd"}</Title>
 							<p className="text-ink">
-								Je nummer is <span className="font-medium tabular-nums">{made.number}</span>. {made.mailed ? `We hebben een bevestiging gestuurd naar ${email.trim()}.` : "Bewaar het: daarmee vinden we je aanvraag terug."}
+								Je nummer is <span className="font-medium tabular-nums">{made.number}</span>. {made.mailed ? `We hebben een bevestiging gestuurd naar ${made.email ?? email.trim()}.` : "Bewaar het: daarmee vinden we je aanvraag terug."}
 							</p>
 							<ol className="flex flex-col gap-2.5">
 								{[
 									"We bekijken je aanvraag binnen twee werkdagen.",
-									made.kind === "claim" && made.requested === "replacement" ? "Is het goedgekeurd, dan sturen we het nieuwe artikel; terugsturen is misschien niet nodig." : "Is het goedgekeurd, dan krijg je een retourlabel per mail. Print het of laat de code scannen bij een afgiftepunt.",
+									made.kind === "claim" && made.requested === "replacement" ? "Is het goedgekeurd, dan sturen we het nieuwe artikel; terugsturen is misschien niet nodig." : store.labels === false ? "Is het goedgekeurd, dan krijg je per mail het adres waar het pakket heen moet." : "Is het goedgekeurd, dan krijg je een retourlabel per mail. Print het of laat de code scannen bij een afgiftepunt.",
 									made.requested === "refund" ? "Zodra het pakket binnen is, betalen we je terug op dezelfde betaalmethode." : made.requested === "exchange" ? `Zodra het pakket binnen is, sturen we maat ${made.exchangeTo ?? "die je koos"}.` : "Zodra het rond is, krijg je bericht.",
 								].map((t, i) => (
 									<li key={t} className="flex gap-3 text-ink-2">

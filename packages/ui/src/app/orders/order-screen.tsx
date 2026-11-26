@@ -32,7 +32,7 @@ import { ProductThumb } from "../product/product-thumb"
 import { useAskInsyte } from "../shell/ask-insyte-context"
 import { OrderTags } from "./order-tags"
 
-import { formatCurrency, formatDate, initials } from "../lib/format"
+import { formatCurrency, formatDate, initials, WHOLE } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
 import type { Address } from "../lib/types/domain"
 import type { Currency } from "../lib/types/domain"
@@ -391,7 +391,7 @@ export function OrderDetailPage() {
                   <p className="truncate font-normal text-sm text-ink-3 leading-[1.4]">
                     {customer
                       ? `${customer.orders_count} ${customer.orders_count === 1 ? "bestelling" : "bestellingen"} · ${
-                        formatCurrency(customer.lifetime_value, customer.currency)
+                        formatCurrency(customer.lifetime_value, customer.currency, WHOLE)
                       } CLV`
                       : "Gastbestelling"}
                   </p>

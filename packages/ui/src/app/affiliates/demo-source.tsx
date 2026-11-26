@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react"
 import { toast } from "sonner"
 import { affiliateResources, PAYOUT_MONTH, REJECT_REASONS, RETURN_DAYS, TIERS } from "../../data-source"
 import type { PortalResource } from "../affiliate/source"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, WHOLE } from "../lib/format"
 import { inviteUrl, token } from "../lib/team"
 import { undoable } from "../lib/undo"
 import { useProgram } from "../stores/affiliate-program-store"
@@ -44,7 +44,7 @@ export function DemoAffiliates({ children }: { children: ReactNode }) {
   // The demo's material, with what this visit uploads on top; nothing leaves the browser.
   const [material, setMaterial] = useState<ReadonlyArray<PortalResource>>(() => affiliateResources.map((r) => ({ ...r })))
   const source: AffiliatesSource = {
-    money: (amount) => formatCurrency(amount),
+    money: (amount) => formatCurrency(amount, undefined, WHOLE),
     tiers: TIERS.map((t) => ({ id: t.id, label: t.label, rate: t.rate, from: t.from })),
     rejectReasons: REJECT_REASONS,
     returnDays: RETURN_DAYS,
