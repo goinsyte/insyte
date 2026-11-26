@@ -20,79 +20,58 @@ import { retentionSweep } from "../../platform/Retention.ts"
 import { sendingDomainSweep } from "../../platform/SendingDomains.ts"
 import { trashSweep } from "../../platform/TrashSweep.ts"
 import { startMonthlyClose } from "../../workflows/MonthlyClose.ts"
+import { type Job, jobsAt, nightly } from "./Schedule.ts"
 
-/** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed, the
- * notes quiet hours or a failed try held back (M11.5) and the webhook deliveries whose run never started or died
- * (M19.4); every fifteenth, the stores' reconcile (M6.3) and, beside it, their sync health (M17 step 6), the tracking sweep (M8.4), Start's queue (M10.1), the
- * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
- * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3) and the supplier late
- * check (M8.3) and the scheduled automations (M12 step 3); at 03:00 UTC the
- * Prullenbak's sweep (M17), the lapsed exports (M14 step 5) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
- * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
- * `fx_rates` (§0.4). */
+/** The cron's turn: the jobs due at its scheduled time (`jobsAt` in `Schedule.ts`, which says when each runs). */
 export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env, ctx) => {
   // Each job its own exporter (`Observability.ts`), flushed when it settles: a job that runs into the cron's time
   // limit loses its own spans, not the turn's.
   const turn = <A, E, R, ER>(runtime: ManagedRuntime.ManagedRuntime<R, ER>, effect: Effect.Effect<A, E, R>) =>
     ctx.waitUntil(Telemetry.run(runtime, effect))
-  turn(background, withRequestDb(sweep()))
-  turn(background, withRequestDb(notifySweep()))
   const at = new Date(controller.scheduledTime)
-  turn(background, withRequestDb(webhooksRearm(at)))
-  // The agent's, the topics' and the chapters' tasks whose message was lost (W13.6), sent again; one query when none
-  // is due. Loaded here, not when the Worker starts.
-  turn(background, withRequestDb(Effect.flatMap(Effect.promise(loadPendingTasks), (m) => m.pendingSweep())))
-  if (at.getUTCMinutes() % 15 === 0) {
-    const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
-    turn(background, withRequestDb(factsSweep(nightly)))
+  const start: Record<Job, () => void> = {
+    relay: () => turn(background, withRequestDb(sweep())),
+    notify: () => turn(background, withRequestDb(notifySweep())),
+    webhooksRearm: () => turn(background, withRequestDb(webhooksRearm(at))),
+    // The agent's, the topics' and the chapters' tasks whose message was lost (W13.6), sent again; one query when none
+    // is due. Loaded here, not when the Worker starts.
+    pendingTasks: () =>
+      turn(background, withRequestDb(Effect.flatMap(Effect.promise(loadPendingTasks), (m) => m.pendingSweep()))),
+    facts: () => turn(background, withRequestDb(factsSweep(nightly(at)))),
     // The rates the conversions read (§0.4): the ECB's last 90 days, so a night it missed fills in on the next.
-    if (nightly) turn(background, withRequestDb(ratesFill))
-    turn(syncRuntime, reconcile)
+    rates: () => turn(background, withRequestDb(ratesFill)),
+    reconcile: () => turn(syncRuntime, reconcile),
     // Sync health (M17 step 6), beside the sweep: it reads what earlier sweeps wrote, so a long one cannot hold it up.
-    turn(syncRuntime, healthCheck)
-    turn(syncRuntime, trackingSweep)
+    syncHealth: () => turn(syncRuntime, healthCheck),
+    tracking: () => turn(syncRuntime, trackingSweep),
     // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
-    turn(background, withRequestDb(queueSweep()))
-    turn(background, withRequestDb(digestSweep(at)))
-    // On the hour: the chargeback deadline reminders that have come (M13 step 3).
-    if (at.getUTCMinutes() === 0) {
-      turn(background, withRequestDb(deadlineSweep(at)))
-      // …and the suppliers past the hand-off they promised: their orders delayed, the team told (M8.3).
-      turn(background, withRequestDb(supplierLateSweep))
-      // …and the flows "Op een vast moment" due at this hour in their workspace's timezone (M12 step 3).
-      turn(background, withRequestDb(scheduleSweep(at)))
-      // …and Shopify's erasures that did not finish, tried again until done or past their 30 days (0106). Loaded here,
-      // not when the Worker starts.
-      turn(background, withRequestDb(Effect.flatMap(Effect.promise(loadRedactSweep), (m) => m.redactSweep())))
-    }
-    // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
-    if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
-      turn(background, withRequestDb(trashSweep()))
-      // The affiliates' conversions past their return window approved, and the rest followed (M16 step 4).
-      turn(background, withRequestDb(affiliateSweep(at)))
-      // The Data hub's exports past their seven days (M14 step 5).
-      turn(background, withRequestDb(exportSweep()))
-    }
-    if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
-      turn(background, withRequestDb(adSpendSweep()))
-    }
-    // The scheduled workspace exports that are due, once a day at 05:00 UTC (M17 step 5).
-    if (at.getUTCHours() === 5 && at.getUTCMinutes() === 0) {
-      turn(background, withRequestDb(privacyExportSweep()))
-    }
+    queue: () => turn(background, withRequestDb(queueSweep())),
+    digest: () => turn(background, withRequestDb(digestSweep(at))),
+    deadlines: () => turn(background, withRequestDb(deadlineSweep(at))),
+    // The suppliers past the hand-off they promised: their orders delayed, the team told (M8.3).
+    supplierLate: () => turn(background, withRequestDb(supplierLateSweep)),
+    // The flows "Op een vast moment" due at this hour in their workspace's timezone (M12 step 3).
+    schedules: () => turn(background, withRequestDb(scheduleSweep(at))),
+    // Shopify's erasures that did not finish, tried again until done or past their 30 days (0106). Loaded here, not
+    // when the Worker starts.
+    redact: () =>
+      turn(background, withRequestDb(Effect.flatMap(Effect.promise(loadRedactSweep), (m) => m.redactSweep()))),
+    // The Prullenbak's items past their 30 days (M17 step 20.1a).
+    trash: () => turn(background, withRequestDb(trashSweep())),
+    // The affiliates' conversions past their return window approved, and the rest followed (M16 step 4).
+    affiliates: () => turn(background, withRequestDb(affiliateSweep(at))),
+    // The Data hub's exports past their seven days (M14 step 5).
+    exports: () => turn(background, withRequestDb(exportSweep())),
+    adSpend: () => turn(background, withRequestDb(adSpendSweep())),
+    privacyExports: () => turn(background, withRequestDb(privacyExportSweep())),
     // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
-    turn(background, withRequestDb(retentionSweep(at)))
-    // Webhook deliveries older than 30 days (M19.4).
-    turn(background, withRequestDb(webhooksSweep()))
-    // The supplier statements' monthly close (M13 step 6), `0 3 1 * *`: inside this cron, as an account has few.
-    if (at.getUTCDate() === 1 && at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
-      ctx.waitUntil(startMonthlyClose(at))
-    }
-    // The sending domains' daily re-check, at 04:00 UTC (M17 step 20.1c).
-    if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
-      turn(background, withRequestDb(sendingDomainSweep()))
-    }
+    retention: () => turn(background, withRequestDb(retentionSweep(at))),
+    webhooksSweep: () => turn(background, withRequestDb(webhooksSweep())),
+    // `0 3 1 * *`, inside this cron: an account has few statements.
+    monthlyClose: () => ctx.waitUntil(startMonthlyClose(at)),
+    sendingDomains: () => turn(background, withRequestDb(sendingDomainSweep()))
   }
+  for (const job of jobsAt(at)) start[job]()
 }
 
 const loadRedactSweep = () => import("../../platform/RedactSweep.ts")

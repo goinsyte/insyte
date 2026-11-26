@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
-import { admit, guarded, onPreview, previewRequest } from "./access.ts"
+import { admit, guarded, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * The customer agent's journey (M15 step 8): an owner lets Insyte answer customers (Zelfstandigheid), publishes a
@@ -72,7 +72,7 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
-  const seeded = await page.request.post("/api/__dev/stores/seed", onPreview())
+  const seeded = await pageRequest(page).post("/api/__dev/stores/seed", onPreview())
   expect(seeded.ok()).toBe(true)
   const { shop, workspaceId } = await seeded.json() as { shop: string; workspaceId: string }
 
@@ -126,7 +126,7 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
   )
 
   // An order of the recorded store's first customer, sent and on its way.
-  const order = await page.request.post(`/api/__dev/agent/order?workspace=${workspaceId}`, {
+  const order = await pageRequest(page).post(`/api/__dev/agent/order?workspace=${workspaceId}`, {
     ...onPreview({ "content-type": "application/json" }),
     data: {
       email: "klant1@example.com",
@@ -170,7 +170,11 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
     guarded(async (route: Route) => {
       const asked = route.request()
       const path = new URL(asked.url()).pathname + new URL(asked.url()).search
-      const headers = { ...await asked.allHeaders(), origin: storefront, ...onPreview().headers }
+      const headers: Record<string, string> = {
+        ...await asked.allHeaders(),
+        origin: storefront,
+        ...onPreview().headers
+      }
       delete headers["host"]
       const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
       await route.fulfill({ response: answer })
@@ -210,7 +214,7 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
   await band.getByRole("button", { name: "Overnemen" }).click()
   await expect(band.getByText(/Jij hebt het overgenomen/)).toBeVisible()
   const agentRows = async () => {
-    const res = await page.request.get(`/api/__dev/agent/actions?workspace=${workspaceId}`, onPreview())
+    const res = await pageRequest(page).get(`/api/__dev/agent/actions?workspace=${workspaceId}`, onPreview())
     const { actions } = await res.json() as {
       actions: Array<{ subjectId: string | null; refuseReason: string | null }>
     }
