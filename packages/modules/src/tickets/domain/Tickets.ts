@@ -20,7 +20,8 @@ export const TicketSource = Schema.Literals([
   "chat",
   "insyte",
   "manual",
-  "supplier"
+  "supplier",
+  "webchat"
 ])
 /** What a ticket is about, classified by keyword from its title and description (the model replaces it in M15). */
 export const TicketTopic = Schema.Literals(["where_is_my_order", "returns", "sizing", "payment", "product_question"])
@@ -78,6 +79,8 @@ export class TicketRow extends Schema.Class<TicketRow>("tickets/TicketRow")({
   spamAt: Schema.NullOr(Schema.Finite),
   /** The comments people wrote, for the card. */
   commentCount: Schema.Int,
+  /** The inbox thread (a mail or a website chat) it was made from, for the way back; null for any other. */
+  threadId: Schema.NullOr(Schema.String),
   storeId: Schema.NullOr(Schema.String),
   createdAt: Schema.Finite,
   updatedAt: Schema.Finite

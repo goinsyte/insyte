@@ -24,7 +24,7 @@ import { toast } from "sonner"
 import { useAtomSetInTurn } from "../data/in-turn.ts"
 import { channelsAtom, INBOX, inboxWrites, threadAtom } from "../data/inbox.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
-import { bubbleOf } from "./thread-of.ts"
+import { bubbleOf, reasonOf } from "./thread-of.ts"
 
 /*
  * The website chat in the console's inbox (M15 step 8): its band over the chats, from `Channels.list`, and its letter,
@@ -182,7 +182,7 @@ function Banner(
   return (
     <AgentBand
       state={taken !== null || open ? "handed_over" : "active"}
-      reason={open ? detail.handover?.reason : undefined}
+      reason={open && detail.handover !== null ? reasonOf(detail.handover.reason) : undefined}
       taken={taken === me}
       me={meName}
       onTakeOver={() => {

@@ -101,7 +101,7 @@ const SETTLED: ChannelsSeed["threads"] = [
 		labels: [],
 		storeId: "store_eu",
 		orderRef: "SO-12250",
-		agent: { state: "handed_over", at: at(0.25), reason: "Klant vraagt om een terugbetaling buiten de termijn", summary: "Liam wil zijn Meridian rugzak (SO-12250) terugbetaald; bezorgd 27 dagen geleden, sale-artikel, dus niet retourneerbaar volgens de regels." },
+		agent: { state: "handed_over", at: at(0.25), reason: "klant vraagt om een terugbetaling buiten de termijn", summary: "Liam wil zijn Meridian rugzak (SO-12250) terugbetaald; bezorgd 27 dagen geleden, sale-artikel, dus niet retourneerbaar volgens de regels." },
 		messages: [
 			{ id: "m1", from: "customer", at: at(0.4), text: "Ik wil mijn geld terug voor de rugzak, hij past niet over mijn schouders." },
 			{ id: "m2", from: "insyte", at: at(0.38), text: "Hoi Liam, dat is vervelend. Mag ik je bestelnummer en e-mailadres?" },
@@ -145,7 +145,7 @@ const busy = (): ChannelsSeed["threads"] =>
 			unread: i % 4 === 0,
 			labels: i % 5 === 0 ? ["Levering"] : [],
 			storeId: "store_eu",
-			agent: channel === "webchat" ? { state: i % 6 === 2 ? ("handed_over" as const) : ("handled" as const), at: new Date(Date.now() - hours * H).toISOString(), reason: i % 6 === 2 ? "Klant vraagt om een collega" : undefined } : undefined,
+			agent: channel === "webchat" ? { state: i % 6 === 2 ? ("handed_over" as const) : ("handled" as const), at: new Date(Date.now() - hours * H).toISOString(), reason: i % 6 === 2 ? "klant vraagt om een collega" : undefined } : undefined,
 			messages: [
 				{ id: "m1", from: "customer" as const, at: new Date(Date.now() - hours * H).toISOString(), text: BUSY_TEXT[i % 3]! },
 				...(i % 2 ? [{ id: "m2", from: channel === "webchat" ? ("insyte" as const) : ("team" as const), name: channel === "webchat" ? undefined : "Sofía Kim", at: new Date(Date.now() - (hours - 0.1) * H).toISOString(), text: "Dank je voor je bericht, we kijken het meteen na en komen er vandaag bij je op terug.", read: i % 4 === 1 }] : []),

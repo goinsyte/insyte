@@ -118,6 +118,8 @@ export type Ticket = {
 	due_at?: string;
 	/** Where the ticket came from: a connected mailbox, Shopify, a payment provider, chat, an automation. */
 	source?: TicketSource;
+	/** The inbox thread (a mail or a website chat) it was made from, for the way back to it. */
+	thread_id?: string;
 	/** Out of the open views until then. */
 	snoozed_until?: string;
 	/** Kept, but out of every view except Archived. */
@@ -130,7 +132,17 @@ export type Ticket = {
 	updated_at: string;
 };
 
-export type TicketSource = "gmail" | "outlook" | "email" | "shopify" | "klarna" | "chat" | "insyte" | "manual" | "supplier";
+export type TicketSource =
+	| "gmail"
+	| "outlook"
+	| "email"
+	| "shopify"
+	| "klarna"
+	| "chat"
+	| "insyte"
+	| "manual"
+	| "supplier"
+	| "webchat";
 
 export type Email = {
 	id: string;

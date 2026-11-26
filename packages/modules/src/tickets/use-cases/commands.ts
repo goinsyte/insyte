@@ -197,9 +197,9 @@ const assigneesNow = (sql: SqlClient.SqlClient, ticketId: string) =>
 
 /** Makes one ticket on the command's transaction; answers its id and the outbox rows telling its assignees. */
 /** Where a ticket came from, when it was not written by hand: a chat message ("Ticket maken van bericht", `/ticket`),
- * a plate Insyte drew and someone filed, or a mail thread in the inbox. */
+ * a plate Insyte drew and someone filed, or a mail thread or a website chat in the inbox. */
 export interface Origin {
-  readonly source: "chat" | "insyte" | "email"
+  readonly source: "chat" | "insyte" | "email" | "webchat"
   readonly sourceRef?: string
 }
 
@@ -262,9 +262,10 @@ const make = Effect.fn("Tickets.make")(function*(
 })
 
 /**
- * A ticket made from a mail thread ("Aan ticket koppelen", the inbox slice's `ThreadTickets`), on the inbox's
- * transaction: `make`, with the thread as its origin. It lands in the customer's store where the person may see that
- * customer, and without a customer where not. No one is assigned, so no one is told.
+ * A ticket made from an inbox thread ("Aan ticket koppelen", the inbox slice's `ThreadTickets`), on the inbox's
+ * transaction: `make`, with the thread as its origin (`webchat` for a website chat, `email` for mail). It is about the
+ * thread's order where it names one the person may see, else its customer, and lands in that record's store; failing
+ * both it is about nothing. No one is assigned, so no one is told.
  */
 export const fromThread = Effect.fn("Tickets.fromThread")(function*(
   sql: SqlClient.SqlClient,
@@ -272,22 +273,32 @@ export const fromThread = Effect.fn("Tickets.fromThread")(function*(
     readonly title: string
     readonly description: string
     readonly threadId: string
+    readonly chat: boolean
     readonly customerId: string | null
+    readonly orderId: string | null
   }
 ) {
-  const origin: Origin = { source: "email", sourceRef: input.threadId }
+  const origin: Origin = { source: input.chat ? "webchat" : "email", sourceRef: input.threadId }
   const fields = {
-    title: input.title.trim().slice(0, 200) || "Mail zonder onderwerp",
+    title: input.title.trim().slice(0, 200) || (input.chat ? "Websitechat" : "Mail zonder onderwerp"),
     description: input.description.slice(0, 20_000)
   }
-  const made = yield* (input.customerId === null
-    ? make(sql, fields, origin)
-    : make(sql, { ...fields, related: { type: "customer", id: input.customerId } }, origin).pipe(
-      Effect.catchTag("NotFound", () => make(sql, fields, origin))
-    )).pipe(
-      // None can happen here: the title is never empty, no one is assigned, and the fallback names no customer.
-      Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die })
+  const about = [
+    ...(input.orderId === null ? [] : [{ type: "order" as const, id: input.orderId }]),
+    ...(input.customerId === null ? [] : [{ type: "customer" as const, id: input.customerId }])
+  ]
+  // Neither refusal can happen here: the title is never empty and no one is assigned. A record out of reach is the
+  // next one's turn, and the last try names none.
+  let made: { readonly id: string } | undefined
+  for (const related of about) {
+    made = yield* make(sql, { ...fields, related }, origin).pipe(
+      Effect.catchTags({ NotFound: () => Effect.succeed(undefined), Invalid: Effect.die, MemberNotActive: Effect.die })
     )
+    if (made !== undefined) break
+  }
+  made ??= yield* make(sql, fields, origin).pipe(
+    Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die })
+  )
   const [row] = yield* sql<{ number: number }>`select number from tickets where id = ${made.id}`
   return { id: made.id, number: Number(row!.number) }
 })

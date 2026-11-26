@@ -30,7 +30,8 @@ const SOURCES: ReadonlyArray<TicketSource> = [
   "klarna",
   "chat",
   "insyte",
-  "manual"
+  "manual",
+  "webchat"
 ]
 
 const pick = <A extends string>(raw: unknown, allowed: ReadonlyArray<A>): A | undefined =>

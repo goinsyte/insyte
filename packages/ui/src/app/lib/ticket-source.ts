@@ -18,6 +18,7 @@ export const SOURCE: Record<TicketSource, { label: string; brand?: string }> = {
 	insyte: { label: "Insyte-automatiseringen" },
 	manual: { label: "Handmatig toegevoegd" },
 	supplier: { label: "Leveranciersportaal" },
+	webchat: { label: "Websitechat" },
 };
 
 export function sourceOf(t: Ticket): TicketSource {

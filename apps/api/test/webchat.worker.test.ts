@@ -535,6 +535,63 @@ describe("webchat", () => {
     expect(on.channel).toMatchObject({ status: "connected", themeUpdated: false })
     expect(recordedAppMetafields.get(refused.shop)?.get("insyte.api_origin")).toBeUndefined()
   })
+  it("makes a ticket of a chat with its words, its order, its source and the way back", async () => {
+    const shop = await importedStore("chat-made", "webchat")
+    const origin = storefrontOf(shop.shop)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    const opened = await session(shop.shop)
+    const ask = (text: string) => send(`/${shop.storeId}/messages`, { origin, token: opened.token, body: { text } })
+    expect((await ask("Waar blijft mijn pakket?")).status).toBe(200)
+    const [row] = ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows
+    ok(await rpc("Threads.reply", { threadId: row!.id, body: "Ik kijk het na." }, shop.cookie))
+    await ageUndo(shop.workspace, 60)
+    expect((await ask("Het is bestelling met de jas.")).status).toBe(200)
+    // Still inside its undo window: the shopper never saw it, so the ticket does not say it either.
+    ok(await rpc("Threads.reply", { threadId: row!.id, body: "Nog niet gezien" }, shop.cookie))
+
+    // The shopper proved who they are: the chat is their customer's, with their latest order on its chip.
+    const order = ok(await rpc("Orders.list", { limit: 50 }, shop.cookie)).rows.find((o) => o.customerId !== null)!
+    const bound = await call(`http://api.test/api/__dev/webchat/agent?workspace=${shop.workspace}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ op: "bindCustomer", threadId: row!.id, customerId: order.customerId })
+    })
+    expect(((await bound.json()) as { ok?: unknown }).ok).toBeNull()
+    const chip = ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).thread
+
+    const linked = ok(await rpc("Threads.linkTicket", { threadId: row!.id }, shop.cookie))
+    const { ticket } = ok(await rpc("Tickets.get", { id: linked.ticketId! }, shop.cookie))
+    expect(ticket).toMatchObject({
+      title: "Websitechat",
+      source: "webchat",
+      threadId: row!.id,
+      assignees: [],
+      related: { type: "order", label: chip.orderNumber }
+    })
+    const [head, ...lines] = ticket.description.split("\n\n")
+    expect(head).toMatch(/^Websitechat met /)
+    expect(lines.join("\n\n")).toBe(
+      "Klant: Waar blijft mijn pakket?\nTeam: Ik kijk het na.\nKlant: Het is bestelling met de jas."
+    )
+
+    // A mail's ticket keeps its own source, and also leads back to its thread.
+    ok(
+      await rpc(
+        "Mailboxes.connect",
+        { provider: "forward", address: `chat-made-${run}@winkel.nl`, label: "Klantenservice" },
+        shop.cookie
+      )
+    )
+    const mail = ok(
+      await rpc("Threads.compose", { to: `klant-${run}@example.com`, subject: "Vraag", body: "Hoi" }, shop.cookie)
+    )
+    const fromMail = ok(await rpc("Threads.linkTicket", { threadId: mail.thread.id }, shop.cookie))
+    expect(ok(await rpc("Tickets.get", { id: fromMail.ticketId! }, shop.cookie)).ticket).toMatchObject({
+      source: "email",
+      threadId: mail.thread.id
+    })
+  })
+
   it("drafts a ticket's reply from the chat it was made of", async () => {
     const shop = await importedStore("chat-ticket", "webchat")
     const origin = storefrontOf(shop.shop)

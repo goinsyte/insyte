@@ -34,7 +34,8 @@ const SELECT = `t.id, t.number, t.title, t.description, t.status, t.priority, t.
             from ticket_assignees a join members m on m.id = a.member_id left join auth."user" u on u.id = m.user_id
             where a.ticket_id = t.id), '[]')::text as assignees,
   (select count(*)::int from ticket_comments k
-   where k.ticket_id = t.id and k.kind = 'comment' and k.deleted_at is null) as comment_count`
+   where k.ticket_id = t.id and k.kind = 'comment' and k.deleted_at is null) as comment_count,
+  case when t.source in ('gmail', 'outlook', 'email', 'webchat') then t.source_ref end as thread_id`
 
 const FROM = `tickets t left join orders o on o.id = t.order_id left join customers c on c.id = t.customer_id`
 
@@ -65,6 +66,7 @@ interface Row {
   readonly labels: ReadonlyArray<string>
   readonly assignees: string
   readonly commentCount: number
+  readonly threadId: string | null
 }
 
 const ms = (d: Date | null) => d?.getTime() ?? null
@@ -96,6 +98,7 @@ const toRow = (r: Row) =>
     deletedAt: ms(r.deletedAt),
     spamAt: ms(r.spamAt),
     commentCount: r.commentCount,
+    threadId: r.threadId,
     storeId: r.storeId,
     createdAt: r.createdAt.getTime(),
     updatedAt: r.updatedAt.getTime()

@@ -470,7 +470,7 @@ export function AgentBand({
         <span>
           {a.state === "active" ? <span className="font-medium">Insyte voert dit gesprek weer.</span> : (
             <>
-              <span className="font-medium">Insyte heeft dit overgedragen:</span> {a.reason?.toLowerCase()}
+              <span className="font-medium">Insyte heeft dit overgedragen:</span> {a.reason}
             </>
           )}
         </span>

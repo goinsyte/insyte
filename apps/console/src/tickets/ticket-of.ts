@@ -22,6 +22,7 @@ export const ticketOf = (r: TicketRow): Ticket => ({
   ...(r.template === null ? {} : { template: r.template }),
   ...(r.dueAt === null ? {} : { due_at: iso(r.dueAt) }),
   source: r.source,
+  ...(r.threadId === null ? {} : { thread_id: r.threadId }),
   ...(r.snoozedUntil === null ? {} : { snoozed_until: iso(r.snoozedUntil) }),
   ...(r.archivedAt === null ? {} : { archived_at: iso(r.archivedAt) }),
   ...(r.deletedAt === null ? {} : { deleted_at: iso(r.deletedAt) }),
