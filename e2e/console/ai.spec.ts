@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * The agent acting on its own (M15 step 6, W10.1): a new admin puts "Klant beantwoorden" on Zelf doen, connects a
@@ -68,7 +68,7 @@ test("@ai Insyte answers a mail asking where an order is on Zelf doen, and the a
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
   // The recorded store: Anna de Vries is its customer, and the agent answers a thread's own customer only.
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   // Zelfstandigheid: "Klant beantwoorden" on Zelf doen, saved. Without a model there is nothing to answer with.
   await page.goto("/settings/ai/autonomy")
@@ -103,7 +103,7 @@ test("@ai Insyte answers a mail asking where an order is on Zelf doen, and the a
     Subject: "Waar is mijn pakket?",
     "Message-ID": `<e2e-${tag}@voorbeeld.nl>`
   }, "Hoi, ik heb vorige week besteld en nog niets ontvangen. Waar blijft mijn pakket?")
-  const delivered = await page.request.post(
+  const delivered = await pageRequest(page).post(
     "/api/__dev/mail/inbound",
     { ...onPreview({ "content-type": "application/json" }), data: { to: forwarding, raw } }
   )

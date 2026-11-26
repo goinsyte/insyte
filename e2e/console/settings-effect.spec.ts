@@ -1,5 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
-import { admit, onPreview, previewRequest } from "./access.ts"
+import { admit, onPreview, pageRequest, previewRequest } from "./access.ts"
 
 /*
  * Settings that take effect (M17 step 20.1b): a new admin's recorded store, its returns portal turned on, Huisstijl
@@ -90,7 +90,7 @@ test("@settings-effect Huisstijl reaches the returns portal and a shopper's trac
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
-  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
+  expect((await pageRequest(page).post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   // The returns portal on.
   await page.goto("/settings/returns")
