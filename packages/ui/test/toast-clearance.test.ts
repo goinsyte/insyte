@@ -43,8 +43,7 @@ describe("toastClearance", () => {
 })
 
 describe("the inbox's address", () => {
-  it("carries the address a customer's E-mailen opens Nieuwe e-mail to", () => {
-    expect(inboxSearch.parse({ compose: "klant@voorbeeld.nl" })).toEqual({ compose: "klant@voorbeeld.nl" })
-    expect(inboxSearch.parse({})).toEqual({})
+  it("does not carry a customer's email address: E-mailen passes it on the history entry", () => {
+    expect(inboxSearch.parse({ compose: "klant@voorbeeld.nl" })).toEqual({})
   })
 })

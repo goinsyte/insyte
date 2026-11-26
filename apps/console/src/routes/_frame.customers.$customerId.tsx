@@ -15,6 +15,7 @@ import {
   useCustomerNewTicket
 } from "../customers/customer-detail-source.ts"
 import { customerAtom, customersAtom } from "../data/customers.ts"
+import { useGate } from "../frame/refusals.ts"
 import { useConsoleCustomerReturns } from "../returns/returns-source.tsx"
 
 /**
@@ -81,9 +82,16 @@ function CustomerRoute() {
 function Loaded({ detail }: { detail: Detail }) {
   const Returns = useConsoleCustomerReturns(detail.customer.id)
   const newTicket = useCustomerNewTicket(detail)
+  // "E-mailen" writes from the inbox where the role may write mail there (as Threads.compose asks).
+  const mail = useGate("support", 2)
   return (
     <CustomerDetailSourceProvider
-      value={{ ...consoleCustomerDetail(detail), Returns, ...(newTicket === undefined ? {} : { newTicket }) }}
+      value={{
+        ...consoleCustomerDetail(detail),
+        Returns,
+        mailFromInbox: mail.ok,
+        ...(newTicket === undefined ? {} : { newTicket })
+      }}
     >
       <CustomerDetail />
     </CustomerDetailSourceProvider>

@@ -257,3 +257,24 @@ export function videoHost(url: string): string {
     return ""
   }
 }
+
+/*
+ * The editor's draft against the course the host holds, as JSON. A save or publish that landed is the draft's baseline
+ * until the host's course comes back, so the unsaved bar goes the moment the write lands rather than after the refetch.
+ * When the course does come back it replaces the draft only if nothing was typed since: work done in that gap stays.
+ */
+
+/** Whether the editor holds changes: against what a save here kept, while there is one, else the host's course. */
+export const draftDirty = (draft: string, saved: string, kept: string | null): boolean => draft !== (kept ?? saved)
+
+/** The draft once the host's course comes back: the host's where the draft is still the baseline, else the draft. */
+export const draftOnArrival = <T>(draft: T, draftKey: string, baseline: string, arrived: T): T =>
+  draftKey === baseline ? arrived : draft
+
+/**
+ * A save the unsaved bar waits on: it resolves once the host kept it, and rejects on a refusal (the host said why), so
+ * a navigation the bar is holding stays held rather than leaving the work behind.
+ */
+export async function keptOrHeld(wrote: boolean | Promise<boolean>): Promise<void> {
+  if (!(await wrote)) throw new Error("Niet opgeslagen")
+}

@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { Mail, MessageSquare } from "../../icons"
 import { DetailShell } from "../common/detail-shell"
 import { EmptyState } from "../common/empty-state"
+import { composeTo } from "../inbox/source"
 import { formatCurrency, formatDate, initials, WHOLE } from "../lib/format"
 import { personStyle } from "../lib/person-color"
 import { OrderStatusBadge } from "../orders/order-status-badge"
@@ -14,8 +15,18 @@ import { useCustomerDetailSource } from "./detail-source"
  */
 
 export function CustomerDetail() {
-  const { customer, orders: customerOrders, currency, lastOrderAt, merged, klaviyo, newTicket, Returns, arriving } =
-    useCustomerDetailSource()
+  const {
+    customer,
+    orders: customerOrders,
+    currency,
+    lastOrderAt,
+    merged,
+    klaviyo,
+    mailFromInbox,
+    newTicket,
+    Returns,
+    arriving
+  } = useCustomerDetailSource()
   const mergedInto = merged?.into
   const absorbed = merged?.absorbed ?? 0
   const avgOrderValue = customer.orders_count > 0
@@ -47,17 +58,28 @@ export function CustomerDetail() {
       }
       actions={
         <>
-          {customer.email ?
+          {customer.email && mailFromInbox ?
             (
               // From the support inbox, not the computer's mail app: the mail then stays with the customer's threads.
+              // The address rides on the history entry, not in the URL.
               <Link
                 to="/inbox"
-                search={{ compose: customer.email } as never}
+                state={composeTo(customer.email)}
                 className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6"
               >
                 <Mail className="size-3.5" strokeWidth={1.75} />
                 E-mailen
               </Link>
+            ) :
+            customer.email ?
+            (
+              <a
+                href={`mailto:${customer.email}`}
+                className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6"
+              >
+                <Mail className="size-3.5" strokeWidth={1.75} />
+                E-mailen
+              </a>
             ) :
             null}
           {newTicket ?

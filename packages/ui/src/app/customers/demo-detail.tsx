@@ -38,6 +38,7 @@ export function DemoCustomerDetail({ customer: loaded }: { customer: Customer })
       alsoEmails: edit?.absorbed?.emails ?? []
     },
     klaviyo: edit?.klaviyo,
+    mailFromInbox: true,
     newTicket: () => {
       const ticket = createTicket({
         title: `Opvolgen met ${customer.name}`,

@@ -12,7 +12,5 @@ export const inboxSearch = z.object({
   /** One channel: e-mail, WhatsApp, Instagram or the website chat (PLAN 27). */
   channel: z.enum(["email", "whatsapp", "instagram", "webchat"]).optional(),
   /** The customer agent's cuts (PLAN 28): handed over to the team, or handled by Insyte. */
-  view: z.enum(["handed_over", "insyte"]).optional(),
-  /** "Nieuwe e-mail" open, addressed to this: a customer's "E-mailen". */
-  compose: z.string().optional()
+  view: z.enum(["handed_over", "insyte"]).optional()
 })

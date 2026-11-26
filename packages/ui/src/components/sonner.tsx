@@ -27,9 +27,14 @@ export function toastClearance(
   return Math.round(Math.min(reach, windowHeight / 2))
 }
 
+let current = -1
+
 function measure() {
   frame = 0
   const px = toastClearance([...bars].map((el) => el.getBoundingClientRect()), window.innerHeight)
+  // A scroll measures every frame; the page's style is only touched when the answer moves.
+  if (px === current) return
+  current = px
   document.documentElement.style.setProperty("--toast-clearance", `${px}px`)
 }
 
@@ -39,7 +44,8 @@ const schedule = () => {
 
 /**
  * A ref for a bar at the foot of the window that toasts must not cover. It is measured as it comes, as it changes
- * size, as a scroll or the window moves it, and once more after its entrance has played (a transform moves no box).
+ * size, as a scroll or the window moves it, and once more after its entrance has played: an entrance slides it in by
+ * a transform, which moves the box it is measured by but fires none of those.
  */
 export function useToastClearance<T extends HTMLElement>(): (el: T | null) => void {
   // The element it holds clear: a callback ref is called with `null` when it goes, also through motion's ref.

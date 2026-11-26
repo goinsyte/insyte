@@ -18,9 +18,8 @@ import { useConnectMailbox, useConsoleInboxSource } from "../inbox/inbox-source.
 /**
  * Inbox (step 13.2b, M11 step 2): the reference's index and letter over `Threads.*`, in the frame. `?folder=` and
  * `?mailbox=`, `?channel=` and `?view=` (the customer agent's Overgedragen and Door Insyte afgehandeld) are the area
- * panel's cuts, `?thread=` the open thread (the first of the list where it names none),
- * `?connect=mailbox` opens "Mailbox koppelen" (the panel's "Kanaal koppelen") and `?compose=<address>` opens "Nieuwe
- * e-mail" to it (a customer's "E-mailen"). The loader reads the threads and the
+ * panel's cuts, `?thread=` the open thread (the first of the list where it names none), and
+ * `?connect=mailbox` opens "Mailbox koppelen" (the panel's "Kanaal koppelen"). The loader reads the threads and the
  * mailboxes on the server, and the open thread's messages too; until they are in, the reference's split skeleton
  * stands in. A role that may not see the inbox is told which permission it misses.
  */
@@ -36,7 +35,6 @@ export const Route = createFileRoute("/_frame/inbox")({
     const folder = FOLDERS.find((f) => f === s["folder"])
     const thread = text(s["thread"])
     const mailbox = text(s["mailbox"])
-    const compose = text(s["compose"])
     const channel = s["channel"] === "email" || s["channel"] === "webchat" ? s["channel"] : undefined
     const view = s["view"] === "handed_over" || s["view"] === "insyte" ? s["view"] : undefined
     return {
@@ -45,7 +43,6 @@ export const Route = createFileRoute("/_frame/inbox")({
       ...(folder === undefined || folder === "all" ? {} : { folder }),
       ...(thread === undefined ? {} : { thread }),
       ...(mailbox === undefined ? {} : { mailbox }),
-      ...(compose === undefined ? {} : { compose }),
       ...(s["connect"] === "mailbox" ? { connect: "mailbox" as const } : {})
     }
   },
