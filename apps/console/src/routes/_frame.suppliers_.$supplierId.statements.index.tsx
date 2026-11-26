@@ -10,6 +10,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router"
 import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { statementsAtom } from "../data/suppliers.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 import { useConsoleStatements } from "../suppliers/statements-source.tsx"
 
 /**
@@ -30,6 +31,7 @@ export const Route = createFileRoute("/_frame/suppliers_/$supplierId/statements/
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Deze leverancier bestaat niet"),
   component: StatementsRoute
 })
 

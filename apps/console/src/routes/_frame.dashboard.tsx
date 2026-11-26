@@ -32,6 +32,7 @@ import { frameAtom } from "../data/frame.ts"
 import { briefAtom, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
 import { queueAtom } from "../data/queue.ts"
+import { checklistOf } from "../start/checklist-of.ts"
 import {
   boardOfFrame,
   OFFERED,
@@ -149,9 +150,10 @@ function Start() {
     void navigate({ search: (s) => ({ ...s, row: undefined }), replace: true })
   }, [search.row, panel.select, navigate])
 
-  // Waiting for the checklist, nothing; refused (not this person's to set up), Start without it.
-  if (frame === undefined || (!AsyncResult.isSuccess(result) && !AsyncResult.isFailure(result))) return null
-  const checklist = AsyncResult.isSuccess(result) ? result.value : null
+  // Waiting for the checklist (or it could not be read), nothing; refused (not this person's to set up), Start
+  // without it.
+  const checklist = checklistOf(result)
+  if (frame === undefined || checklist === undefined) return null
   const signOut = (
     <button
       type="button"
@@ -179,7 +181,7 @@ function Start() {
     return (
       <FirstDay
         checklist={checklist}
-        stores={frame.stores.length}
+        noStore={frame.stores.length > 0 ? null : frame.role.stores === "all" ? "workspace" : "scope"}
         hero={hero}
         signOut={signOut}
         queue={<QueueCard>{panel.body}</QueueCard>}
@@ -205,12 +207,12 @@ function Start() {
 
 /**
  * The first day: the queue, and what setup leaves to do, from `Onboarding.start`; without a checklist (`null`), the
- * queue, and what to expect while the workspace has no store.
+ * queue, and what to expect while there is no store to see: none in the workspace, or none in the role's stores.
  */
 function FirstDay(
-  { checklist, stores, hero, signOut, queue, plate }: {
+  { checklist, noStore, hero, signOut, queue, plate }: {
     checklist: StartChecklist | null
-    stores: number
+    noStore: NoStoreWhy | null
     hero: ReactNode
     signOut: ReactNode
     queue: ReactNode
@@ -231,7 +233,7 @@ function FirstDay(
         {hero}
         {queue}
         {plate}
-        {checklist === null ? (stores === 0 ? <NoStore /> : null) : (
+        {checklist === null ? (noStore === null ? null : <NoStore why={noStore} />) : (
           <>
             <SetupPlate tasks={tasks} workspace={checklist.workspaceName} canOpen={canOpen} />
             <SetupChecklist tasks={tasks} onToggle={toggle} canOpen={canOpen} />
@@ -361,10 +363,22 @@ function Board(
 }
 
 /** No store in the workspace, and no setup of this person's to say so: what Start will hold, and the way to it. */
-function NoStore() {
+/** No store connected in the workspace, or none among the stores the role is limited to. */
+type NoStoreWhy = "workspace" | "scope"
+
+function NoStore({ why }: { why: NoStoreWhy }) {
   const can = useCan()
   const show = useShellDialog((s) => s.show)
   const connects = can("settings", 3)
+  if (why === "scope") {
+    return (
+      <EmptyState
+        kind="orders"
+        title="Geen winkel voor jouw rol"
+        body="Je rol ziet alleen bepaalde winkels, en daarvan is er nu geen gekoppeld. Een beheerder kan je rol aanpassen."
+      />
+    )
+  }
   return (
     <EmptyState
       kind="orders"

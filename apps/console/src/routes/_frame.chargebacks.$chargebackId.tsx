@@ -11,6 +11,7 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useConsoleChargebackDetailSource } from "../chargebacks/chargebacks-source.tsx"
 import { chargebackAtom } from "../data/chargebacks.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 
 /**
  * One chargeback (M13): the reference's case over `Chargebacks.get`, with its pack and timeline. Reached by its URL,
@@ -30,6 +31,7 @@ export const Route = createFileRoute("/_frame/chargebacks/$chargebackId")({
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Deze chargeback bestaat niet"),
   component: ChargebackRoute
 })
 

@@ -18,6 +18,9 @@ export function useCommandPalette(onAsk?: () => void) {
 				e.preventDefault();
 				setOpen((v) => !v);
 			} else if (k === "j" && ask.current) {
+				// Not over a dialog, or a key the page already took (the rule `goto-keys.tsx` keeps).
+				const t = e.target;
+				if (e.defaultPrevented || (t instanceof Element && t.closest("[role=dialog]") !== null)) return;
 				e.preventDefault();
 				ask.current();
 			}

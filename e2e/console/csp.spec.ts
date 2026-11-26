@@ -73,6 +73,13 @@ test("every screen renders under the console's CSP, with a nonce on each page", 
   await expect(shortcuts).toHaveCount(0)
   await page.keyboard.press("ControlOrMeta+j")
   await expect(page.getByRole("dialog", { name: "Vraag Insyte" })).toBeVisible()
+  // A record that is not there: said by its own page, in its own words, with the rail and the top bar still round it.
+  await page.goto("/orders/ord_00000000000000000000000000")
+  await hydrated(page)
+  await expect(page.getByRole("heading", { name: "Deze bestelling bestaat niet" })).toBeVisible()
+  await expect(page.getByRole("navigation").getByRole("link", { name: "Insyte start" })).toBeVisible()
+  await expect(search).toBeVisible()
+  await expect(page.getByRole("main").getByRole("link", { name: /Bestellingen/ })).toHaveAttribute("href", "/orders")
   // Anywhere else: a page of its own, no frame around it.
   await page.goto("/nergens")
   await hydrated(page)
