@@ -135,9 +135,9 @@ export interface TicketsSource {
   /**
    * "Klant informeren"; absent until a mailbox can send it. `true`: the screen marks the ticket Wacht op antwoord and
    * says so. A function mails the shopper `body` (absent, Insyte's short update) itself, says what it did, and answers
-   * whether it went.
+   * whether it went; `onUndone` runs once the mail is undone, so the words come back.
    */
-  notifyCustomer?: true | ((ticket: Ticket, body?: string) => Promise<boolean>) | undefined
+  notifyCustomer?: true | ((ticket: Ticket, body?: string, onUndone?: () => void) => Promise<boolean>) | undefined
 }
 
 /** Insyte AI on a ticket (M15 step 2): a person reads what it wrote, and keeps it or not. */

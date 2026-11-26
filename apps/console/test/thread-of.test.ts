@@ -47,7 +47,8 @@ describe("an inbox row", () => {
 describe("a handover's reason", () => {
   it("reads as the band says it, and a free note as it was written", () => {
     expect(reasonOf("asks_person")).toBe("de klant vraagt om een mens")
-    expect(reasonOf("policy")).toBe("Klant beantwoorden staat op Nooit")
+    expect(reasonOf("policy")).toBe("klant beantwoorden staat op Nooit")
+    expect(reasonOf("unsure")).toBe("Insyte twijfelt aan het antwoord")
     expect(reasonOf("Klant wil bellen")).toBe("Klant wil bellen")
     expect(reasonOf("toString")).toBe("toString")
   })

@@ -112,11 +112,11 @@ const changeOf = (change: BulkChange) => (t: Ticket): Ticket => {
  * words written for them or, with none, Insyte's short state of things; the ticket waits for an answer. Answers whether
  * it went.
  */
-export function useNotifyCustomer(): (ticket: Ticket, body?: string) => Promise<boolean> {
+export function useNotifyCustomer(): (ticket: Ticket, body?: string, onUndone?: () => void) => Promise<boolean> {
   const keys = { reactivityKeys: [...TICKETS] }
   const send = useAtomSet(ticketWrites.emailCustomer, { mode: "promiseExit" })
   const undo = useAtomSetInTurn(ticketWrites.undo)
-  return async (ticket, body) => {
+  return async (ticket, body, onUndone) => {
     // Its own id, so a request that is sent twice (a retry on a bad connection) mails the shopper once.
     const exit = await send({ payload: { id: ticket.id, mailId: mintId("eml"), ...(body ? { body } : {}) }, ...keys })
     if (Exit.isFailure(exit)) {
@@ -130,6 +130,7 @@ export function useNotifyCustomer(): (ticket: Ticket, body?: string) => Promise<
       undoable("Klant gemaild", () =>
         void undo({ payload: { token: token.token }, ...keys }).then((e) => {
           if (Exit.isFailure(e)) mailRefused(failureOf(e))
+          else onUndone?.()
         }), detail)
     }
     return true

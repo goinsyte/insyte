@@ -33,6 +33,7 @@ import {
 } from "../../icons";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { draftFor, sendFor } from "./customer-reply";
 import { MentionField, MentionText, mentionsIn } from "./mention-field";
 import { type ActivityLine, type Said, type TicketPatch, useTicketsSource } from "./source";
 import { useNavigate } from "@tanstack/react-router";
@@ -110,6 +111,10 @@ export function TicketModal({
 	// Insyte AI writing a summary or a reply: once at a time.
 	const [writing, setWriting] = useState<"summary" | "reply" | null>(null);
 	const navigate = useNavigate();
+	// The ticket open now: what comes back late for another one (a draft, a mail) is not this one's.
+	const openNow = useRef(ticketId);
+	openNow.current = ticketId;
+	const isOpen = () => openNow.current;
 
 	useEffect(() => {
 		if (ticket) setDraft({ ...ticket });
@@ -119,9 +124,10 @@ export function TicketModal({
 	useEffect(() => {
 		if (seeded) setComments([...seeded]);
 	}, [seeded]);
-	// Another ticket opens without the last one's unsent answer.
+	// Another ticket opens without the last one's unsent answer, and with Insyte free to write for it.
 	useEffect(() => {
 		setReply(null);
+		setWriting(null);
 	}, [ticketId]);
 	const followed = view?.watching;
 	useEffect(() => {
@@ -218,8 +224,11 @@ export function TicketModal({
 		if (drafts === undefined) return;
 		if (drafts !== true) {
 			// Insyte AI's summary lands in the activity as its line; the ticket's activity refetches.
+			const asked = draft.id;
 			setWriting("summary");
-			void drafts.summarize(draft.id).finally(() => setWriting(null));
+			void drafts.summarize(asked).finally(() => {
+				if (isOpen() === asked) setWriting(null);
+			});
 			return;
 		}
 		const named = draft.assignee_ids.map((id) => person(id)?.name).filter(Boolean);
@@ -235,13 +244,13 @@ export function TicketModal({
 		const drafts = source.drafts;
 		if (drafts === undefined) return;
 		if (drafts !== true) {
+			const asked = draft.id;
 			setWriting("reply");
-			void drafts
-				.suggestReply(draft.id)
-				.then((text) => {
-					if (text !== undefined) setReply(text);
-				})
-				.finally(() => setWriting(null));
+			void draftFor(asked, isOpen, drafts.suggestReply, setReply)
+				.catch(() => isOpen() === asked)
+				.then((still) => {
+					if (still) setWriting(null);
+				});
 			return;
 		}
 		setReply(
@@ -258,11 +267,10 @@ export function TicketModal({
 			// click while the first is on its way sends nothing more.
 			if (!draft || notifying.current) return;
 			notifying.current = true;
-			const went = await send(draft, body === "" ? undefined : body).finally(() => {
+			const went = await sendFor(draft, body === "" ? undefined : body, isOpen, send, setReply).finally(() => {
 				notifying.current = false;
 			});
-			if (!went) return;
-			setReply(null);
+			if (!went || isOpen() !== draft.id) return;
 			setDraft((d) => (d ? { ...d, status: "awaiting_reply" } : d));
 			log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
 			return;
@@ -632,10 +640,12 @@ export function TicketModal({
 									) : (
 										<button
 											type="button"
-											onClick={() => {
-												navigator.clipboard?.writeText(reply);
-												toast.success("Antwoord gekopieerd");
-											}}
+											onClick={() =>
+												void navigator.clipboard?.writeText(reply).then(
+													() => toast.success("Antwoord gekopieerd"),
+													() => toast.error("Kopiëren lukte niet"),
+												)
+											}
 											className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 py-1.5 font-medium text-base text-mesh-ink transition hover:bg-abyss-2 active:scale-[0.98]"
 										>
 											<Copy className="size-3.5" strokeWidth={2} />

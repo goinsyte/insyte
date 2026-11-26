@@ -61,10 +61,15 @@ export const threadOf = (r: ThreadRow, now: number): InboxThread => {
 }
 
 /**
- * Why the customer agent handed a chat over, in the band's words: its reason code as the design says it. A reason
- * that is no code (a person's or an integration's own note) reads as it was written.
+ * Why the customer agent handed a chat over, in the band's words after "Insyte heeft dit overgedragen:": its reason
+ * code as the design says it, from a small letter on (Insyte's name keeps its capital). A reason that is no code (a
+ * person's or an integration's own note) reads as it was written.
  */
-export const reasonOf = (reason: string) => (Object.hasOwn(HANDOVER_LABEL, reason) ? HANDOVER_LABEL[reason]! : reason)
+export const reasonOf = (reason: string) => {
+  if (!Object.hasOwn(HANDOVER_LABEL, reason)) return reason
+  const label = HANDOVER_LABEL[reason]!
+  return label.startsWith("Insyte") ? label : label.charAt(0).toLowerCase() + label.slice(1)
+}
 
 /**
  * A website chat's message as a bubble (M15 step 8): the shopper's on the left; the team's, the agent's and Insyte's
