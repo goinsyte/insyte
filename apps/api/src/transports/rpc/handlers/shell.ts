@@ -204,12 +204,13 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       Effect.gen(function*() {
         const principal = yield* CurrentPrincipal
         const user = yield* CurrentUser
-        const [memberships, notation, mine, counts, teammates, health, reachable, queued] = yield* Effect.all([
+        const [memberships, notation, mine, counts, teammates, seats, health, reachable, queued] = yield* Effect.all([
           workspaces.memberships,
           workspaces.notation,
           prefs.get,
           notes.counts,
           members.directory,
+          members.seats,
           stores.healthLine,
           stores.reachable,
           queue.counts
@@ -223,6 +224,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
           prefs: mine,
           notes: counts,
           teammates,
+          seats,
           proposals: null,
           queue: queued,
           health,

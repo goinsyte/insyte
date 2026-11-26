@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import { ManualSetupTask, type StartChecklist } from "@insyte/modules/onboarding/domain/Onboarding"
+import { EmptyState } from "@insyte/ui/app/common/empty-state"
 import { HeroView } from "@insyte/ui/app/dashboard/hero-view"
 import { HomeBoard } from "@insyte/ui/app/dashboard/home-board"
 import { PulseBand } from "@insyte/ui/app/dashboard/pulse-band"
@@ -19,6 +20,8 @@ import { useNow } from "@insyte/ui/app/hooks/use-now"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { KpiStrip, PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
+import { useShellDialog } from "@insyte/ui/app/shell/shell-dialogs"
+import { useCan } from "@insyte/ui/app/shell/state"
 import type { HomeView } from "@insyte/ui/app/stores/home-store"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
@@ -29,6 +32,7 @@ import { frameAtom } from "../data/frame.ts"
 import { briefAtom, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
 import { queueAtom } from "../data/queue.ts"
+import { checklistOf } from "../start/checklist-of.ts"
 import {
   boardOfFrame,
   OFFERED,
@@ -57,8 +61,10 @@ import { consoleSetupTasks, useCanOpenTask } from "../start/setup-tasks.tsx"
  * Start: the greeting with what waits on the person (`Home.brief`), the pulse band and the board (M10.3,
  * `Home.widgets`) with the queue (M10.1, `Queue.list`, live) as its first card and its plate panel. On the first day
  * (no orders, nothing open) it is the setup plate and checklist (M4.1) from `Onboarding.start` under the queue instead,
- * linking only into the screens the console has. Mijn werk, Agenda and Activiteit (M10.3b) are the other tabs, read
- * when they open; `?view=` keeps the tab and `?row=` (from the agenda or Mijn werk) opens that queue row's plate.
+ * linking only into the screens the console has. Someone who joined the workspace rather than founded it has no
+ * checklist there (`Onboarding.start` refuses): Start shows without it, and says so when there is no store yet. Mijn
+ * werk, Agenda and Activiteit (M10.3b) are the other tabs, read when they open; `?view=` keeps the tab and `?row=`
+ * (from the agenda or Mijn werk) opens that queue row's plate.
  */
 export const Route = createFileRoute("/_frame/dashboard")({
   head: () => ({ meta: [{ title: "Start · Insyte" }] }),
@@ -144,8 +150,10 @@ function Start() {
     void navigate({ search: (s) => ({ ...s, row: undefined }), replace: true })
   }, [search.row, panel.select, navigate])
 
-  if (!AsyncResult.isSuccess(result) || frame === undefined) return null
-  const checklist = result.value
+  // Waiting for the checklist (or it could not be read), nothing; refused (not this person's to set up), Start
+  // without it.
+  const checklist = checklistOf(result)
+  if (frame === undefined || checklist === undefined) return null
   const signOut = (
     <button
       type="button"
@@ -173,6 +181,7 @@ function Start() {
     return (
       <FirstDay
         checklist={checklist}
+        noStore={frame.stores.length > 0 ? null : frame.role.stores === "all" ? "workspace" : "scope"}
         hero={hero}
         signOut={signOut}
         queue={<QueueCard>{panel.body}</QueueCard>}
@@ -196,10 +205,14 @@ function Start() {
   )
 }
 
-/** The first day: the queue, and what setup leaves to do, from `Onboarding.start`. */
+/**
+ * The first day: the queue, and what setup leaves to do, from `Onboarding.start`; without a checklist (`null`), the
+ * queue, and what to expect while there is no store to see: none in the workspace, or none in the role's stores.
+ */
 function FirstDay(
-  { checklist, hero, signOut, queue, plate }: {
-    checklist: StartChecklist
+  { checklist, noStore, hero, signOut, queue, plate }: {
+    checklist: StartChecklist | null
+    noStore: NoStoreWhy | null
     hero: ReactNode
     signOut: ReactNode
     queue: ReactNode
@@ -207,10 +220,10 @@ function FirstDay(
   }
 ) {
   const complete = useAtomSet(completeTaskAtom, { mode: "promiseExit" })
-  const tasks = consoleSetupTasks((id) => checklist.done.includes(id))
+  const tasks = consoleSetupTasks((id) => checklist?.done.includes(id) === true)
   const canOpen = useCanOpenTask()
   const toggle = (id: SetupTaskId) => {
-    if (!isManual(id)) return
+    if (!isManual(id) || checklist === null) return
     void complete({ payload: { task: id, done: !checklist.done.includes(id) }, reactivityKeys: START })
   }
   return (
@@ -220,8 +233,12 @@ function FirstDay(
         {hero}
         {queue}
         {plate}
-        <SetupPlate tasks={tasks} workspace={checklist.workspaceName} canOpen={canOpen} />
-        <SetupChecklist tasks={tasks} onToggle={toggle} canOpen={canOpen} />
+        {checklist === null ? (noStore === null ? null : <NoStore why={noStore} />) : (
+          <>
+            <SetupPlate tasks={tasks} workspace={checklist.workspaceName} canOpen={canOpen} />
+            <SetupChecklist tasks={tasks} onToggle={toggle} canOpen={canOpen} />
+          </>
+        )}
       </div>
     </div>
   )
@@ -234,7 +251,7 @@ function FirstDay(
 function Board(
   { frame, checklist, hero, signOut, queue, view, now }: {
     frame: Frame
-    checklist: StartChecklist
+    checklist: StartChecklist | null
     hero: ReactNode
     signOut: ReactNode
     queue: ReactNode
@@ -342,5 +359,34 @@ function Board(
           )}
       </div>
     </section>
+  )
+}
+
+/** No store in the workspace, and no setup of this person's to say so: what Start will hold, and the way to it. */
+/** No store connected in the workspace, or none among the stores the role is limited to. */
+type NoStoreWhy = "workspace" | "scope"
+
+function NoStore({ why }: { why: NoStoreWhy }) {
+  const can = useCan()
+  const show = useShellDialog((s) => s.show)
+  const connects = can("settings", 3)
+  if (why === "scope") {
+    return (
+      <EmptyState
+        kind="orders"
+        title="Geen winkel voor jouw rol"
+        body="Je rol ziet alleen bepaalde winkels, en daarvan is er nu geen gekoppeld. Een beheerder kan je rol aanpassen."
+      />
+    )
+  }
+  return (
+    <EmptyState
+      kind="orders"
+      title="Nog geen winkel gekoppeld"
+      body={connects
+        ? "Koppel een winkel, dan staat hier wat er op je wacht: bestellingen, vragen en voorraad."
+        : "Zodra er een winkel gekoppeld is, staat hier wat er op je wacht: bestellingen, vragen en voorraad."}
+      {...(connects ? { action: { label: "Winkel koppelen", onClick: () => show({ kind: "connect-store" }) } } : {})}
+    />
   )
 }

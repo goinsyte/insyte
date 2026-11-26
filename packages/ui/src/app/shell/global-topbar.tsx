@@ -229,7 +229,7 @@ function SearchTrigger({ onOpenPalette, placeholder }: { onOpenPalette: () => vo
 			onClick={onOpenPalette}
 			className="field flex size-[30px] shrink-0 items-center justify-center rounded-md transition-colors hover:field-hover sm:h-[30px] sm:w-auto sm:min-w-0 sm:max-w-[320px] sm:flex-1 sm:justify-start sm:gap-2 sm:px-2.5 sm:text-left"
 			aria-label={placeholder.replace("…", "")}
-			aria-keyshortcuts="Meta+Slash"
+			aria-keyshortcuts="Meta+K Control+K"
 		>
 			<Search className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
 			<span className="hidden min-w-0 flex-1 truncate text-base text-ink-3 sm:inline">
@@ -239,7 +239,7 @@ function SearchTrigger({ onOpenPalette, placeholder }: { onOpenPalette: () => vo
 				className="hidden shrink-0 text-sm text-ink-3 tabular-nums sm:inline"
 				aria-hidden
 			>
-				⌘ /
+				⌘ K
 			</span>
 		</button>
 	);

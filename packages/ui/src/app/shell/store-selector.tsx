@@ -49,6 +49,7 @@ export function StoreSelector({
 	const pending = useTeam((s) => s.workspaceInvites);
 	const memberCount = useWorkspace((s) => s.members.filter((m) => m.status === "active").length);
 	const seats = useSeats();
+	const full = seats?.full === true;
 	const can = useCan();
 	const [inviting, setInviting] = useState(false);
 	const [leaving, setLeaving] = useState<Workspace | null>(null);
@@ -231,19 +232,22 @@ export function StoreSelector({
 					<div className="p-1.5 pt-0">
 						<DropdownMenuItem
 							disabled={!can("team", 2)}
-							onClick={() => (seats.full ? void navigate({ to: "/settings/billing" as never, hash: "plekken" }) : setInviting(true))}
+							onClick={() => (full ? void navigate({ to: "/settings/billing" as never, hash: "plekken" }) : setInviting(true))}
 							className="h-auto gap-2.5 rounded-lg bg-abyss p-2.5 text-mesh-ink data-[highlighted]:bg-abyss-2 data-[highlighted]:text-mesh-ink"
 						>
 							<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-mesh-ink/12">
-								{seats.full ? <Plus className="size-3.5 text-mesh-ink" strokeWidth={1.75} /> : <UserPlus className="size-3.5 text-mesh-ink" strokeWidth={1.75} />}
+								{full ? <Plus className="size-3.5 text-mesh-ink" strokeWidth={1.75} /> : <UserPlus className="size-3.5 text-mesh-ink" strokeWidth={1.75} />}
 							</span>
 							<span className="flex flex-col">
-								<span className="font-medium text-sm">{seats.full ? "Plek bijkopen" : "Collega uitnodigen"}</span>
-								<span className="text-sm text-mesh-ink-2">
-									{seats.full
-										? `Alle ${seats.total} plekken zijn bezet. Een extra plek en je kunt weer uitnodigen.`
-										: `${seats.free} van ${seats.total} plekken vrij. Ze werken in dezelfde wachtrij.`}
-								</span>
+								<span className="font-medium text-sm">{full ? "Plek bijkopen" : "Collega uitnodigen"}</span>
+								{/* A host with no count to show (a role that may not see the team) says nothing about the seats. */}
+								{seats ? (
+									<span className="text-sm text-mesh-ink-2">
+										{seats.full
+											? `Alle ${seats.total} plekken zijn bezet. Een extra plek en je kunt weer uitnodigen.`
+											: `${seats.free} van ${seats.total} plekken vrij. Ze werken in dezelfde wachtrij.`}
+									</span>
+								) : null}
 							</span>
 						</DropdownMenuItem>
 					</div>

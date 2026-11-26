@@ -15,6 +15,7 @@ import {
   useCustomerNewTicket
 } from "../customers/customer-detail-source.ts"
 import { customerAtom, customersAtom } from "../data/customers.ts"
+import { recordNotFound } from "../frame/not-found.tsx"
 import { useGate } from "../frame/refusals.ts"
 import { useConsoleCustomerReturns } from "../returns/returns-source.tsx"
 
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/_frame/customers/$customerId")({
     }
   },
   pendingComponent: Pending,
+  notFoundComponent: recordNotFound("Deze klant bestaat niet"),
   component: CustomerRoute
 })
 

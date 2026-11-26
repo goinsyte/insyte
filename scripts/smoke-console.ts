@@ -4,9 +4,9 @@
  *
  *   bun run console:smoke   (after `bun run --filter @insyte/console build`, with the database up and migrated)
  *
- * Asserts the server render: `/status` comes back with the database's answer already in the HTML, `/` redirects
- * before any HTML, a signed-out app route goes to sign-in with a safe way back, every page carries the security
- * headers, and `/api/*` reaches the API by service binding.
+ * Asserts the server render: `/status` comes back with the database's answer already in the HTML, `/` signed out
+ * redirects to sign-in before any HTML, a signed-out app route goes to sign-in with a safe way back, every page carries
+ * the security headers, and `/api/*` reaches the API by service binding.
  */
 import { spawn } from "node:child_process"
 import { setTimeout as sleep } from "node:timers/promises"
@@ -36,9 +36,10 @@ while (!ready && Date.now() < deadline) {
 }
 if (!ready) fail("vite preview did not answer within 60 s")
 
+// The front door, signed out: sign-in, as the gate sends anyone without a session.
 const front = await fetch(base, { redirect: "manual" })
-if (front.status !== 302 || !front.headers.get("location")?.endsWith("/status")) {
-  fail(`GET /: expected a 302 to /status, got ${front.status} ${front.headers.get("location")}`)
+if (front.status !== 302 || front.headers.get("location") !== "/login") {
+  fail(`GET /: expected a 302 to /login, got ${front.status} ${front.headers.get("location")}`)
 }
 
 const gated = await fetch(`${base}/orders?view=open`, { redirect: "manual" })

@@ -19,9 +19,9 @@ import { useConnectMailbox, useConsoleInboxSource } from "../inbox/inbox-source.
  * Inbox (step 13.2b, M11 step 2): the reference's index and letter over `Threads.*`, in the frame. `?folder=` and
  * `?mailbox=`, `?channel=` and `?view=` (the customer agent's Overgedragen and Door Insyte afgehandeld) are the area
  * panel's cuts, `?thread=` the open thread (the first of the list where it names none), and
- * `?connect=mailbox` opens "Mailbox koppelen" (the panel's "Kanaal koppelen"). The loader reads the threads and the
- * mailboxes on the server, and the open thread's messages too; until they are in, the reference's split skeleton
- * stands in. A role that may not see the inbox is told which permission it misses.
+ * `?connect=mailbox` opens "Mailbox koppelen" (from Integraties, for a mailbox not yet connected). The loader reads the
+ * threads and the mailboxes on the server, and the open thread's messages too; until they are in, the reference's split
+ * skeleton stands in. A role that may not see the inbox is told which permission it misses.
  */
 
 type ConsoleInboxSearch = InboxSearch & { connect?: "mailbox" | undefined }

@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { GOTO_DEFAULTS } from "../lib/settings-depth";
+import { useShellDialog } from "./shell-dialogs";
 import { useHasPage, useSettingsDepth } from "./state";
 
 /** Whether a key press belongs to whatever the person is typing in. */
@@ -9,6 +10,7 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isConte
 /**
  * G, then a key: go to an area (PLAN 43). The keys are the ones set under Instellingen →
  * Sneltoetsen. Never while typing, never with a modifier, and the G waits a second for its partner.
+ * `?` opens the list of every shortcut, whether or not the G keys are on.
  */
 export function useGoToKeys(enabled: boolean) {
 	const navigate = useNavigate();
@@ -24,7 +26,13 @@ export function useGoToKeys(enabled: boolean) {
 		let armed = 0;
 		const onKey = (e: KeyboardEvent) => {
 			const { gotoOn, keys } = depth.current;
-			if (!gotoOn || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+			if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+			if (e.key === "?") {
+				e.preventDefault();
+				useShellDialog.getState().show({ kind: "shortcuts" });
+				return;
+			}
+			if (!gotoOn) return;
 			const k = e.key.length === 1 ? e.key.toUpperCase() : "";
 			if (!k) return;
 			if (armed && Date.now() - armed < 1000) {
